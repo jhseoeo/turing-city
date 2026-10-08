@@ -1,0 +1,35 @@
+# Dependencies and build output
+node_modules/
+dist/
+out/
+release/
+coverage/
+.vite/
+*.tsbuildinfo
+
+# Logs
+*.log
+
+# Local environment (the repository is public: no secrets in git)
+.env
+.env.*
+!.env.example
+
+# macOS
+.DS_Store
+
+# Claude Code per-user settings
+.claude/settings.local.json
+
+# Claude Code agent memory (local to this machine)
+.claude/agent-memory/
+.claude/agent-memory-local/
+
+# Claude Code worktrees (CLAUDE.md, Git)
+.claude/worktrees/
+
+# Subagent-driven development's working files (briefs, reports, review diffs)
+.superpowers/sdd/
+
+# QA's throwaway firmware and scenarios
+scratch/
