@@ -1,6 +1,6 @@
 # turing-city (working title)
 
-An automation and town-management game. The player builds small boards into the town's facilities, the player's own AI agent (Claude Code or any other) writes their Lua firmware through the game's local MCP server, and the electromagnetic noise the working machines leak draws Luddites who smash them. Planned stack: TypeScript, Phaser, Electron. Solo side project, developed on a Mac; the repository started 2026-10-09. No code yet: the first milestone is the prototype in `docs/design.md` (첫 프로토타입), which checks whether the loop of an agent writing and fixing firmware is fun.
+An automation and town-management game. The player builds small boards into the town's facilities, the player's own AI agent (Claude Code or any other) writes their Lua firmware through the game's local MCP server, and the electromagnetic noise the working machines leak draws Luddites who smash them. Planned stack: TypeScript, Phaser, and Electron for a desktop game; a web build is parked (see "Design"). Solo side project, developed on a Mac; the repository started 2026-10-09. No code yet: the first milestone is the prototype in `docs/design.md` (첫 프로토타입), which checks whether the loop of an agent writing and fixing firmware is fun.
 
 Read `docs/design.md` first. It's the game design document, in Korean: the vision, the systems, the decision log (결정 기록), and a hand-off section for implementation (구현 핸드오프).
 
@@ -17,10 +17,10 @@ Read `docs/design.md` first. It's the game design document, in Korean: the visio
 
 - `docs/design.md` is the source of truth for the game's design (the user, 2026-10-09). It was exported from the user's draft of 2026-10-07 and is edited here from now on. When the user decides something that changes it, update it in the same change (in Korean) and add a row to its decision log (결정 기록): the choice, and the rejected alternatives with why. Items marked 초안 (draft) are proposals that implementation may change; once a spec settles one, the spec is the reference and the design doc points to it.
 - Specs and plans go in `docs/superpowers/specs/` and `docs/superpowers/plans/`, in English.
+- Platform (the user, 2026-10-09): a desktop game, Electron with the local MCP server. A web build is parked, with its door kept open (see "Code and checks"). A web demo of the copy-paste stage needs no WebMCP and can come any time. A full web build waits until a browser ships WebMCP: in October 2026 only Chrome and Edge ran origin trials, and Claude Code reached a page's tools only through a browser-automation bridge, which also handed the agent the whole page. The decision log in `docs/design.md` has the reasons.
 
 ### Open questions
 
-- Platform: desktop only (Electron, the design's premise), or also a web build that reaches the player's agent through WebMCP. Under research (the user, 2026-10-09).
 - The design doc's 미결 사항 (open items). Two of them are technical risks to settle early with throwaway code:
   - Counting Lua instructions in wasmoon. A count hook set with `debug.sethook` doesn't follow into coroutines on its own, and its granularity trades precision for speed.
   - Determinism. Lua 5.4 seeds string hashing and `math.random` from the clock, so `pairs` order and random numbers can differ between runs unless the sandbox pins them.
@@ -51,9 +51,12 @@ Finishing a branch (in place of superpowers' finishing-a-development-branch, aft
 4. Ask the user before merging, with what changed, the verification, the review and QA results, and QA's fun findings. Fun findings never block a merge; the user decides what to do with them.
 5. Merge (after `git rebase main` if main has moved): `git merge-base --is-ancestor main <branch> && git fetch -q . <branch>:main && git checkout -q main`; verify again on main; then `git branch -d <branch>`; then `git push origin main`, and `git push origin --delete <branch>` if the branch was pushed.
 
+A docs-only change that records what the user just decided skips steps 3 and 4: the user's call is the approval.
+
 ## Code and checks
 
 - The design's implementation principles (구현 원칙) hold. The simulation core is pure logic, fully separate from rendering, so ticks run without a screen. It computes with integers, so the same inputs always give the same results, which replays and scoring rely on.
+- The simulation core and the agent tool definitions use no Node or Electron API, so a web build can run them unchanged (the user, 2026-10-09). Node and Electron stay in the desktop shell and the MCP transport.
 - A new test or check must fail without the change it covers: show that (rerun with the change switched off) or say why it would.
 - Measure before optimizing. Pooling, caching, workers, and the like wait for a measurement that asks for them, and each such change shows its gain with before-and-after numbers from the same scenario.
 - A refactor changes no behavior: the checks pass before and after, with no check weakened. It leaves the code simpler, not more general, and goes on a branch of its own between features, never inside a feature branch.
