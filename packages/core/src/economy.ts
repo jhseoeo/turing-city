@@ -1,15 +1,16 @@
 import { clearFlag, raiseAlert, raiseOnce } from './alerts.ts';
 import { appendLog } from './boards.ts';
 import { MICRO, mulDiv } from './fixed.ts';
-import { plantBoard } from './power.ts';
 import { seasonSteps, stepsForSeconds, stepsPerDay } from './time.ts';
 import type { BoardState, EndKind, SimContext } from './world.ts';
 
-/** Phase 10a: fuel for the thermal output and upkeep for every running or sleeping board. */
+/** Phase 10a: fuel for the thermal output the power phase made this step, and upkeep for every running or sleeping board. */
 export function runEconomy(ctx: SimContext): void {
   const w = ctx.world;
   const spd = stepsPerDay(ctx.scenario.time);
-  const thermal = plantBoard(w).status === 'running' ? w.plant.thermalSetting : 0;
+  // Generation is the wind plus the thermal output, and phase 3 left both. The plant's firmware (phase 5) or a smash (phase 8)
+  // may have changed the setting or the board since, but the module ran as phase 3 found it.
+  const thermal = w.plant.generation - w.plant.wind;
   const fuel = mulDiv(thermal * w.plant.fuelPrice, MICRO, spd);
   const intact = w.boards.filter((b) => b.status === 'running' || b.status === 'asleep').length;
   const upkeep = mulDiv(intact * ctx.scenario.tuning.boardUpkeepPerDay, MICRO, spd);

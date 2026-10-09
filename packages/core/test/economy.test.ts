@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { destroyBoard } from '../src/boards.ts';
+import type { Action } from '../src/firmware-host.ts';
 import { MICRO } from '../src/fixed.ts';
 import { stateHash } from '../src/hash.ts';
 import { replay, Session } from '../src/session.ts';
+import { cellIndex } from '../src/world.ts';
 import { FakeHost } from './helpers/fake-host.ts';
 import { m1Scenario } from './helpers/scenarios.ts';
 
@@ -26,6 +28,19 @@ function steps(s: Session, n: number): void {
   for (let i = 0; i < n; i++) s.step();
 }
 
+/** What a thermal setting of 100 costs a step at a fuel price of 7: 100 * 7 over a day's 800 steps, in micro-units. */
+const FUEL_PER_STEP = 875_000;
+
+/** A calm session whose plant firmware does `action` at its first beat (step 0), after the thermal setting stood at `setting`. */
+function plantDoing(action: Action, setting: number): Session {
+  const host = new FakeHost();
+  host.program('plant', () => ({ actions: [action] }));
+  const s = calm(host);
+  s.world.plant.thermalSetting = setting;
+  s.deploy('P', 'plant');
+  return s;
+}
+
 describe('economy', () => {
   it('charges 10 a day of upkeep for each intact board', () => {
     const s = calm();
@@ -47,6 +62,68 @@ describe('economy', () => {
     s.world.boards[0]!.status = 'destroyed';
     steps(s, DAY);
     expect(s.world.ledger.fuel).toBe(0);
+  });
+
+  it("burns no fuel while the plant's board sleeps or is being rebuilt", () => {
+    for (const status of ['asleep', 'rebuilding'] as const) {
+      const s = calm();
+      s.world.plant.thermalSetting = 100;
+      s.world.boards[0]!.status = status;
+      steps(s, 40);
+      expect(s.world.ledger.fuel, status).toBe(0);
+    }
+  });
+
+  // The thermal module is paid for what the power phase (phase 3) made, which is not always what the plant is by the end of the
+  // step: its firmware acts in phase 5 and Luddites smash in phase 8. Each case is the step of such a change.
+  it("charges nothing for the step in which the plant's firmware raises the thermal setting: the power phase ran before it", () => {
+    const s = plantDoing({ kind: 'setThermal', output: 100 }, 0);
+    s.step();
+    expect(s.world.plant.thermalSetting).toBe(100);
+    expect(s.world.ledger.fuel).toBe(0);
+    s.step();
+    expect(s.world.ledger.fuel).toBe(FUEL_PER_STEP);
+  });
+
+  it("still charges the step in which the plant's firmware lowers the thermal setting: the power phase made the output", () => {
+    const s = plantDoing({ kind: 'setThermal', output: 0 }, 100);
+    s.step();
+    expect(s.world.plant.thermalSetting).toBe(0);
+    expect(s.world.ledger.fuel).toBe(FUEL_PER_STEP);
+    steps(s, 5);
+    expect(s.world.ledger.fuel).toBe(FUEL_PER_STEP);
+  });
+
+  it("still charges the step in which the plant's firmware puts its board to sleep", () => {
+    const s = plantDoing({ kind: 'sleep', seconds: 1 }, 100);
+    s.step();
+    expect(s.world.boards[0]!.status).toBe('asleep');
+    expect(s.world.ledger.fuel).toBe(FUEL_PER_STEP);
+    steps(s, 5);
+    expect(s.world.ledger.fuel).toBe(FUEL_PER_STEP);
+  });
+
+  it("still charges the step in which Luddites smash the plant's board", () => {
+    const s = calm();
+    const plant = s.world.boards[0]!;
+    s.world.plant.thermalSetting = 100;
+    // A group stands next to the plant, whose cell is the loudest, and step 0 is a Luddite beat.
+    s.world.luddites.push({
+      id: s.world.nextLudditeId++,
+      x: plant.x - 1,
+      y: plant.y,
+      size: 3,
+      targetId: null,
+      quietSince: null,
+      leaving: false,
+      warned: [],
+    });
+    s.world.emf[cellIndex(s.scenario, plant.x, plant.y)] = 100_000;
+    s.step();
+    expect(plant.status).toBe('destroyed');
+    expect(s.world.ledger.fuel).toBe(FUEL_PER_STEP);
+    steps(s, 5);
+    expect(s.world.ledger.fuel).toBe(FUEL_PER_STEP);
   });
 
   it('rebuilds a destroyed board for 500 over half a day, with its firmware and empty mem', () => {
