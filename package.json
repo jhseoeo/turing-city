@@ -12,7 +12,10 @@
     "fix": "biome check --write .",
     "test": "vitest run",
     "check": "pnpm typecheck && pnpm lint && pnpm test",
-    "sim": "node --disable-warning=ExperimentalWarning packages/server/src/sim-cli.ts"
+    "sim": "node --disable-warning=ExperimentalWarning packages/server/src/sim-cli.ts",
+    "start": "pnpm --filter @turing-city/viewer build && node --disable-warning=ExperimentalWarning packages/server/src/main.ts",
+    "start:dev": "pnpm --filter @turing-city/viewer build && node --disable-warning=ExperimentalWarning packages/server/src/main.ts --dev",
+    "viewer": "pnpm --filter @turing-city/viewer dev"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",

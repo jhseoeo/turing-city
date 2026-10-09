@@ -54,4 +54,25 @@ export type ControllerEvent =
   | { readonly kind: 'alerts'; readonly alerts: readonly AlertView[] }
   | { readonly kind: 'deploy'; readonly board: string; readonly version: number; readonly time: TimeView };
 
+/** Server to viewer, over the WebSocket. */
+export type ServerToViewer =
+  | { readonly type: 'hello'; readonly connect: string; readonly port: number }
+  | { readonly type: 'status'; readonly status: ControllerStatus }
+  | { readonly type: 'snapshot'; readonly snapshot: Snapshot }
+  | { readonly type: 'alerts'; readonly alerts: readonly AlertView[] }
+  | { readonly type: 'deploy'; readonly board: string; readonly version: number; readonly time: TimeView }
+  | { readonly type: 'inspection'; readonly board: string; readonly inspection: BoardInspection | null }
+  | { readonly type: 'error'; readonly message: string };
+
+/** Viewer to server: the player's commands. */
+export type ViewerToServer =
+  | { readonly type: 'startSeason' }
+  | { readonly type: 'play' }
+  | { readonly type: 'pause' }
+  | { readonly type: 'speed'; readonly speed: 1 | 2 | 3 }
+  | { readonly type: 'rebuild'; readonly board: string }
+  | { readonly type: 'autoPause'; readonly kinds: readonly AlertKind[] }
+  | { readonly type: 'reissueToken' }
+  | { readonly type: 'inspect'; readonly board: string };
+
 export type { BoardInspection, DeployOutcome };
