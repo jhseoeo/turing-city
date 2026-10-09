@@ -92,6 +92,11 @@ describe('EMF', () => {
     expect(tickEmission(s.ctx, outcome)).toBe(5_000 + 20_000);
   });
 
+  it('counts no emission for log lines: io.log is not an action', () => {
+    const s = powered();
+    expect(tickEmission(s.ctx, { ...outcomeOf(500), logs: ['a', 'b', 'c', 'd'] })).toBe(5_000);
+  });
+
   it('shares 0.5% per step with each neighbour and decays 0.5% per step', () => {
     const field = new Array<number>(25).fill(0);
     field[12] = 1_000_000; // the middle of 5 x 5

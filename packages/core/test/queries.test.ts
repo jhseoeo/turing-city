@@ -74,6 +74,26 @@ describe('views', () => {
     expect(missing).toEqual([]);
   });
 
+  it('says that io.log is not an action, and what an aborted tick drops and what it keeps', () => {
+    const { s } = session();
+    const sheet = datasheet(s.ctx, 'DA')!;
+    const log = sheet.io.actions.find((a) => a.call === 'io.log(...)')!.meaning; // io.log stays in the list of calls
+    const rules = sheet.rules.join('\n');
+    const points: Array<[string, string, string]> = [
+      ['io.log is not an action', log, 'It is not an action'],
+      ['it adds no action EMF', log, 'adds no action EMF'],
+      ['its lines are kept when the tick fails', log, 'kept when the tick fails'],
+      ['the EMF per action leaves io.log out', rules, "(io.log isn't one)"],
+      [
+        'an aborted tick drops its actions but keeps its log lines and its writes to mem',
+        rules,
+        'its log lines and the writes it made to mem stay',
+      ],
+    ];
+    const missing = points.filter(([, text, phrase]) => !text.includes(phrase)).map(([point]) => point);
+    expect(missing).toEqual([]);
+  });
+
   it('reads logs with game time, and filters by time', () => {
     const { s } = session();
     s.deploy('DA', 'hello');

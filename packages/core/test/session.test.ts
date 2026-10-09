@@ -66,6 +66,19 @@ describe('Session', () => {
     expect(s.world.alerts.filter((a) => a.kind === 'firmwareError')).toHaveLength(1);
   });
 
+  it('keeps the log lines of a tick that failed, ahead of its error line', () => {
+    const host = new FakeHost();
+    const src = host.program('boom', () => ({ logs: ['before'], error: { kind: 'runtime', message: 'firmware:1: boom' } }));
+    const s = new Session(m1Scenario(), SEED, host);
+    s.deploy('DA', src);
+    run(s, 4); // DA's first beat is step 3
+    expect(s.world.boards[1]!.log.map((l) => [l.kind, l.text])).toEqual([
+      ['system', 'firmware v1 installed'],
+      ['log', 'before'],
+      ['error', 'runtime: firmware:1: boom'],
+    ]);
+  });
+
   it('alerts again when a repaired board breaks a second time', () => {
     const host = new FakeHost();
     let beats = 0;
