@@ -42,6 +42,9 @@ type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => vo
 /**
  * The main thread's side of a season: the clock, the worker, the watchdog, and the rules
  * of play (an agent must be connected to start or play).
+ *
+ * A call that needs a season rejects with a ToolError while there is none (before the first, while one starts, after the
+ * session failed), and so does a request the worker refuses, such as a deploy to a board that does not exist.
  */
 export class GameController {
   private readonly scenario: Scenario;

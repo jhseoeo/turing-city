@@ -42,7 +42,7 @@ export interface ControllerStatus {
   readonly agent: AgentStatus;
   /** Play is refused because no agent is connected. */
   readonly blockedByAgent: boolean;
-  /** Why the watchdog stopped the session, when it did. */
+  /** Why the session stopped (the watchdog, or the worker failing), when it did. */
   readonly crash: string | null;
   readonly autoPause: readonly AlertKind[];
   readonly scenarioName: string;
