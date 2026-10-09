@@ -1,7 +1,7 @@
 import { applyActions } from './actions.ts';
-import { raiseAlert } from './alerts.ts';
 import { deployFirmware, runTransitions } from './boards.ts';
 import { runDatacenters, runFires } from './datacenter.ts';
+import { checkEnd, runEconomy, startRebuild } from './economy.ts';
 import { runEmf } from './emf.ts';
 import type { FirmwareHost } from './firmware-host.ts';
 import { runLuddites, runRumour } from './luddites.ts';
@@ -10,7 +10,6 @@ import { createRng, deriveSeed } from './rng.ts';
 import type { Scenario } from './scenario.ts';
 import { runSeries } from './series.ts';
 import { runBoardTicks } from './ticks.ts';
-import { seasonSteps } from './time.ts';
 import { type Alert, createWorld, findBoard, type SimContext, type Streams, type WorldState } from './world.ts';
 
 export type RecordedInput =
@@ -69,7 +68,8 @@ export class Session {
     runRumour(this.ctx, s);
     runLuddites(this.ctx, s);
     runFires(this.ctx, s);
-    this.checkSeasonEnd(s);
+    runEconomy(this.ctx);
+    checkEnd(this.ctx, s);
     w.step = s + 1;
     return { step: w.step, alerts: w.alerts.filter((a) => a.id >= firstAlert), ended: w.ended };
   }
@@ -83,6 +83,15 @@ export class Session {
     return { version };
   }
 
+  /** The human's rebuild of a destroyed board. */
+  rebuild(boardId: string): { ok: true } | { ok: false; reason: string } {
+    const board = findBoard(this.world, boardId);
+    if (!board) return { ok: false, reason: `unknown board ${boardId}` };
+    const result = startRebuild(this.ctx, board, this.world.step);
+    if (result.ok) this.record.inputs.push({ step: this.world.step, kind: 'rebuild', boardId });
+    return result;
+  }
+
   /** Records a pause or a resume; the world doesn't change. */
   mark(kind: 'pause' | 'resume'): void {
     this.record.inputs.push({ step: this.world.step, kind });
@@ -90,12 +99,6 @@ export class Session {
 
   close(): void {
     this.ctx.host.close();
-  }
-
-  private checkSeasonEnd(s: number): void {
-    if (this.world.ended || s + 1 < seasonSteps(this.scenario.time)) return;
-    this.world.ended = { kind: 'completed', step: s };
-    raiseAlert(this.world, s, 'seasonEnd', null, '시즌이 끝났어요');
   }
 }
 
@@ -107,7 +110,8 @@ export function replay(scenario: Scenario, seed: number, record: SessionRecord, 
     while (next < record.inputs.length && record.inputs[next]!.step === session.world.step) {
       const input = record.inputs[next]!;
       if (input.kind === 'deploy') session.deploy(input.boardId, input.source);
-      else if (input.kind === 'pause' || input.kind === 'resume') session.mark(input.kind);
+      else if (input.kind === 'rebuild') session.rebuild(input.boardId);
+      else session.mark(input.kind);
       next += 1;
     }
     session.step();
