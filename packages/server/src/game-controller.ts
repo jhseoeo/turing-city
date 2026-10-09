@@ -243,7 +243,8 @@ export class GameController {
 
   private advance(steps: number): Promise<readonly AlertView[]> {
     // One waiter and one watchdog serve one batch: a second batch would orphan the first one's answer and its timer.
-    if (this.advanceWaiter) return Promise.reject(new Error('a batch of steps is already running'));
+    // A batch that is out ends on its own, so the caller can retry; the message says so because dev_run_until hands it to an agent.
+    if (this.advanceWaiter) return Promise.reject(new Error('a batch of steps is already running; try again in a moment'));
     return new Promise((resolve, reject) => {
       this.advanceWaiter = { resolve, reject };
       this.watchdog = setTimeout(() => this.onWatchdog(), this.watchdogMs);

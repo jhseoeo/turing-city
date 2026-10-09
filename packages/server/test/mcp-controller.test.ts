@@ -115,6 +115,17 @@ describe('MCP endpoint over the real controller', () => {
     expect(textOf(result)).toBe(message);
   });
 
+  it('tells the agent to try again when a batch of steps is already running', async () => {
+    const r = await start();
+    const held = holdBack(r.controller, 'advance'); // a batch goes out and does not come back
+    const running = r.controller.runUntil({ seconds: 600 });
+    running.catch(() => undefined); // closing the controller at the end of the test cuts the run short
+    await until(() => held.count === 1);
+    const result = await r.client.callTool({ name: 'dev_run_until', arguments: { seconds: 1 } });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toMatch(/already running.*try again/);
+  });
+
   it('tells the agent what a call needs when there is no season to play', async () => {
     const r = await start(false);
     const status = await r.client.callTool({ name: 'get_status', arguments: {} });
