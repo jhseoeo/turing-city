@@ -123,8 +123,12 @@ describe('hostile firmware', () => {
   });
 
   it('does not run firmware metamethods outside a tick', async () => {
-    // A trap on io's writes: the host writes sensors with rawset, so it never fires.
-    const reports = await runTicks(['function tick(io) setmetatable(io, { __newindex = function() while true do end end }) end', null]);
+    // The firmware clears a sensor key and traps writes to io. When the host writes the next frame the key is absent, so the
+    // trap would run there, outside the instruction count, unless the host writes with rawset.
+    const reports = await runTicks([
+      'function tick(io) io.temp = nil setmetatable(io, { __newindex = function() while true do end end }) end',
+      null,
+    ]);
     expect(reports).not.toBe('hung');
     if (reports === 'hung') return;
     expect(reports[1]?.kind).toBeNull();
