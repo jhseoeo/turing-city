@@ -3,6 +3,15 @@ import { LuaFactory, type LuaWasm } from 'wasmoon';
 /** What Lua's clock reads in every session: 2023-11-14T22:13:20Z. */
 export const PINNED_CLOCK_MS = 1_700_000_000_000;
 
+/**
+ * The two environment strings emscripten takes from the launching process, fixed. It copies its
+ * environment into the wasm heap, among it `_=<process.argv[1]>` and a `LANG` taken from
+ * `navigator.languages`, so the length of the entry script's path or of the locale tag shifts the
+ * heap, the string-hash seed, and with it `pairs` order. These are the glue's own defaults for a
+ * host with neither.
+ */
+const PINNED_ENV = { _: './this.program', LANG: 'C.UTF-8' };
+
 type Instantiate = typeof WebAssembly.instantiate;
 
 function pinClock(imports: WebAssembly.Imports | undefined): void {
@@ -11,9 +20,10 @@ function pinClock(imports: WebAssembly.Imports | undefined): void {
 }
 
 /**
- * A fresh Lua WebAssembly instance whose clock is pinned. Lua 5.4 seeds its string
- * hashing (and with it `pairs` order) from time(NULL); in this build every clock read
- * goes through the `env.emscripten_date_now` import, which this replaces.
+ * A fresh Lua WebAssembly instance whose clock and environment are pinned. Lua 5.4 seeds its
+ * string hashing (and with it `pairs` order) from time(NULL); in this build every clock read
+ * goes through the `env.emscripten_date_now` import, which this replaces. `PINNED_ENV` keeps
+ * the launching process out of the heap.
  */
 export async function createLuaRuntime(): Promise<LuaWasm> {
   const original: Instantiate = WebAssembly.instantiate;
@@ -23,7 +33,7 @@ export async function createLuaRuntime(): Promise<LuaWasm> {
   } as unknown as Instantiate;
   WebAssembly.instantiate = patched;
   try {
-    return await new LuaFactory().getLuaModule();
+    return await new LuaFactory(undefined, PINNED_ENV).getLuaModule();
   } finally {
     WebAssembly.instantiate = original;
   }
