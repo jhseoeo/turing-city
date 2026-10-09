@@ -10,6 +10,10 @@ describe('SyntaxChecker', () => {
     const checker = await SyntaxChecker.create();
     expect(checker.check('function tick(io)\n  if then\nend')).toMatch(/^firmware:2: /);
   });
+  it('does not run the top-level code it compiles', async () => {
+    const checker = await SyntaxChecker.create();
+    expect(checker.check('error("ran")')).toBeNull();
+  });
   it('rejects precompiled bytecode', async () => {
     const checker = await SyntaxChecker.create();
     expect(checker.check('\x1bLua')).toMatch(/binary chunk/);
