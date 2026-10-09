@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { parseScenario } from '@turing-city/core';
+import { parseScenario, ToolError } from '@turing-city/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { GameController, gameApi } from '../src/game-controller.ts';
 
@@ -156,5 +156,21 @@ describe('gameApi', () => {
     await c.runUntil({});
     expect(c.status().state).toBe('ended');
     expect(await gameApi(c).status()).toMatchObject({ ended: { kind: 'completed' }, run: { paused: true, speed: 1 } });
+  });
+
+  it('refuses a deploy to a board that does not exist with a tool error naming it, and the season goes on', async () => {
+    const c = make();
+    c.setAgent(AGENT);
+    await c.startSeason(1);
+    const api = gameApi(c);
+    const refusal = await api.deploy('XX', 'function tick() end').catch((error: unknown) => error);
+    expect(refusal).toBeInstanceOf(ToolError);
+    expect((refusal as ToolError).message).toContain('XX');
+    expect(c.status()).toMatchObject({ state: 'paused', crash: null });
+    // The worker is still there: it answers, takes a deploy for a real board (the refused one used no version), and steps.
+    expect((await api.listBoards()).map((b) => b.id)).toEqual(['P', 'DA', 'DB']);
+    await expect(api.deploy('DA', 'function tick() end')).resolves.toMatchObject({ ok: true, version: 1 });
+    await c.runUntil({ seconds: 1 });
+    expect(c.latestSnapshot()?.step).toBe(20);
   });
 });

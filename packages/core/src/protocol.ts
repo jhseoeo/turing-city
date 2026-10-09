@@ -25,6 +25,8 @@ export type WorkerResponse =
   | { readonly type: 'started'; readonly snapshot: Snapshot }
   | { readonly type: 'advanced'; readonly snapshot: Snapshot; readonly alerts: readonly AlertView[] }
   | { readonly type: 'reply'; readonly id: number; readonly value: unknown }
+  /** The request with this id threw (a deploy to an unknown board, say). Only that request fails; the season goes on. */
+  | { readonly type: 'refused'; readonly id: number; readonly message: string }
   | { readonly type: 'fatal'; readonly message: string };
 
 export type GameState = 'idle' | 'paused' | 'running' | 'ended' | 'crashed';

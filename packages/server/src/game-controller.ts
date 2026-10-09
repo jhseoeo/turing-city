@@ -276,6 +276,12 @@ export class GameController {
         p?.resolve(m.value);
         return;
       }
+      case 'refused': {
+        const p = this.pending.get(m.id);
+        this.pending.delete(m.id);
+        p?.reject(new ToolError(m.message));
+        return;
+      }
       case 'fatal':
         this.fail(`the simulator failed: ${m.message}`);
         return;

@@ -63,6 +63,19 @@ function send(message: WorkerResponse): void {
   port.postMessage(message);
 }
 
+/**
+ * Answers a request that carries an id. A handler that throws fails that one request and leaves the season running:
+ * Session.deploy throws for an unknown board before it changes anything, and a plain Error that escaped to `handle`
+ * would stop the whole season as 'fatal'.
+ */
+function reply(id: number, compute: () => unknown): void {
+  try {
+    send({ type: 'reply', id, value: compute() });
+  } catch (error) {
+    send({ type: 'refused', id, message: error instanceof Error ? error.message : String(error) });
+  }
+}
+
 function answer(s: Session, query: Query): unknown {
   const ctx = s.ctx;
   switch (query.kind) {
@@ -110,16 +123,16 @@ async function handle(message: WorkerRequest): Promise<void> {
       return;
     }
     case 'deploy':
-      send({ type: 'reply', id: message.id, value: s.deploy(message.board, message.code) });
+      reply(message.id, () => s.deploy(message.board, message.code));
       return;
     case 'rebuild':
-      send({ type: 'reply', id: message.id, value: s.rebuild(message.board) });
+      reply(message.id, () => s.rebuild(message.board));
       return;
     case 'mark':
       s.mark(message.kind);
       return;
     case 'query':
-      send({ type: 'reply', id: message.id, value: answer(s, message.query) });
+      reply(message.id, () => answer(s, message.query));
       return;
   }
 }
