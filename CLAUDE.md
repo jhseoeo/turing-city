@@ -11,19 +11,20 @@ Read `docs/design.md` first. It's the game design document, in Korean: the visio
 - Prefer the implementation that is simplest right now and refactor later.
 - In design talks, ask one decision at a time with the recommendation first, and propose the smallest version. Give each option a concrete picture of what changes: what the player and their agent do or see under it, what gets built, and what it costs. Abstract labels with one-line trade-offs don't let the user judge (the user, 2026-10-09). Secondary numbers (coefficients, prices, rates, tick counts, default values) become tuning values rather than questions. A topic the user calls "not now" gets parked under "Design" and isn't proposed again until they raise it. Let the user lead the framing.
 - Prototype content (facilities, parts, events, and their numbers) is a placeholder for trying systems. What matters is whether a mechanic exists and works, not how a placeholder carries it or how it's balanced. Note such observations as tuning values; don't ask the user about them.
-- Attach rules to capabilities, not to concrete facilities: a behavior belongs to "a board with a comm module" or "a facility that stores food", not to "the datacenter" or "the granary", so new content combines freely.
+- Attach rules to capabilities, not to concrete facilities: a behavior belongs to "a board with a comm module" or "a facility that stores food", not to "the datacenter" or "the warehouse", so new content combines freely.
+- Talk about game time in seconds, hours, and days, never in ticks: the world advances in steps, and a tick is only a board's beat (the user, 2026-10-09: tick counts made the game sound turn-based).
 
 ## Design
 
 - `docs/design.md` is the source of truth for the game's design (the user, 2026-10-09). It was exported from the user's draft of 2026-10-07 and is edited here from now on. When the user decides something that changes it, update it in the same change (in Korean) and add a row to its decision log (결정 기록): the choice, and the rejected alternatives with why. Items marked 초안 (draft) are proposals that implementation may change; once a spec settles one, the spec is the reference and the design doc points to it.
 - Specs and plans go in `docs/superpowers/specs/` and `docs/superpowers/plans/`, in English.
 - Platform (the user, 2026-10-09): a desktop game, Electron with the local MCP server. A web build is parked, with its door kept open (see "Code and checks"). A web demo of the copy-paste stage needs no WebMCP and can come any time. A full web build waits until a browser ships WebMCP: in October 2026 only Chrome and Edge ran origin trials, and Claude Code reached a page's tools only through a browser-automation bridge, which also handed the agent the whole page. The decision log in `docs/design.md` has the reasons.
+- The prototype: `docs/superpowers/specs/2026-10-09-prototype-design.md`, agreed with the user section by section on 2026-10-09. On the prototype, it's the reference where it and the design doc differ.
 
 ### Open questions
 
-- The design doc's 미결 사항 (open items). Two of them are technical risks to settle early with throwaway code:
-  - Counting Lua instructions in wasmoon. A count hook set with `debug.sethook` doesn't follow into coroutines on its own, and its granularity trades precision for speed.
-  - Determinism. Lua 5.4 seeds string hashing and `math.random` from the clock, so `pairs` order and random numbers can differ between runs unless the sandbox pins them.
+- The design doc's 미결 사항 (open items), including whether a destroyed board should be rebuilt at once or after a delay.
+- From the prototype spec (§13): Lua determinism on x64 and in browsers, and whether Claude Code answers server-sent MCP pings. The Lua spike of 2026-10-09 settled instruction counting and determinism on one machine (spec §4.4 and §6.4 to §6.6).
 
 ## Agents
 

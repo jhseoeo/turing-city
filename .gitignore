@@ -28,8 +28,8 @@ coverage/
 # Claude Code worktrees (CLAUDE.md, Git)
 .claude/worktrees/
 
-# Subagent-driven development's working files (briefs, reports, review diffs)
-.superpowers/sdd/
+# Superpowers' working files: SDD briefs, reports, and review diffs; brainstorming mockups
+.superpowers/
 
 # QA's throwaway firmware and scenarios
 scratch/
