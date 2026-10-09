@@ -61,7 +61,12 @@ A docs-only change that records what the user just decided skips steps 3 and 4: 
 - A new test or check must fail without the change it covers: show that (rerun with the change switched off) or say why it would.
 - Measure before optimizing. Pooling, caching, workers, and the like wait for a measurement that asks for them, and each such change shows its gain with before-and-after numbers from the same scenario.
 - A refactor changes no behavior: the checks pass before and after, with no check weakened. It leaves the code simpler, not more general, and goes on a branch of its own between features, never inside a feature branch.
-- The commands that typecheck, test, and run the simulation headless get listed here when the prototype's tooling exists.
+- Commands (run from the repository root; Node 24 runs the TypeScript sources directly, no build step):
+  - `pnpm check`: typecheck every package, lint with Biome, and run every test. This is the project's check before any commit.
+  - `pnpm fix`: Biome's formatting and safe fixes. Run it before committing.
+  - `pnpm vitest run <path>`: one package's or one file's tests.
+- Imports inside the workspace carry the `.ts` suffix, and the code uses only erasable TypeScript syntax (no `enum`, `namespace`, or constructor parameter properties): Node runs the server's worker thread with its own type stripping, which needs both.
+- `core` uses no Node or DOM API, and `firmware`'s `src` no Node API; their tsconfigs and Biome's `noNodejsModules` enforce it.
 
 ## Git
 

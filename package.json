@@ -1,0 +1,22 @@
+{
+  "name": "turing-city",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.30.3",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "typecheck": "pnpm -r typecheck",
+    "lint": "biome check .",
+    "fix": "biome check --write .",
+    "test": "vitest run",
+    "check": "pnpm typecheck && pnpm lint && pnpm test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@types/node": "26.6.4",
+    "typescript": "7.0.2",
+    "vitest": "5.0.3"
+  }
+}

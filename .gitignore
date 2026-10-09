@@ -33,3 +33,6 @@ coverage/
 
 # QA's throwaway firmware and scenarios
 scratch/
+
+# Playwright MCP's console logs and page snapshots
+.playwright-mcp/
