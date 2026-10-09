@@ -14,6 +14,7 @@ export * from './power.ts';
 export * from './queries.ts';
 export * from './rng.ts';
 export * from './scenario.ts';
+export * from './season.ts';
 export * from './sensors.ts';
 export * from './series.ts';
 export * from './session.ts';

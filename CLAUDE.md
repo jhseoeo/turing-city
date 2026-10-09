@@ -65,6 +65,7 @@ A docs-only change that records what the user just decided skips steps 3 and 4: 
   - `pnpm check`: typecheck every package, lint with Biome, and run every test. This is the project's check before any commit.
   - `pnpm fix`: Biome's formatting and safe fixes. Run it before committing.
   - `pnpm vitest run <path>`: one package's or one file's tests.
+  - `pnpm sim [scenario.json] [--firmware dir] [--seed n] [--until day] [--rebuild]`: plays a season headless and prints the result as JSON (`--rebuild` rebuilds every smashed board as soon as the money allows, standing in for the player). The reference firmware sets are in `scenarios/firmware/m1/careless` and `careful`.
 - Imports inside the workspace carry the `.ts` suffix, and the code uses only erasable TypeScript syntax (no `enum`, `namespace`, or constructor parameter properties): Node runs the server's worker thread with its own type stripping, which needs both.
 - `core` uses no Node or DOM API, and `firmware`'s `src` no Node API; their tsconfigs and Biome's `noNodejsModules` enforce it.
 

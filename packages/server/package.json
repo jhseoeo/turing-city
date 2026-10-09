@@ -11,5 +11,9 @@
   },
   "devDependencies": {
     "@types/node": "26.6.4"
+  },
+  "dependencies": {
+    "@turing-city/core": "workspace:*",
+    "@turing-city/firmware": "workspace:*"
   }
 }

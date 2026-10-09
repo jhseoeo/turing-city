@@ -41,6 +41,13 @@ importers:
         version: 26.6.4
 
   packages/server:
+    dependencies:
+      '@turing-city/core':
+        specifier: workspace:*
+        version: link:../core
+      '@turing-city/firmware':
+        specifier: workspace:*
+        version: link:../firmware
     devDependencies:
       '@types/node':
         specifier: 26.6.4
