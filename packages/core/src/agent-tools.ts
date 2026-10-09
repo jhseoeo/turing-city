@@ -30,6 +30,16 @@ export interface AgentTool {
 
 const board = z.string().describe('A board id, such as "DA". list_boards lists them.');
 const since = z.number().optional().describe('Only entries after this many game seconds into the season.');
+// A board's Lua state takes the source as a C string, which ends at the first NUL byte: the code after it would vanish
+// without an error, and a syntax error behind it would pass the check.
+const code = z
+  .string()
+  .max(65_536)
+  .refine(
+    (source) => !source.includes('\u0000'),
+    'the source contains a NUL byte (\\u0000); the board would cut the code off there, so remove it',
+  )
+  .describe('The Lua source, up to 64 KB.');
 
 function known<T>(value: T | null, id: unknown): T {
   if (value === null) throw new ToolError(`unknown board ${String(id)}; list_boards lists the boards`);
@@ -62,7 +72,7 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
     name: 'deploy_firmware',
     description:
       "Deploy Lua firmware to a board. It must define function tick(io, mem). A syntax error is refused with Lua's message and the old firmware keeps running; otherwise the new code installs at the board's next tick, keeping mem.",
-    inputSchema: { board, code: z.string().max(65_536).describe('The Lua source, up to 64 KB.') },
+    inputSchema: { board, code },
     run: (api, args) => api.deploy(args.board as string, args.code as string),
   },
   {

@@ -57,4 +57,20 @@ describe('agent tools', () => {
     expect(schema.safeParse('x'.repeat(65_536)).success).toBe(true);
     expect(schema.safeParse('x'.repeat(65_537)).success).toBe(false);
   });
+
+  it('refuses firmware with a NUL byte in its schema: the board would cut the source off there, silently', () => {
+    const schema = tool('deploy_firmware').inputSchema.code as z.ZodString;
+    for (const source of [
+      '\u0000',
+      '\u0000function tick() end',
+      'function tick() end\u0000',
+      'function tick() end\u0000\nerror("never runs")',
+    ]) {
+      const parsed = schema.safeParse(source);
+      expect(parsed.success, JSON.stringify(source)).toBe(false);
+      expect(parsed.error?.issues[0]?.message ?? '(no issue)').toMatch(/NUL byte/);
+    }
+    // Only the NUL itself is refused: other control characters, non-ASCII text, and a backslash-zero escape inside a Lua string are fine.
+    expect(schema.safeParse('-- 한글, é, 😀\t\r\n\u0001\u007f print("a\\0b")').success).toBe(true);
+  });
 });
