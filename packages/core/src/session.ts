@@ -4,6 +4,7 @@ import { deployFirmware, runTransitions } from './boards.ts';
 import { runDatacenters, runFires } from './datacenter.ts';
 import { runEmf } from './emf.ts';
 import type { FirmwareHost } from './firmware-host.ts';
+import { runLuddites, runRumour } from './luddites.ts';
 import { runPower } from './power.ts';
 import { createRng, deriveSeed } from './rng.ts';
 import type { Scenario } from './scenario.ts';
@@ -65,6 +66,8 @@ export class Session {
     applyActions(this.ctx, s, ticked);
     runDatacenters(this.ctx, s);
     runEmf(this.ctx, ticked);
+    runRumour(this.ctx, s);
+    runLuddites(this.ctx, s);
     runFires(this.ctx, s);
     this.checkSeasonEnd(s);
     w.step = s + 1;
