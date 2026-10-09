@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { parseScenario } from '@turing-city/core';
 import { afterEach, describe, expect, it } from 'vitest';
-import { GameController } from '../src/game-controller.ts';
+import { GameController, gameApi } from '../src/game-controller.ts';
 
 const scenario = parseScenario(JSON.parse(readFileSync('scenarios/m1-power.json', 'utf8')));
 const AGENT = { connected: true, clientName: 'test-agent' };
@@ -124,5 +124,37 @@ describe('GameController', () => {
     await c.startSeason(1);
     expect(c.latestSnapshot()?.step).toBe(0);
     expect((await c.listBoards())[1]!.firmwareVersion).toBeNull();
+  });
+});
+
+describe('gameApi', () => {
+  it('tells the agent whether the clock is paused and how fast it runs', async () => {
+    const c = make();
+    c.setAgent(AGENT);
+    await c.startSeason(1);
+    const api = gameApi(c);
+    expect(await api.status()).toMatchObject({ money: 5000, run: { paused: true, speed: 1 } });
+    c.setSpeed(3);
+    expect((await api.status()).run).toEqual({ paused: true, speed: 3 });
+    c.play();
+    expect((await api.status()).run).toEqual({ paused: false, speed: 3 });
+    c.setSpeed(2);
+    expect((await api.status()).run).toEqual({ paused: false, speed: 2 });
+    c.pause();
+    expect((await api.status()).run).toEqual({ paused: true, speed: 2 });
+  });
+
+  it('reports the clock as stopped once the season has ended', async () => {
+    const short = parseScenario({
+      ...JSON.parse(readFileSync('scenarios/m1-power.json', 'utf8')),
+      time: { stepsPerSecond: 20, secondsPerDay: 1, seasonDays: 1 },
+    });
+    controller = new GameController({ scenario: short });
+    const c = controller;
+    c.setAgent(AGENT);
+    await c.startSeason(1);
+    await c.runUntil({});
+    expect(c.status().state).toBe('ended');
+    expect(await gameApi(c).status()).toMatchObject({ ended: { kind: 'completed' }, run: { paused: true, speed: 1 } });
   });
 });

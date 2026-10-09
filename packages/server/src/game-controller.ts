@@ -10,6 +10,7 @@ import {
   type Datasheet,
   type DeployOutcome,
   type FirmwareView,
+  type GameApi,
   type GameState,
   type LogView,
   type MapView,
@@ -17,6 +18,7 @@ import {
   type Scenario,
   type Snapshot,
   type StatusView,
+  type StatusWithRun,
   ToolError,
   timeView,
   type WorkerRequest,
@@ -196,9 +198,10 @@ export class GameController {
   map(): Promise<MapView> {
     return this.query({ kind: 'map' }) as Promise<MapView>;
   }
-  /** The season's status for the agent tools (status() is the controller's own). */
-  statusOf(): Promise<StatusView> {
-    return this.query({ kind: 'status' }) as Promise<StatusView>;
+  /** The season's status for the agent tools (status() is the controller's own), with how the player has set the clock. */
+  async statusOf(): Promise<StatusWithRun> {
+    const view = (await this.query({ kind: 'status' })) as StatusView;
+    return { ...view, run: { paused: this.state !== 'running', speed: this.speed } };
   }
   alerts(since: number | undefined): Promise<AlertView[]> {
     return this.query({ kind: 'alerts', since: since ?? null }) as Promise<AlertView[]>;
@@ -350,4 +353,18 @@ export class GameController {
   private emit(event: ControllerEvent): void {
     for (const listener of this.listeners) listener(event);
   }
+}
+
+/** The agent tools' view of the controller. */
+export function gameApi(c: GameController): GameApi {
+  return {
+    listBoards: () => c.listBoards(),
+    datasheet: (board) => c.datasheet(board),
+    firmware: (board) => c.firmware(board),
+    deploy: (board, code) => c.deploy(board, code),
+    logs: (board, since) => c.logs(board, since),
+    map: () => c.map(),
+    status: () => c.statusOf(),
+    alerts: (since) => c.alerts(since),
+  };
 }
