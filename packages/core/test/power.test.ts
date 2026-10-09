@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { facilityDemand, plantBoard, runPower } from '../src/power.ts';
+import { facilityDemand, plantBoard, priorityOrder, runPower } from '../src/power.ts';
 import { Session } from '../src/session.ts';
 import { FakeHost } from './helpers/fake-host.ts';
 import { m1Scenario } from './helpers/scenarios.ts';
@@ -123,5 +123,130 @@ describe('power', () => {
     }
     expect(winds.size).toBeGreaterThan(20);
     expect([...fuel].every((f) => f >= 5 && f <= 9)).toBe(true);
+  });
+
+  it("draws a job's power through its last step and not after it", () => {
+    const s = calm(120);
+    const dc = s.world.datacenters.DA!;
+    dc.jobFrom = 5;
+    dc.jobUntil = 8;
+    const da = s.world.boards[1]!;
+    expect(facilityDemand(s.ctx, da, 8)).toBe(163); // 10 + 150, + floor(160 * 2 / 100)
+    expect(facilityDemand(s.ctx, da, 9)).toBe(10);
+  });
+
+  it("draws nothing while the facility's board is being rebuilt", () => {
+    const s = calm(120);
+    const db = s.world.boards[2]!;
+    db.status = 'rebuilding';
+    expect(facilityDemand(s.ctx, db, 0)).toBe(0);
+  });
+
+  it('rounds the loss down, and charges it on sleep power too', () => {
+    const s = new Session(
+      m1Scenario((j) => {
+        j.facilities[2]!.board.power = 11;
+        j.tuning.sleepPower = 11;
+      }),
+      1,
+      new FakeHost(),
+    );
+    const db = s.world.boards[2]!;
+    expect(facilityDemand(s.ctx, db, 0)).toBe(14); // 16 cells: 11 + floor(11 * 32 / 100) = 11 + 3
+    db.status = 'asleep';
+    expect(facilityDemand(s.ctx, db, 0)).toBe(14);
+  });
+
+  it('powers everyone when generation exactly covers demand, and sheds when it is one short', () => {
+    const exact = calm(28); // 5 for the plant's board, 10 for DA, 13 for DB
+    runPower(exact.ctx, 0);
+    expect(exact.world.plant).toMatchObject({ generation: 28, demand: 28, shed: [] });
+    const short = calm(27);
+    runPower(short.ctx, 0);
+    expect(short.world.plant.shed).toEqual(['DB']);
+  });
+
+  it("stops the thermal module while the plant's board sleeps or is being rebuilt", () => {
+    for (const status of ['asleep', 'rebuilding'] as const) {
+      const s = calm(50);
+      s.world.plant.thermalSetting = 200;
+      plantBoard(s.world).status = status;
+      runPower(s.ctx, 0);
+      expect(s.world.plant.generation, status).toBe(50);
+    }
+  });
+
+  it('raises a new shortage alert when a second shortage begins after the first has ended', () => {
+    const s = calm(100);
+    for (const id of ['DA', 'DB']) {
+      s.world.datacenters[id]!.jobFrom = 0;
+      s.world.datacenters[id]!.jobUntil = 10;
+    }
+    const shortages = () => s.world.alerts.filter((a) => a.kind === 'powerShortage');
+    s.world.plant.thermalSetting = 250; // generation 350 against a demand of 379: DB is shed
+    runPower(s.ctx, 0);
+    runPower(s.ctx, 1); // the same episode
+    expect(shortages()).toHaveLength(1);
+    expect(shortages()[0]!.message).toContain('DB');
+    s.world.plant.thermalSetting = 300; // generation 400 covers it
+    runPower(s.ctx, 2);
+    expect(s.world.plant.shed).toEqual([]);
+    s.world.plant.thermalSetting = 250;
+    runPower(s.ctx, 3);
+    expect(shortages()).toHaveLength(2);
+  });
+
+  it('puts the listed consumers first and the unlisted after them, and ignores ids that are not consumers', () => {
+    const s = calm(120);
+    const order = () => priorityOrder(s.world).map((b) => b.id);
+    expect(order()).toEqual(['DA', 'DB']); // no list: the scenario order, and never the plant's board
+    s.world.plant.priority = ['DB'];
+    expect(order()).toEqual(['DB', 'DA']);
+    s.world.plant.priority = ['P', 'ZZ', 'DB']; // the plant's own id passes through set_priority
+    expect(order()).toEqual(['DB', 'DA']);
+    runPower(s.ctx, 0);
+    expect(s.world.plant.shed).toEqual([]);
+  });
+
+  it('does not report a destroyed facility as shed', () => {
+    const s = calm(0);
+    s.world.boards[2]!.status = 'destroyed'; // DB draws nothing
+    runPower(s.ctx, 0);
+    expect(s.world.plant).toMatchObject({ demand: 15, shed: ['DA'] });
+  });
+
+  it('counts power at the wind of the step it runs in, so the series moves first', () => {
+    const s = new Session(m1Scenario(), 7, new FakeHost());
+    for (let i = 0; i < 100; i++) {
+      s.step();
+      expect(s.world.plant.generation, `step ${i}`).toBe(s.world.plant.wind);
+    }
+  });
+
+  it('counts a board that wakes in this step as awake, so the transitions come first', () => {
+    const s = calm(120);
+    const da = s.world.boards[1]!;
+    da.status = 'asleep';
+    da.wakeAt = 5;
+    for (let i = 0; i < 6; i++) s.step(); // the sixth is step 5, when DA wakes
+    expect(da.status).toBe('running');
+    expect(s.world.plant.demand).toBe(28); // DA at 10, not at its sleep power of 1
+  });
+
+  it("cuts a board's power in the step it would have ticked, so the power phase comes before the ticks", () => {
+    const host = new FakeHost();
+    const src = host.program('noop', () => ({}));
+    const s = new Session(
+      m1Scenario((j) => {
+        j.tuning.wind.maxChangePerSecond = 0;
+      }),
+      1,
+      host,
+    );
+    s.deploy('DA', src);
+    for (let i = 0; i < 3; i++) s.step(); // DA's first beat is step 3, and until then it is powered
+    s.world.plant.wind = 0;
+    s.step();
+    expect(host.calls).toEqual([]);
   });
 });
