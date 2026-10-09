@@ -76,3 +76,5 @@ A docs-only change that records what the user just decided skips steps 3 and 4: 
 `.claude/hooks/guard.sh`, a PreToolUse hook registered in `.claude/settings.json` (it runs for subagents too):
 - refuses hand edits to package-manager lockfiles, which change only through the package manager;
 - asks the user before a shell command runs macOS `open`, which brings an app or a browser to the front and takes the user's focus. Agents check the viewer headlessly instead. When the desktop shell exists, its launch command joins this rule.
+
+It fails closed: if `jq` is missing or the hook can't read the tool call, it blocks the call with a message instead of letting it through unchecked.

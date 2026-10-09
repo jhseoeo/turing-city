@@ -3,7 +3,18 @@
 # - Edit or Write on a package-manager lockfile: deny. Lockfiles change only through the package manager.
 # - A Bash command that runs macOS `open` on an app, a URL, or a path: ask the user first. It brings a window to
 #   the front and takes the user's focus.
+# It fails closed: without jq, or on input it can't read, it blocks the call (exit 2 shows the message to Claude)
+# rather than letting it through unchecked.
 input=$(cat)
+
+if ! command -v jq >/dev/null; then
+  echo "The guard hook needs jq to check tool calls, and blocks them until it's installed. Ask the user to install jq (brew install jq). See CLAUDE.md > Hooks." >&2
+  exit 2
+fi
+if ! tool=$(jq -er '.tool_name' <<<"$input" 2>/dev/null); then
+  echo "The guard hook couldn't read the tool call it was given. See CLAUDE.md > Hooks." >&2
+  exit 2
+fi
 
 decide() {   # $1: deny or ask, $2: the reason shown
   jq -n --arg d "$1" --arg r "$2" \
@@ -16,7 +27,7 @@ lockfile='(^|/)(pnpm-lock\.yaml|package-lock\.json|npm-shrinkwrap\.json|yarn\.lo
 # path, so that prose such as a commit message line "open the menu" doesn't match.
 takes_focus='(^|[;&|({`])[[:space:]]*open[[:space:]]+(-[[:alpha:]]|https?:|[^[:space:]]*[./])'
 
-case "$(jq -r '.tool_name // empty' <<<"$input")" in
+case "$tool" in
   Edit|Write|MultiEdit|NotebookEdit)
     file=$(jq -r '.tool_input.file_path // .tool_input.notebook_path // empty' <<<"$input")
     if [[ $file =~ $lockfile ]]; then
