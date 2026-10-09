@@ -65,7 +65,6 @@ export class GameController {
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastClock = 0;
   private debt = 0;
-  private inFlight: Promise<void> | null = null;
 
   constructor(options: ControllerOptions) {
     this.scenario = options.scenario;
@@ -226,22 +225,19 @@ export class GameController {
   private watchdog: ReturnType<typeof setTimeout> | null = null;
 
   private onClock(): void {
-    if (this.state !== 'running' || this.inFlight) return;
+    if (this.state !== 'running' || this.advanceWaiter) return;
     const now = performance.now();
     this.debt += ((now - this.lastClock) / 1000) * this.scenario.time.stepsPerSecond * this.speed;
     this.lastClock = now;
     const n = Math.min(Math.floor(this.debt), this.stepsPerBatch);
     if (n <= 0) return;
     this.debt -= n;
-    this.inFlight = this.advance(n)
-      .then(() => undefined)
-      .catch(() => undefined)
-      .finally(() => {
-        this.inFlight = null;
-      });
+    this.advance(n).catch(() => undefined); // a batch cut short by a new season or a failure has nobody to tell
   }
 
   private advance(steps: number): Promise<readonly AlertView[]> {
+    // One waiter and one watchdog serve one batch: a second batch would orphan the first one's answer and its timer.
+    if (this.advanceWaiter) return Promise.reject(new Error('a batch of steps is already running'));
     return new Promise((resolve, reject) => {
       this.advanceWaiter = { resolve, reject };
       this.watchdog = setTimeout(() => this.onWatchdog(), this.watchdogMs);

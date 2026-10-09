@@ -353,6 +353,57 @@ describe('GameController: the clock', () => {
     expect(c.latestSnapshot()!.step).toBe(200); // the batch that was out; the run did not go on to the end of the season
   });
 
+  it('leaves no unhandled rejection behind when a new season cuts a clock batch short', async () => {
+    handClock();
+    const unhandled: unknown[] = [];
+    const listener = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', listener);
+    try {
+      const c = make();
+      c.setAgent(AGENT);
+      await c.startSeason(1);
+      c.setSpeed(3);
+      c.play();
+      vi.advanceTimersByTime(50); // a clock batch is out
+      await c.startSeason(2); // its promise is rejected: a new season started
+      await sleep(50); // an unhandled rejection is reported a turn of the event loop later
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', listener);
+    }
+  });
+
+  it('refuses a run while a clock batch is still out, and lets the clock batch finish', async () => {
+    handClock();
+    const c = make({ watchdogMs: 200 });
+    c.setAgent(AGENT);
+    await c.startSeason(1);
+    c.setSpeed(3);
+    c.play();
+    vi.advanceTimersByTime(50); // a clock batch is out
+    c.pause();
+    await expect(c.runUntil({ seconds: 1 })).rejects.toThrow('already running');
+    await until(() => c.latestSnapshot()!.step === 3); // the clock batch finished, and nothing ran beyond it
+    await sleep(300); // longer than the limit: nothing is left armed
+    expect(c.status()).toMatchObject({ state: 'paused', crash: null });
+    c.play();
+    await tick(c, 6); // and the clock runs again: its batch was not taken for one that never finished
+  });
+
+  it('starts no clock batch while a run has one out', async () => {
+    handClock();
+    const c = make();
+    c.setAgent(AGENT);
+    await c.startSeason(1);
+    c.setSpeed(3);
+    const run = c.runUntil({ seconds: 600 }); // a batch of 200 steps is out
+    c.play();
+    vi.advanceTimersByTime(50); // a tick while it is: it must leave the batch alone
+    await run;
+    expect(c.latestSnapshot()!.step).toBe(200);
+    await tick(c, 206); // the skipped tick left its time for this one: 100 ms at 20 steps a second and 3x is 6
+  });
+
   it('lets go of its timer whenever the clock stops', async () => {
     handClock();
     const a = make();
