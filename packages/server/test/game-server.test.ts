@@ -17,12 +17,15 @@ afterEach(async () => {
   stop = null;
 });
 
-/** A viewer connection that records every message. */
+/**
+ * A viewer connection that records every message. A browser always sends an Origin on a WebSocket handshake, so by default
+ * this one sends the game page's; null sends none, the way a program other than a browser may.
+ */
 async function viewer(
   port: number,
-  origin?: string,
+  origin: string | null = `http://127.0.0.1:${port}`,
 ): Promise<{ ws: WebSocket; seen: ServerToViewer[]; send: (m: ViewerToServer) => void }> {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, origin === undefined ? {} : { origin });
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, origin === null ? {} : { origin });
   const seen: ServerToViewer[] = [];
   ws.on('message', (data) => seen.push(JSON.parse(String(data)) as ServerToViewer));
   await new Promise<void>((resolve, reject) => {
@@ -125,5 +128,15 @@ describe('game server', () => {
     const server = await startGameServer({ port: 0, configDir: mkdtempSync(join(tmpdir(), 'tc-server-')), viewerDist: null });
     stop = server.close;
     await expect(viewer(server.port, 'http://evil.example')).rejects.toThrow();
+  });
+
+  it('refuses a WebSocket handshake that sends no Origin', async () => {
+    const server = await startGameServer({ port: 0, configDir: mkdtempSync(join(tmpdir(), 'tc-server-')), viewerDist: null });
+    stop = server.close;
+    // A browser always sends an Origin. A handshake without one comes from some other program on this machine,
+    // and the hello message it would get carries the token that config.json keeps owner-only.
+    await expect(viewer(server.port, null)).rejects.toThrow('403');
+    const handshake = `GET /ws HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n`;
+    expect(await raw(server.port, handshake)).toBe('HTTP/1.1 403 Forbidden');
   });
 });

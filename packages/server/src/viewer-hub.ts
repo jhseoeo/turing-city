@@ -8,7 +8,10 @@ export interface ViewerHubOptions {
   readonly controller: GameController;
   readonly hello: () => ServerToViewer;
   readonly reissueToken: () => void;
-  /** Origins allowed to open the viewer socket; a request with no Origin (not a browser) is allowed too. */
+  /**
+   * Origins allowed to open the viewer socket. A handshake with no Origin is refused too: a browser always sends one, so
+   * it comes from some other program, and the hello message carries the token that config.json keeps owner-only.
+   */
   readonly allowedOrigins: readonly string[];
 }
 
@@ -97,7 +100,7 @@ export function createViewerHub(options: ViewerHubOptions): {
   return {
     upgrade(req, socket, head) {
       const origin = req.headers.origin;
-      if (origin !== undefined && !options.allowedOrigins.includes(origin)) {
+      if (origin === undefined || !options.allowedOrigins.includes(origin)) {
         socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
         socket.destroy();
         return;
