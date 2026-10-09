@@ -279,4 +279,155 @@ describe('BoardVm', () => {
     expect(r.logs).toEqual(['1\t1\t2\t3']);
     v.close();
   });
+
+  describe('RAM across deploys', () => {
+    // A table of 200 integers takes 4,096 bytes for its array part: with 6 KB of RAM one of them fits and two do not.
+    const holdInMem = (key: string): string => `function tick(io, mem) local t = {} mem.${key} = t for i = 1, 200 do t[i] = i end end`;
+    const GROW = `function tick(io, mem) mem.t = mem.t or {} for i = 1, 200 do mem.t[#mem.t + 1] = i end end`;
+    // About 30 KB of code (one string constant in a branch that never runs), against RAM of 6 to 8 KB. A constant
+    // rather than many small ones, because a long table constructor would also grow the call frame, which is RAM.
+    const BIG_CODE = `function tick(io, mem) if mem.never then local s = "${'x'.repeat(30_000)}" end end`;
+
+    it('keeps mem inside the RAM cap across a deploy', () => {
+      const v = vm({ ramBytes: 6 * 1024 });
+      expect(v.tick(SENSORS, holdInMem('a')).ok).toBe(true);
+      // The hot reload keeps mem.a, so a second 4 KB table does not fit in the 6 KB of RAM.
+      expect(v.tick(SENSORS, holdInMem('b')).error).toEqual({ kind: 'ram', message: 'out of RAM' });
+      v.close();
+    });
+
+    it('reports the data mem holds in ramUsedBytes, also right after a deploy', () => {
+      const v = vm({ ramBytes: 6 * 1024 });
+      const first = v.tick(SENSORS, holdInMem('a'));
+      const redeployed = v.tick(SENSORS, `function tick() end`);
+      for (const r of [first, redeployed]) {
+        expect(r.ramUsedBytes).toBeGreaterThan(4000);
+        expect(r.ramUsedBytes).toBeLessThan(6 * 1024);
+      }
+      v.close();
+    });
+
+    // The data a tick of this firmware leaves, with only the firmware's own code different. The RAM is generous, so
+    // that no allocation fails and sets off Lua's emergency collection, which would free a replaced firmware anyway.
+    const dataOf = (source: string, deployedBefore?: string): number => {
+      const v = vm({ ramBytes: 256 * 1024 });
+      if (deployedBefore !== undefined) expect(v.tick(SENSORS, deployedBefore).ok).toBe(true);
+      const r = v.tick(SENSORS, source);
+      v.close();
+      expect(r.ok).toBe(true);
+      return r.ramUsedBytes;
+    };
+    const TINY = `function tick(io, mem) end`;
+
+    it("does not count the firmware's code as RAM", () => {
+      // 30 KB more code than TINY, and no more data.
+      expect(Math.abs(dataOf(BIG_CODE) - dataOf(TINY))).toBeLessThan(256);
+    });
+
+    it('counts nothing of a replaced firmware as data, even when the new one allocates nothing', () => {
+      expect(Math.abs(dataOf(TINY, BIG_CODE) - dataOf(TINY))).toBeLessThan(256);
+    });
+
+    it("gives a new firmware the room that the replaced one's globals held", () => {
+      const v = vm({ ramBytes: 6 * 1024 });
+      // The first firmware's main chunk builds a 4 KB global, which goes when the firmware is replaced.
+      expect(v.tick(SENSORS, `big = {} for i = 1, 200 do big[i] = i end function tick() end`).ok).toBe(true);
+      expect(v.tick(SENSORS, holdInMem('b')).error).toBeNull();
+      v.close();
+    });
+
+    it("counts only the installed firmware's code, not the code of earlier deploys", () => {
+      const v = vm({ ramBytes: 6 * 1024, instructionCap: 20_000 });
+      expect(v.tick(SENSORS, BIG_CODE).ok).toBe(true);
+      const replaced = v.tick(SENSORS, GROW);
+      expect(replaced.error).toBeNull();
+      // The 30 KB of the first firmware are gone, not left in the count as data ...
+      expect(replaced.ramUsedBytes).toBeLessThan(6 * 1024);
+      // ... and not left in the cap: 400 integers need 8 KB, more than the 6 KB above the new code.
+      expect(v.tick(SENSORS, null).error?.kind).toBe('ram');
+      v.close();
+    });
+
+    // Each pass links in a new table of about 48 bytes, so the board ends up within one table of its cap.
+    const fillToTheBrim = (key: string): string => `function tick(io, mem) while true do mem.${key} = {mem.${key}} end end`;
+    const FILL_TO_THE_BRIM = fillToTheBrim('head');
+    // 160 such tables leave a few hundred of the 8,192 bytes free, without running out.
+    const FILL_NEARLY = `function tick(io, mem) for i = 1, 160 do mem.head = {mem.head} end end`;
+    // 32 integers are 568 bytes: more than the board has free after either fill.
+    const ALLOCATE_568 = `function tick() local t = {${Array.from({ length: 32 }, (_, i) => i + 1).join(',')}} end`;
+
+    it('starts a firmware on a board whose mem filled its RAM, so that it can free it', () => {
+      const v = vm();
+      expect(v.tick(SENSORS, FILL_TO_THE_BRIM).error?.kind).toBe('ram');
+      // Eleven globals are eleven closures to build before the first tick() runs, and the ninth makes the globals
+      // table grow, which takes more than 2 KB while the old node array is still there.
+      const helpers = Array.from({ length: 10 }, (_, i) => `function h${i}() end`).join(' ');
+      const r = v.tick(SENSORS, `${helpers} function tick(io, mem) mem.head = nil io.log("freed") end`);
+      expect(r.error).toBeNull();
+      expect(r.logs).toEqual(['freed']);
+      v.close();
+    });
+
+    it('lets the first tick of a new firmware allocate on a board that ran out of RAM', () => {
+      const v = vm();
+      expect(v.tick(SENSORS, FILL_TO_THE_BRIM).error?.kind).toBe('ram');
+      // This firmware does not free mem. It only logs, which takes a few hundred bytes that the board does not have.
+      expect(v.tick(SENSORS, `function tick(io) io.log("still alive") end`).logs).toEqual(['still alive']);
+      // The room was for that tick only: the next one is held to the cap again, and the board is still full.
+      expect(v.tick(SENSORS, null).error?.kind).toBe('ram');
+      v.close();
+    });
+
+    it('does not let a board that keeps running out of RAM go further over the cap each time', () => {
+      const v = vm();
+      expect(v.tick(SENSORS, FILL_TO_THE_BRIM).error?.kind).toBe('ram');
+      // The room runs out too: this firmware keeps linking tables until even the extra 4 KB is gone ...
+      expect(v.tick(SENSORS, fillToTheBrim('more')).error?.kind).toBe('ram');
+      // ... and the next deploy does not get a second helping.
+      expect(v.tick(SENSORS, ALLOCATE_568).error?.kind).toBe('ram');
+      v.close();
+    });
+
+    it('holds a board that did not run out of RAM to the cap on the tick after a deploy', () => {
+      const v = vm();
+      const filled = v.tick(SENSORS, FILL_NEARLY);
+      expect(filled.error).toBeNull();
+      expect(filled.ramUsedBytes).toBeGreaterThan(7000);
+      // A tick that failed for another reason does not earn room either.
+      expect(v.tick(SENSORS, `function tick() while true do end end`).error?.kind).toBe('cpu');
+      expect(v.tick(SENSORS, ALLOCATE_568).error?.kind).toBe('ram');
+      v.close();
+    });
+
+    it('forgets that a board ran out of RAM once a tick succeeds', () => {
+      const v = vm();
+      expect(v.tick(SENSORS, FILL_TO_THE_BRIM).error?.kind).toBe('ram');
+      expect(v.tick(SENSORS, `function tick(io, mem) mem.head = nil end`).error).toBeNull();
+      expect(v.tick(SENSORS, FILL_NEARLY).error).toBeNull();
+      // The board is nearly full again, but it did not run out this time: no room for the deploy.
+      expect(v.tick(SENSORS, ALLOCATE_568).error?.kind).toBe('ram');
+      v.close();
+    });
+
+    it('gives a board that ran out of RAM only the room it is short of', () => {
+      const v = vm({ ramBytes: 6 * 1024, instructionCap: 20_000 });
+      // The local table is garbage once the tick fails, so the board has nearly all its RAM free again ...
+      expect(v.tick(SENSORS, `function tick() local t = {} for i = 1, 1000 do t[i] = i end end`).error?.kind).toBe('ram');
+      // ... and a main chunk that wants 8 KB gets no more than the 6 KB of RAM.
+      const r = v.tick(SENSORS, `big = {} for i = 1, 500 do big[i] = i end function tick() end`);
+      expect(r.error).toEqual({ kind: 'ram', message: 'out of RAM' });
+      v.close();
+    });
+
+    it('keeps the old firmware and the RAM cap when a deploy does not compile', () => {
+      const v = vm({ ramBytes: 6 * 1024, instructionCap: 20_000 });
+      expect(v.tick(SENSORS, GROW).ok).toBe(true);
+      const bad = v.tick(SENSORS, `function tick( end`);
+      expect(bad.ok).toBe(false);
+      expect(bad.error?.message).toMatch(/^syntax error: firmware:1: /);
+      // The old firmware runs on, still under the cap: 400 integers need 8 KB.
+      expect(v.tick(SENSORS, null).error?.kind).toBe('ram');
+      v.close();
+    });
+  });
 });

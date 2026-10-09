@@ -8,6 +8,14 @@ const T_NUMBER = 3;
 const T_STRING = 4;
 const ERR_MEM = 4;
 const CPU_MESSAGE = 'CPU limit exceeded';
+/**
+ * Room for a board that ran out of RAM to start the firmware that frees it. mem survives a deploy, so a board whose
+ * mem filled its RAM would otherwise have none: the new firmware's main chunk builds closures and globals before
+ * its first tick() runs, and growing the globals table allocates the new node array before the old one is freed.
+ * A board gets this on the tick that installs a firmware after a tick that ran out of RAM, only as far as it has
+ * less free than this, and never more than this over the cap. Every other tick is held to the cap.
+ */
+const STARTUP_BYTES = 4096;
 
 export const ACTION_CODES = { process: 1, cool: 2, setThermal: 3, setPriority: 4, sleep: 5 } as const;
 
@@ -26,10 +34,11 @@ export interface VmTickResult {
   readonly queue: readonly number[];
   readonly logs: readonly string[];
   readonly error: TickError | null;
+  /** Memory in use above the runtime and the installed code: mem, globals, and what a tick allocated and has not freed yet. */
   readonly ramUsedBytes: number;
 }
 
-type RefName = 'boot' | 'compile' | 'collect' | 'step' | 'io' | 'queue' | 'logs';
+type RefName = 'boot' | 'compile' | 'release' | 'collect' | 'step' | 'io' | 'queue' | 'logs';
 
 /** One board's Lua state. Everything it runs goes through tick(), at a deterministic point. */
 export class BoardVm {
@@ -40,8 +49,12 @@ export class BoardVm {
   private ops = 0;
   private capped = false;
   private counting = false;
-  /** Memory in use when the RAM cap was last set: code and runtime, not firmware data. */
-  private capBase = 0;
+  /** Memory in use after boot, with no firmware: the runtime and the prelude. Fixed for the board's life. */
+  private bootBytes = 0;
+  /** What compiling the installed firmware added: its chunk and its environment. Code doesn't count as RAM. */
+  private codeBytes = 0;
+  /** The last tick ran out of RAM, so the next deploy gets room to start (see STARTUP_BYTES). */
+  private starved = false;
 
   private readonly lua: LuaWasm;
   private readonly options: BoardVmOptions;
@@ -61,6 +74,7 @@ export class BoardVm {
     this.refs = {
       boot: this.takeGlobal('__boot'),
       compile: this.takeGlobal('__compile'),
+      release: this.takeGlobal('__release'),
       collect: this.takeGlobal('__collect'),
       step: this.takeGlobal('__step'),
       io: this.takeGlobal('__io'),
@@ -77,6 +91,8 @@ export class BoardVm {
     lua.lua_pushinteger(this.L, BigInt(options.seed));
     const status = lua.lua_pcallk(this.L, 3, 0, 0, 0, null);
     if (status !== 0) throw new Error(`board prelude failed: ${this.errorText(-1)}`);
+    this.collect();
+    this.bootBytes = this.engine.global.getMemoryUsed();
     this.capRam();
   }
 
@@ -84,21 +100,9 @@ export class BoardVm {
   tick(sensors: Readonly<Record<string, number | undefined>>, newSource: string | null): VmTickResult {
     const { lua, L } = this;
     if (newSource !== null) {
-      // Code doesn't count as RAM (it would live in flash): compile without a cap, then cap the data.
-      this.engine.global.setMemoryMax(undefined);
-      this.pushRef('compile');
-      lua.lua_pushstring(L, newSource);
-      const status = lua.lua_pcallk(L, 1, 0, 0, 0, null);
-      if (status !== 0) {
-        const message = this.errorText(-1);
-        lua.lua_settop(L, 0);
-        this.capRam();
-        return this.result(false, 0, [], [], { kind: 'runtime', message });
-      }
-      this.pushRef('collect');
-      lua.lua_pcallk(L, 0, 0, 0, 0, null);
-      lua.lua_settop(L, 0);
-      this.capRam();
+      const failure = this.deploy(newSource);
+      if (failure) return this.result(false, 0, [], [], failure);
+      this.capRam(this.startupRoom());
     }
     this.writeSensors(sensors);
     this.ops = 0;
@@ -107,7 +111,9 @@ export class BoardVm {
     this.pushRef('step');
     const status = lua.lua_pcallk(L, 0, 0, 0, 0, null);
     this.counting = false;
+    this.capRam();
     const error = status === 0 ? null : this.classify(status, this.errorText(-1));
+    this.starved = error?.kind === 'ram';
     lua.lua_settop(L, 0);
     const queue = this.drain('queue', () => lua.lua_tonumberx(L, -1, null));
     const logs = this.drain('logs', () => lua.lua_tolstring(L, -1, null));
@@ -118,6 +124,43 @@ export class BoardVm {
     this.lua.lua_sethook(this.L, null, 0, 0);
     this.engine.global.close();
     this.lua.module.removeFunction(this.hook);
+  }
+
+  /**
+   * Compiles source, which the next step installs. Returns why it did not compile; the board is then as it was.
+   * Code doesn't count as RAM (it would live in flash), so it compiles without a cap, and the caller sets the cap
+   * ramBytes above the runtime and this code. The code's size is what compiling added to live memory: collect,
+   * measure, compile, collect, measure. Only then is the installed firmware released, so its globals take no part
+   * in the difference and only one firmware is alive when the cap is set. Nothing stays staged between ticks, since
+   * tick() runs the step right after, so the chunk measured here is the only new one.
+   */
+  private deploy(source: string): TickError | null {
+    const { lua, L } = this;
+    this.engine.global.setMemoryMax(undefined);
+    this.collect();
+    const before = this.engine.global.getMemoryUsed();
+    this.pushRef('compile');
+    lua.lua_pushstring(L, source);
+    const status = lua.lua_pcallk(L, 1, 0, 0, 0, null);
+    if (status !== 0) {
+      const message = this.errorText(-1);
+      lua.lua_settop(L, 0);
+      this.capRam();
+      return { kind: 'runtime', message };
+    }
+    this.collect();
+    this.codeBytes = Math.max(0, this.engine.global.getMemoryUsed() - before);
+    this.pushRef('release');
+    lua.lua_pcallk(L, 0, 0, 0, 0, null);
+    lua.lua_settop(L, 0);
+    this.collect();
+    return null;
+  }
+
+  private collect(): void {
+    this.pushRef('collect');
+    this.lua.lua_pcallk(this.L, 0, 0, 0, 0, null);
+    this.lua.lua_settop(this.L, 0);
   }
 
   private onInstruction(L: number): void {
@@ -186,9 +229,20 @@ export class BoardVm {
     return out;
   }
 
-  private capRam(): void {
-    this.capBase = this.engine.global.getMemoryUsed();
-    this.engine.global.setMemoryMax(this.capBase + this.options.ramBytes);
+  /** Firmware data may use ramBytes above the runtime and the installed code, plus extra on a tick that starts a firmware. */
+  private capRam(extra = 0): void {
+    this.engine.global.setMemoryMax(this.dataCap() + extra);
+  }
+
+  private dataCap(): number {
+    return this.bootBytes + this.codeBytes + this.options.ramBytes;
+  }
+
+  /** How far over the cap this deploy's tick may go: STARTUP_BYTES less what the board has free, for a board that ran out of RAM. */
+  private startupRoom(): number {
+    if (!this.starved) return 0;
+    const wanted = this.engine.global.getMemoryUsed() + STARTUP_BYTES - this.dataCap();
+    return Math.min(STARTUP_BYTES, Math.max(0, wanted));
   }
 
   private result(
@@ -198,7 +252,7 @@ export class BoardVm {
     logs: readonly string[],
     error: TickError | null,
   ): VmTickResult {
-    const ramUsedBytes = Math.max(0, this.engine.global.getMemoryUsed() - this.capBase);
+    const ramUsedBytes = Math.max(0, this.engine.global.getMemoryUsed() - this.bootBytes - this.codeBytes);
     return { ok, instructions, queue, logs, error, ramUsedBytes };
   }
 

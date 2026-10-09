@@ -211,6 +211,10 @@ function __compile(src)
   pending = { f = f, env = e }
 end
 
+-- Drops the installed firmware and its globals. The host calls it once a deploy has compiled and been measured,
+-- so that the chunk waiting in pending is the only firmware alive when the RAM cap is set.
+function __release() env = nil end
+
 function __collect() collect("collect") end
 
 function __step()
