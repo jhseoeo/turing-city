@@ -59,6 +59,22 @@ function recordFireRolls(s: Session): number[] {
   return rolls;
 }
 
+/** Runs the session to `lastStep`; lists the steps on which the power phase charged DA's job and the steps on which it was paid. */
+function chargedAndPaid(s: Session, lastStep: number): { charged: number[]; paid: number[] } {
+  s.step(); // step 0: no job yet, so the power demand it reports is the idle demand
+  const idle = s.world.plant.demand;
+  let earned = s.world.ledger.datacenterIncome;
+  const charged: number[] = [];
+  const paid: number[] = [];
+  for (let step = 1; step <= lastStep; step++) {
+    s.step();
+    if (s.world.plant.demand > idle) charged.push(step);
+    if (s.world.ledger.datacenterIncome > earned) paid.push(step);
+    earned = s.world.ledger.datacenterIncome;
+  }
+  return { charged, paid };
+}
+
 describe('datacenters', () => {
   it('earns the job price per second of processing, pro rata', () => {
     const s = powered();
@@ -210,6 +226,48 @@ describe('datacenters', () => {
     }
     expect(charged).toEqual([4, 5, 6, 7]); // DA's first beat is step 3, and its next is step 7
     expect(paid).toEqual([4, 5, 6, 7]);
+  });
+
+  it('charges and pays a process()-every-beat firmware on exactly the same steps, period after period', () => {
+    const host = new FakeHost();
+    const work = host.program('work', () => ({ actions: [{ kind: 'process' }] }));
+    const s = holding(host);
+    s.deploy('DA', work);
+    const { charged, paid } = chargedAndPaid(s, 40);
+    // DA's first beat is step 3, so the job runs from step 4; each later beat (7, 11, ...) carries it on without losing a step
+    const working = Array.from({ length: 37 }, (_, i) => i + 4);
+    expect(charged).toEqual(working);
+    expect(paid).toEqual(working);
+  });
+
+  it('earns the job price and gains the tuned heat for every second a process()-every-beat firmware works', () => {
+    const host = new FakeHost();
+    const work = host.program('work', () => ({ actions: [{ kind: 'process' }] }));
+    const s = holding(host);
+    const dc = s.world.datacenters.DA!;
+    const { ambientMilli, heatMilliPerSecond } = s.scenario.tuning.datacenter;
+    s.deploy('DA', work);
+    steps(s, 4); // DA's first beat is step 3, so the job starts at step 4
+    for (const seconds of [1, 2, 3]) {
+      steps(s, s.scenario.time.stepsPerSecond);
+      expect(s.world.ledger.datacenterIncome, `income after ${seconds} s of work`).toBe(seconds * s.world.jobPrice * MICRO);
+      // nothing cools it here, so all of spec 10's +2 °C a second shows
+      expect(dc.tempMilli, `temperature after ${seconds} s of work`).toBe(ambientMilli + seconds * heatMilliPerSecond);
+    }
+  });
+
+  it('leaves a real gap where a beat skips process(): nothing in it is charged or paid, and the next job starts after its call', () => {
+    const host = new FakeHost();
+    let beats = 0;
+    // calls process() on beats 1, 3 and 4 (steps 3, 11 and 15), skipping beat 2 (step 7) and every beat after the fourth
+    const patchy = host.program('patchy', () => ({ actions: ++beats === 2 || beats > 4 ? [] : [{ kind: 'process' }] }));
+    const s = holding(host);
+    s.deploy('DA', patchy);
+    const { charged, paid } = chargedAndPaid(s, 24);
+    // the first job ends at 7 and the skipped beat leaves 8 to 11 idle; the call at 11 starts at 12, and the one at 15 goes on to 19
+    const expected = [4, 5, 6, 7, 12, 13, 14, 15, 16, 17, 18, 19];
+    expect(charged).toEqual(expected);
+    expect(paid).toEqual(expected);
   });
 
   it('pays every working datacenter into the town money and the ledger alike', () => {

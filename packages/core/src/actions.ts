@@ -16,7 +16,9 @@ export function applyActions(ctx: SimContext, step: number, ticked: readonly Tic
         case 'process':
           if (dc && !processed) {
             processed = true;
-            dc.jobFrom = step + 1;
+            // The power phase charged this step under the old window, so a job still running at it goes on from it: no step is lost.
+            const running = dc.jobFrom <= step && step <= dc.jobUntil;
+            dc.jobFrom = running ? step : step + 1;
             dc.jobUntil = step + board.period;
           }
           break;
