@@ -23,7 +23,7 @@ interface Rig {
 
 let rig: Rig | null = null;
 
-/** An agent connected to a server whose game is a real controller, wired the way the server's main wires it. */
+/** An agent connected to a server whose game is a real controller, with the connection rule and the dev tools wired to it. */
 async function start(withSeason = true): Promise<Rig> {
   const controller = new GameController({ scenario });
   const endpoint = createMcpEndpoint({
