@@ -5,7 +5,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { AgentStatus, GameApi } from '@turing-city/core';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createMcpEndpoint } from '../src/mcp.ts';
+import { createMcpEndpoint, type DevTools } from '../src/mcp.ts';
 
 const TOKEN = 'test-token';
 
@@ -38,6 +38,8 @@ interface Rig {
   url: URL;
   agent: AgentStatus[];
   api: ReturnType<typeof fakeApi>;
+  /** The dev tools the endpoint was given when started with dev = true; a test may change their methods. */
+  dev: DevTools;
   close: () => Promise<void>;
 }
 
@@ -45,6 +47,14 @@ let rig: Rig | null = null;
 
 async function start(dev = false, token: () => string = () => TOKEN): Promise<Rig & { drop: () => Promise<void> }> {
   const api = fakeApi();
+  const devTools: DevTools = {
+    play: () => {},
+    pause: () => {},
+    setSpeed: () => {},
+    runUntil: async () => {},
+    newSeason: async () => {},
+    rebuild: async () => ({ ok: true }),
+  };
   const agent: AgentStatus[] = [];
   const endpoint = createMcpEndpoint({
     api,
@@ -53,18 +63,7 @@ async function start(dev = false, token: () => string = () => TOKEN): Promise<Ri
     pingEveryMs: 100,
     pingTimeoutMs: 100,
     graceMs: 200,
-    ...(dev
-      ? {
-          dev: {
-            play: () => {},
-            pause: () => {},
-            setSpeed: () => {},
-            runUntil: async () => {},
-            newSeason: async () => {},
-            rebuild: async () => ({ ok: true }),
-          },
-        }
-      : {}),
+    ...(dev ? { dev: devTools } : {}),
   });
   const server: Server = createServer((req, res) => void endpoint.handle(req, res));
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -73,6 +72,7 @@ async function start(dev = false, token: () => string = () => TOKEN): Promise<Ri
     url: new URL(`http://127.0.0.1:${port}/mcp`),
     agent,
     api,
+    dev: devTools,
     drop: () => endpoint.dropSessions(),
     close: async () => {
       await endpoint.close();
@@ -241,6 +241,58 @@ describe('tool input', () => {
     const result = await client.callTool({ name: 'deploy_firmware', arguments: { board: 'DA', code: 'x'.repeat(65_536) } });
     expect(result.isError).toBeFalsy();
     expect(r.api.deployed.map(([board, code]) => [board, code.length])).toEqual([['DA', 65_536]]);
+    await client.close();
+  });
+});
+
+describe('a failure inside the game', () => {
+  // The controller rejects with a plain Error, not a ToolError, when a request is cut short (a season restarts or the
+  // simulator fails) and when it refuses a run. The agent must read the message as a tool error, not meet a protocol failure.
+  it('reaches the agent as a tool error, for every tool', async () => {
+    const r = await start(true);
+    const message = 'the simulator failed: boom';
+    const rejects = async (): Promise<never> => {
+      throw new Error(message);
+    };
+    const throws = (): never => {
+      throw new Error(message);
+    };
+    Object.assign(r.api, {
+      listBoards: rejects,
+      datasheet: rejects,
+      firmware: rejects,
+      deploy: rejects,
+      logs: rejects,
+      map: rejects,
+      status: rejects,
+      alerts: rejects,
+    });
+    Object.assign(r.dev, { play: throws, pause: throws, setSpeed: throws, runUntil: rejects, newSeason: rejects, rebuild: rejects });
+    const { client } = await connect(r.url);
+    // valid arguments for every tool, so that nothing but the failure can make a call fail
+    const calls: Record<string, Record<string, unknown>> = {
+      list_boards: {},
+      get_datasheet: { board: 'DA' },
+      get_firmware: { board: 'DA' },
+      deploy_firmware: { board: 'DA', code: 'function tick() end' },
+      read_logs: { board: 'DA' },
+      get_map: {},
+      get_status: {},
+      get_alerts: {},
+      dev_play: {},
+      dev_pause: {},
+      dev_set_speed: { speed: 2 },
+      dev_run_until: { seconds: 5 },
+      dev_new_season: { seed: 1 },
+      dev_rebuild: { board: 'DA' },
+    };
+    expect(Object.keys(calls).sort()).toEqual((await client.listTools()).tools.map((t) => t.name).sort());
+    const answers: Record<string, { isError: unknown; text: string }> = {};
+    for (const [name, args] of Object.entries(calls)) {
+      const result = await client.callTool({ name, arguments: args }); // a protocol failure would reject here
+      answers[name] = { isError: result.isError, text: textOf(result) };
+    }
+    expect(answers).toEqual(Object.fromEntries(Object.keys(calls).map((name) => [name, { isError: true, text: message }])));
     await client.close();
   });
 });
