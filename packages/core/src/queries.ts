@@ -6,7 +6,16 @@ import { facilityDemand, plantBoard, priorityOrder } from './power.ts';
 import type { FacilityKind, Scenario } from './scenario.ts';
 import { sensorFrame } from './sensors.ts';
 import { gameTime } from './time.ts';
-import { type AlertKind, type BoardStatus, findBoard, type LogLine, manhattan, type SimContext, type WorldState } from './world.ts';
+import {
+  type Alert,
+  type AlertKind,
+  type BoardStatus,
+  findBoard,
+  type LogLine,
+  manhattan,
+  type SimContext,
+  type WorldState,
+} from './world.ts';
 
 export interface TimeView {
   readonly day: number;
@@ -131,10 +140,12 @@ export interface AlertView extends TimeView {
   readonly message: string;
 }
 
+export function alertView(scenario: Scenario, a: Alert): AlertView {
+  return { ...timeView(scenario, a.step), id: a.id, kind: a.kind, facility: a.facilityId, message: a.message };
+}
+
 export function alertsView(ctx: SimContext, sinceSeconds?: number): AlertView[] {
-  return ctx.world.alerts
-    .map((a) => ({ ...timeView(ctx.scenario, a.step), id: a.id, kind: a.kind, facility: a.facilityId, message: a.message }))
-    .filter((a) => sinceSeconds === undefined || a.seconds > sinceSeconds);
+  return ctx.world.alerts.map((a) => alertView(ctx.scenario, a)).filter((a) => sinceSeconds === undefined || a.seconds > sinceSeconds);
 }
 
 /** Everything the viewer draws in one frame. */

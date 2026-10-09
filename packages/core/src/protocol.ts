@@ -1,0 +1,55 @@
+import type { DeployOutcome } from './agent-tools.ts';
+import type { AlertView, BoardInspection, Snapshot, TimeView } from './queries.ts';
+import type { AlertKind } from './world.ts';
+
+/** A read the main thread asks the worker for. */
+export type Query =
+  | { readonly kind: 'listBoards' }
+  | { readonly kind: 'datasheet'; readonly board: string }
+  | { readonly kind: 'firmware'; readonly board: string }
+  | { readonly kind: 'logs'; readonly board: string; readonly since: number | null }
+  | { readonly kind: 'map' }
+  | { readonly kind: 'status' }
+  | { readonly kind: 'alerts'; readonly since: number | null }
+  | { readonly kind: 'inspect'; readonly board: string };
+
+export type WorkerRequest =
+  | { readonly type: 'start'; readonly scenario: unknown; readonly seed: number }
+  | { readonly type: 'advance'; readonly steps: number }
+  | { readonly type: 'deploy'; readonly id: number; readonly board: string; readonly code: string }
+  | { readonly type: 'rebuild'; readonly id: number; readonly board: string }
+  | { readonly type: 'mark'; readonly kind: 'pause' | 'resume' }
+  | { readonly type: 'query'; readonly id: number; readonly query: Query };
+
+export type WorkerResponse =
+  | { readonly type: 'started'; readonly snapshot: Snapshot }
+  | { readonly type: 'advanced'; readonly snapshot: Snapshot; readonly alerts: readonly AlertView[] }
+  | { readonly type: 'reply'; readonly id: number; readonly value: unknown }
+  | { readonly type: 'fatal'; readonly message: string };
+
+export type GameState = 'idle' | 'paused' | 'running' | 'ended' | 'crashed';
+
+export interface AgentStatus {
+  readonly connected: boolean;
+  readonly clientName: string | null;
+}
+
+export interface ControllerStatus {
+  readonly state: GameState;
+  readonly speed: 1 | 2 | 3;
+  readonly agent: AgentStatus;
+  /** Play is refused because no agent is connected. */
+  readonly blockedByAgent: boolean;
+  /** Why the watchdog stopped the session, when it did. */
+  readonly crash: string | null;
+  readonly autoPause: readonly AlertKind[];
+  readonly scenarioName: string;
+}
+
+export type ControllerEvent =
+  | { readonly kind: 'status'; readonly status: ControllerStatus }
+  | { readonly kind: 'snapshot'; readonly snapshot: Snapshot }
+  | { readonly kind: 'alerts'; readonly alerts: readonly AlertView[] }
+  | { readonly kind: 'deploy'; readonly board: string; readonly version: number; readonly time: TimeView };
+
+export type { BoardInspection, DeployOutcome };

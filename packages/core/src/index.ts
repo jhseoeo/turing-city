@@ -11,6 +11,7 @@ export * from './fixed.ts';
 export * from './hash.ts';
 export * from './luddites.ts';
 export * from './power.ts';
+export * from './protocol.ts';
 export * from './queries.ts';
 export * from './rng.ts';
 export * from './scenario.ts';
