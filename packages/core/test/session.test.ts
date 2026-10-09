@@ -66,6 +66,19 @@ describe('Session', () => {
     expect(s.world.alerts.filter((a) => a.kind === 'firmwareError')).toHaveLength(1);
   });
 
+  it('alerts again when a repaired board breaks a second time', () => {
+    const host = new FakeHost();
+    let beats = 0;
+    const src = host.program('flaky', () => {
+      beats += 1;
+      return beats === 2 ? {} : { error: { kind: 'runtime', message: 'firmware:1: boom' } };
+    });
+    const s = new Session(m1Scenario(), SEED, host);
+    s.deploy('DA', src);
+    run(s, 12); // beats at 3, 7, 11: error, clean, error
+    expect(s.world.alerts.filter((a) => a.kind === 'firmwareError')).toHaveLength(2);
+  });
+
   it('applies the action setters within the scenario limits', () => {
     const host = new FakeHost();
     const plant = host.program('plant', () => ({
@@ -101,6 +114,7 @@ describe('Session', () => {
     run(s, 40); // up to step 44: woke at 43, next beat 43 -> reboot + tick
     expect(da.status).toBe('running');
     expect(host.calls.slice(3)).toEqual(['boot:DA', 'tick:DA']);
+    expect(ticks).toBe(2); // the reboot reinstalled the firmware, so the program ran again
     expect(da.log.map((l) => l.text)).toContain('sleeping 2 s (RAM wiped)');
     expect(host.boots[1]!.seed).not.toBe(host.boots[0]!.seed);
   });
@@ -138,6 +152,10 @@ describe('Session', () => {
     const again = replay(m1Scenario(), SEED, live.record, makeHost(), live.world.step);
     expect(stateHash(again.world)).toBe(stateHash(live.world));
     expect(again.record.inputs).toEqual(live.record.inputs);
+    expect(live.record.inputs.map((i) => i.kind)).toEqual(['deploy', 'pause', 'deploy', 'deploy']);
+    // The hash has to tell states apart, or the equality above proves nothing.
+    const short = replay(m1Scenario(), SEED, live.record, makeHost(), live.world.step - 1);
+    expect(stateHash(short.world)).not.toBe(stateHash(live.world));
   });
 
   it('rejects a deploy to an unknown board', () => {
