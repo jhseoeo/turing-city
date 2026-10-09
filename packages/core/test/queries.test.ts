@@ -47,6 +47,25 @@ describe('views', () => {
     expect(datasheet(s.ctx, 'ZZ')).toBeNull();
   });
 
+  it("tells the agent how the sandbox behaves after its hardening, in the datasheet's rules", () => {
+    const { s } = session();
+    const rules = datasheet(s.ctx, 'DA')!.rules.join('\n');
+    // One short key phrase per point; the behavior itself is pinned by the firmware package's tests.
+    const points: Array<[string, string]> = [
+      ['only mem carries over a deploy, and each install gets a fresh io', 'fresh io'],
+      ["RAM counts the firmware's data above a baseline, and its code doesn't count", "Code doesn't count"],
+      ['mem keeps its data after "out of RAM", so a deploy should free it first thing', 'frees what it no longer needs'],
+      ['the first tick of that deploy gets a little extra room', 'extra room'],
+      ['string.format refuses %p', 'refuses %p'],
+      ['tostring never shows an address', 'never shows an address'],
+      ['coroutine.close is not available', "coroutine.close isn't available"],
+      ['a coroutine that errors is never closed, so its <close> handlers do not run', "<close> handlers don't run"],
+      ['an xpcall handler runs after the stack has unwound', 'after the stack has unwound'],
+    ];
+    const missing = points.filter(([, phrase]) => !rules.includes(phrase)).map(([point]) => point);
+    expect(missing).toEqual([]);
+  });
+
   it('reads logs with game time, and filters by time', () => {
     const { s } = session();
     s.deploy('DA', 'hello');

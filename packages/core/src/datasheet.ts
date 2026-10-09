@@ -46,11 +46,16 @@ export const ACTION_DOCS: Record<FacilityKind | 'any', ReadonlyArray<{ call: str
 export const FIRMWARE_RULES: readonly string[] = [
   "Define function tick(io, mem). It runs once per beat of the board's clock while the board is powered and awake.",
   'mem persists across ticks and deploys (hot reload); globals reset on every deploy. Deep sleep and destruction wipe both.',
+  'Only mem carries over a deploy; each install gets a fresh io.',
   'Actions queue during the tick and apply when it returns. A tick that errors, runs out of RAM, or exceeds the instruction cap is aborted: its actions are dropped, and a capped tick counts as the whole cap toward EMF.',
+  'RAM is firmware data beyond a fixed baseline: mem, globals, and what a tick allocates. Code doesn\'t count. After "out of RAM", mem still holds its data, so deploy firmware that frees what it no longer needs from mem first thing (its first tick gets a little extra room to do that).',
   'EMF per tick = instructions / 100 + 10 per action; an awake board also emits its base EMF every second. Efficient firmware is quieter.',
   'Available: the base library (pairs, pcall, setmetatable, ...), string, table, math, coroutine. Missing: os, io (the library), load, require, debug, collectgarbage, utf8.',
   "string.find searches plain text only; string.match, gmatch, and gsub don't exist. math.randomseed doesn't exist; math.random is seeded per board.",
   'tostring of a table or function gives just its type, and setmetatable refuses __gc and __mode.',
+  'string.format refuses %p, and tostring never shows an address.',
+  "coroutine.close isn't available. A coroutine that errors is never closed, so its <close> handlers don't run.",
+  'An xpcall handler runs after the stack has unwound, and never once the instruction cap is hit.',
   'Adding keys to a table while traversing it with pairs or next gives an undefined order.',
 ];
 
