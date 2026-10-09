@@ -56,6 +56,21 @@ function raw(port: number, text: string): Promise<string> {
   });
 }
 
+/** For each origin, whether the viewer socket lets a handshake from it in. */
+async function accepted(port: number, origins: readonly string[]): Promise<Record<string, boolean>> {
+  const result: Record<string, boolean> = {};
+  for (const origin of origins) {
+    result[origin] = await viewer(port, origin).then(
+      (v) => {
+        v.ws.close();
+        return true;
+      },
+      () => false,
+    );
+  }
+  return result;
+}
+
 function last<T extends ServerToViewer['type']>(seen: ServerToViewer[], type: T): Extract<ServerToViewer, { type: T }> | undefined {
   return seen.filter((m): m is Extract<ServerToViewer, { type: T }> => m.type === type).at(-1);
 }
@@ -138,5 +153,27 @@ describe('game server', () => {
     await expect(viewer(server.port, null)).rejects.toThrow('403');
     const handshake = `GET /ws HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n`;
     expect(await raw(server.port, handshake)).toBe('HTTP/1.1 403 Forbidden');
+  });
+
+  // 5173 is Vite's default port, shared by every Vite project on the machine, and the hello message a page gets carries the
+  // token. Only a server started with the dev flag (`pnpm start:dev`, which is what runs next to `pnpm viewer`) lets that page in.
+  it.each([
+    { mode: 'a plain server', dev: false },
+    { mode: 'a dev-mode server', dev: true },
+  ])('lets $mode accept the pages it serves, and the Vite dev server only in dev mode', async ({ dev }) => {
+    const server = await startGameServer({ port: 0, configDir: mkdtempSync(join(tmpdir(), 'tc-server-')), dev, viewerDist: null });
+    stop = server.close;
+    const own = [`http://127.0.0.1:${server.port}`, `http://localhost:${server.port}`];
+    const lookalike = `${own[1]}.evil.example`;
+    expect(
+      await accepted(server.port, [...own, 'http://127.0.0.1:5173', 'http://localhost:5173', 'http://127.0.0.1:5174', lookalike]),
+    ).toEqual({
+      [own[0]!]: true,
+      [own[1]!]: true,
+      'http://127.0.0.1:5173': dev,
+      'http://localhost:5173': dev,
+      'http://127.0.0.1:5174': false,
+      [lookalike]: false,
+    });
   });
 });

@@ -27,6 +27,12 @@ function pathOf(req: IncomingMessage): string | null {
   }
 }
 
+/**
+ * The Vite dev server's pages (`pnpm viewer`). 5173 is Vite's default port, shared by every Vite project on the machine, and the
+ * hello message a page gets carries the token, so only a server started with the dev flag lets these origins in.
+ */
+const VITE_ORIGINS = ['http://127.0.0.1:5173', 'http://localhost:5173'];
+
 const DEFAULT_SCENARIO = fileURLToPath(new URL('../../../scenarios/m1-power.json', import.meta.url));
 const DEFAULT_VIEWER = fileURLToPath(new URL('../../viewer/dist', import.meta.url));
 
@@ -80,7 +86,7 @@ export async function startGameServer(
       config = reissueToken(dir);
       void mcp.dropSessions(); // agents holding the old token are cut off; their reconnection gets 401
     },
-    allowedOrigins: [`http://127.0.0.1:${port}`, `http://localhost:${port}`, 'http://127.0.0.1:5173', 'http://localhost:5173'],
+    allowedOrigins: [`http://127.0.0.1:${port}`, `http://localhost:${port}`, ...(options.dev ? VITE_ORIGINS : [])],
   });
   http.on('upgrade', (req, socket, head) => {
     if (pathOf(req) === '/ws') hub.upgrade(req, socket, head);
