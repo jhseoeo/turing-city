@@ -125,8 +125,14 @@ export class GameController {
       execArgv: ['--disable-warning=ExperimentalWarning'],
     });
     this.worker = worker;
-    worker.on('message', (m: WorkerResponse) => this.onWorker(m));
-    worker.on('error', (e) => this.fail(`the simulator failed: ${e instanceof Error ? e.message : String(e)}`));
+    // A worker that was stopped still delivers what it had already posted (Node drains its port as the thread exits), and an
+    // error it raised on the way out. That is the voice of a season that is over: only the worker the controller holds is heard.
+    worker.on('message', (m: WorkerResponse) => {
+      if (this.worker === worker) this.onWorker(m);
+    });
+    worker.on('error', (e) => {
+      if (this.worker === worker) this.fail(`the simulator failed: ${e instanceof Error ? e.message : String(e)}`);
+    });
     const started = new Promise<Snapshot>((resolve, reject) => {
       this.startWaiter = { resolve, reject };
     });

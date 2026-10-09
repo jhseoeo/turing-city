@@ -710,6 +710,58 @@ describe('GameController: requests', () => {
       terminate.mockRestore();
     }
   });
+
+  it('does not apply what a worker had already posted to the season that replaced it', async () => {
+    const c = make();
+    c.setAgent(AGENT);
+    await c.startSeason(1);
+    await c.runUntil({ seconds: 1 }); // the worker is warm now: a batch takes about a millisecond
+    const run = c.runUntil({ seconds: 1 }).catch(() => undefined); // a batch is out
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200); // and answered while this thread is blocked: the answer waits unread
+    const events: ControllerEvent[] = [];
+    c.onEvent((event) => events.push(event));
+    await c.startSeason(2); // Node still delivers a stopped worker's unread messages
+    await run;
+    await sleep(50);
+    expect(events.map(line)).toEqual(['snapshot 0', 'status paused']);
+    expect(c.latestSnapshot()!.step).toBe(0);
+  });
+
+  it('ignores everything a worker says as it is being stopped', async () => {
+    const c = make();
+    c.setAgent(AGENT);
+    await c.startSeason(1);
+    const stopped = inside(c).worker!;
+    const last = { ...c.latestSnapshot()!, step: 999, ended: { kind: 'bankrupt' as const, step: 999 } };
+    const next = c.startSeason(2); // the first worker is being stopped, the second is starting
+    stopped.emit('message', { type: 'started', snapshot: last });
+    stopped.emit('message', { type: 'advanced', snapshot: last, alerts: [] });
+    stopped.emit('message', { type: 'fatal', message: 'the first worker died' });
+    stopped.emit('error', new Error('the first worker died'));
+    await next;
+    expect(c.status()).toMatchObject({ state: 'paused', crash: null });
+    expect(c.latestSnapshot()!.step).toBe(0);
+    expect(await c.listBoards()).toHaveLength(3);
+  });
+
+  it('ignores the last answer of a worker the watchdog stopped', async () => {
+    const c = make({ watchdogMs: 1 });
+    c.setAgent(AGENT);
+    await c.startSeason(1);
+    const stopped = inside(c).worker!;
+    const late = { ...c.latestSnapshot()!, step: 999, ended: { kind: 'bankrupt' as const, step: 999 } };
+    const heard: ControllerEvent[] = [];
+    c.onEvent((event) => {
+      heard.push(event);
+      // The answer to the batch that outlived the limit is delivered as the session stops.
+      if (event.kind === 'status' && event.status.state === 'crashed')
+        stopped.emit('message', { type: 'advanced', snapshot: late, alerts: [] });
+    });
+    await expect(c.runUntil({ seconds: 600 })).rejects.toThrow('stopped');
+    expect(c.status().state).toBe('crashed');
+    expect(c.latestSnapshot()!.step).toBe(0);
+    expect(heard.map(line)).toEqual(['status crashed']);
+  });
 });
 
 describe('GameController: the watchdog', () => {
