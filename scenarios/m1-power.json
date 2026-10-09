@@ -1,0 +1,84 @@
+{
+  "id": "m1-power",
+  "name": "발전소와 데이터센터",
+  "grid": { "width": 20, "height": 12 },
+  "time": { "stepsPerSecond": 20, "secondsPerDay": 40, "seasonDays": 30 },
+  "startMoney": 5000,
+  "facilities": [
+    {
+      "id": "P",
+      "kind": "power",
+      "x": 4,
+      "y": 4,
+      "board": {
+        "clockHz": 4,
+        "instructionCap": 1500,
+        "ramKb": 4,
+        "sensors": ["wind", "demand", "fuelPrice"],
+        "power": 5,
+        "baseEmfPerSecond": 20
+      }
+    },
+    {
+      "id": "DA",
+      "kind": "datacenter",
+      "x": 5,
+      "y": 4,
+      "board": {
+        "clockHz": 5,
+        "instructionCap": 2000,
+        "ramKb": 8,
+        "sensors": ["temp", "powerHeadroom", "price", "emf", "ludditeDist"],
+        "power": 10,
+        "baseEmfPerSecond": 25
+      }
+    },
+    {
+      "id": "DB",
+      "kind": "datacenter",
+      "x": 16,
+      "y": 8,
+      "board": {
+        "clockHz": 5,
+        "instructionCap": 2000,
+        "ramKb": 8,
+        "sensors": ["temp", "powerHeadroom", "price", "emf", "ludditeDist"],
+        "power": 10,
+        "baseEmfPerSecond": 25
+      }
+    }
+  ],
+  "tuning": {
+    "transmissionLossPctPerCell": 2,
+    "wind": { "max": 220, "start": 120, "maxChangePerSecond": 8 },
+    "thermal": { "max": 300 },
+    "fuelPrice": { "start": 7, "min": 5, "max": 9 },
+    "jobPrice": { "start": 40, "min": 15, "max": 80, "maxChangePerSecond": 2 },
+    "datacenter": {
+      "processPower": 150,
+      "ambientMilli": 25000,
+      "heatMilliPerSecond": 2000,
+      "passiveCoolingPctPerSecond": 2,
+      "coolingMilliPerLevelPerSecond": 800,
+      "coolingPowerPerLevel": 20,
+      "maxCoolingLevel": 3,
+      "overheatAlertMilli": 85000,
+      "fireThresholdMilli": 90000,
+      "firePermillePerDegreePerSecond": 5
+    },
+    "boardUpkeepPerDay": 10,
+    "sleepPower": 1,
+    "maxSleepSeconds": 40,
+    "emf": {
+      "instructionsPerUnit": 100,
+      "perAction": 10,
+      "diffusionPctPerSecond": 10,
+      "decayPctPerSecond": 10,
+      "detectionThreshold": 5,
+      "rumourThreshold": 100000
+    },
+    "luddites": { "groupSize": 3, "cellsPerSecond": 1, "quietSecondsToLeave": 10, "approachCells": 5 },
+    "rebuild": { "cost": 500, "seconds": 20 },
+    "bankruptcyDays": 3
+  }
+}
