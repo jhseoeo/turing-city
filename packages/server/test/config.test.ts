@@ -54,15 +54,28 @@ describe('config: what the brief left unpinned', () => {
   });
 
   it("lives in the user's config directory: XDG_CONFIG_HOME, else ~/.config", () => {
-    const saved = process.env.XDG_CONFIG_HOME;
-    try {
-      process.env.XDG_CONFIG_HOME = '/somewhere/config';
-      expect(configDir()).toBe(join('/somewhere/config', 'turing-city'));
-      delete process.env.XDG_CONFIG_HOME;
-      expect(configDir()).toBe(join(homedir(), '.config', 'turing-city'));
-    } finally {
-      if (saved === undefined) delete process.env.XDG_CONFIG_HOME;
-      else process.env.XDG_CONFIG_HOME = saved;
-    }
+    withXdgConfigHome('/somewhere/config', () => expect(configDir()).toBe(join('/somewhere/config', 'turing-city')));
+    withXdgConfigHome(undefined, () => expect(configDir()).toBe(join(homedir(), '.config', 'turing-city')));
+  });
+
+  // The XDG Base Directory spec treats an empty XDG_CONFIG_HOME as unset and a relative one as invalid. Taken as it stands,
+  // either would keep the token under the server's working directory (join('', 'turing-city') is the relative 'turing-city'),
+  // which is inside the repository when the server starts from a package script. These tests only ask configDir() for the
+  // path: nothing is loaded or written at the fallback, which is the user's real ~/.config.
+  it.each(['', 'config', './config', '../config', '~/.config'])('ignores XDG_CONFIG_HOME=%j, which is not an absolute path', (value) => {
+    withXdgConfigHome(value, () => expect(configDir()).toBe(join(homedir(), '.config', 'turing-city')));
   });
 });
+
+/** Runs `check` with XDG_CONFIG_HOME set to `value` (unset when undefined), then puts back what was there. */
+function withXdgConfigHome(value: string | undefined, check: () => void): void {
+  const saved = process.env.XDG_CONFIG_HOME;
+  try {
+    if (value === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = value;
+    check();
+  } finally {
+    if (saved === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = saved;
+  }
+}

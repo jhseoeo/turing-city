@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 
 export interface ServerConfig {
   readonly token: string;
@@ -10,9 +10,14 @@ export interface ServerConfig {
 
 const DEFAULT_PORT = 7840;
 
-/** The user's config directory, outside the repository: the token is a secret and the repository is public. */
+/**
+ * The user's config directory, outside the repository: the token is a secret and the repository is public.
+ * XDG_CONFIG_HOME counts only as an absolute path (the XDG Base Directory spec: an empty value is unset, a relative one is
+ * invalid). Taken as it stands it could be relative, and the token would land under the server's working directory.
+ */
 export function configDir(): string {
-  return join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'turing-city');
+  const xdg = process.env.XDG_CONFIG_HOME;
+  return join(xdg && isAbsolute(xdg) ? xdg : join(homedir(), '.config'), 'turing-city');
 }
 
 function newToken(): string {
