@@ -82,7 +82,7 @@ export class BoardVm {
       release: this.takeGlobal('__release'),
       collect: this.takeGlobal('__collect'),
       step: this.takeGlobal('__step'),
-      io: this.takeGlobal('__io'),
+      io: 0, // the first io table, which __boot returns
       queue: this.takeGlobal('__q'),
       logs: this.takeGlobal('__logs'),
     };
@@ -94,8 +94,9 @@ export class BoardVm {
       lua.lua_rawseti(this.L, -2, BigInt(i + 1));
     });
     lua.lua_pushinteger(this.L, BigInt(options.seed));
-    const status = lua.lua_pcallk(this.L, 3, 0, 0, 0, null);
+    const status = lua.lua_pcallk(this.L, 3, 1, 0, 0, null);
     if (status !== 0) throw new Error(`board prelude failed: ${this.errorText(-1)}`);
+    this.refs.io = lua.luaL_ref(this.L, REGISTRY);
   }
 
   /** Installs newSource (if given), writes the sensors into io, and runs one tick under the caps. */
@@ -167,7 +168,11 @@ export class BoardVm {
     this.collect();
     this.codeBytes = Math.max(0, this.engine.global.getMemoryUsed() - before);
     this.pushRef('release');
-    lua.lua_pcallk(L, 0, 0, 0, 0, null);
+    const released = lua.lua_pcallk(L, 0, 1, 0, 0, null);
+    if (released !== 0) throw new Error(`board release failed: ${this.errorText(-1)}`);
+    // The firmware that goes starts with nothing it left in io: the new one gets a table of its own.
+    lua.luaL_unref(L, REGISTRY, this.refs.io);
+    this.refs.io = lua.luaL_ref(L, REGISTRY);
     lua.lua_settop(L, 0);
     this.collect();
     return null;

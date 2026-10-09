@@ -165,7 +165,9 @@ local safe_table = {
 local safe_math = copy(M); safe_math.randomseed = nil
 local safe_coroutine = copy(C)
 
-local io_t, mem, q, logs = {}, {}, {}, {}
+local mem, q, logs = {}, {}, {}
+-- actions holds the io actions of the board's kind; io_t is the io table of the firmware that runs.
+local io_t, actions = nil, {}
 -- pending is a compiled firmware waiting for the next step; installed is the record of the one that runs (its main
 -- closure, its environment, and the copies of the libraries in it), kept whole so that nothing compiling added
 -- can be freed by the firmware and then spent as data.
@@ -197,6 +199,15 @@ local function make_env()
   return e, libs
 end
 
+-- Every install gets a brand-new io: whatever the old firmware did to the table (a field changed or removed, a
+-- metatable, a protected one too) is left behind with it, and only mem carries over. The host writes the sensors in.
+local function fresh_io()
+  local t = {}
+  for k, v in next, actions do t[k] = v end
+  io_t = t
+  return t
+end
+
 function __boot(kind, fids, seed)
   M.randomseed(seed)
   -- The queue and the log keep the arrays they grow to, and an array never shrinks. They start at their limits (64
@@ -207,14 +218,14 @@ function __boot(kind, fids, seed)
   for k = 1, 20 do logs[k] = nil end
   local fidx = {}
   for k = 1, #fids do fidx[fids[k]] = k end
-  io_t.log = log
-  io_t.sleep = function(seconds) push(5, tonumber(seconds) or 0) end
+  actions.log = log
+  actions.sleep = function(seconds) push(5, tonumber(seconds) or 0) end
   if kind == "datacenter" then
-    io_t.process = function() push(1) end
-    io_t.cool = function(level) push(2, tonumber(level) or 0) end
+    actions.process = function() push(1) end
+    actions.cool = function(level) push(2, tonumber(level) or 0) end
   elseif kind == "power" then
-    io_t.set_thermal = function(output) push(3, tonumber(output) or 0) end
-    io_t.set_priority = function(list)
+    actions.set_thermal = function(output) push(3, tonumber(output) or 0) end
+    actions.set_priority = function(list)
       if type(list) ~= "table" then error("set_priority expects a list of facility ids", 2) end
       local idx = {}
       for k = 1, #list do
@@ -225,6 +236,7 @@ function __boot(kind, fids, seed)
       push(4, #idx, T.unpack(idx))
     end
   end
+  return fresh_io()
 end
 
 function __compile(src)
@@ -234,9 +246,13 @@ function __compile(src)
   pending = { f = f, env = e, libs = libs }
 end
 
--- Drops the installed firmware and its globals. The host calls it once a deploy has compiled and been measured,
--- so that the chunk waiting in pending is the only firmware alive when the RAM cap is set.
-function __release() env, installed = nil, nil end
+-- Drops the installed firmware and its globals, and returns the fresh io table that the next one starts with. The
+-- host calls it once a deploy has compiled and been measured, so that the chunk waiting in pending is the only
+-- firmware alive when the RAM cap is set.
+function __release()
+  env, installed = nil, nil
+  return fresh_io()
+end
 
 function __collect() collect("collect") end
 
@@ -253,5 +269,5 @@ function __step()
   tick(io_t, mem)
 end
 
-__io, __q, __logs = io_t, q, logs
+__q, __logs = q, logs
 `;

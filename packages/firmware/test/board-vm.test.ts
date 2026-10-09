@@ -502,6 +502,49 @@ describe('BoardVm', () => {
     });
   });
 
+  describe('io across deploys', () => {
+    it('gives each firmware a fresh io, so that only mem carries over', () => {
+      const v = vm();
+      const spoil = `function tick(io, mem)
+        io.cool = 2 io.log = nil io.foo = 1 mem.kept = true
+        setmetatable(io, { __index = function() return 0 end })
+      end`;
+      expect(v.tick(SENSORS, spoil).error).toBeNull();
+      const r = v.tick(
+        SENSORS,
+        `function tick(io, mem) io.log(type(io.cool), io.foo, io.nothing, getmetatable(io), mem.kept, io.temp) io.cool(1) end`,
+      );
+      expect(r.error).toBeNull();
+      expect(r.logs).toEqual(['function\tnil\tnil\tnil\ttrue\t70']);
+      expect(r.queue).toEqual([2, 1]);
+      v.close();
+    });
+
+    it('drops a protected metatable on io too', () => {
+      const v = vm();
+      expect(v.tick(SENSORS, `function tick(io) setmetatable(io, { __metatable = false }) end`).error).toBeNull();
+      expect(v.tick(SENSORS, `function tick(io) io.log(getmetatable(io), io.temp) end`).logs).toEqual(['nil\t70']);
+      v.close();
+    });
+
+    it("keeps the old firmware's io when a deploy does not compile", () => {
+      const v = vm();
+      expect(v.tick(SENSORS, `function tick(io) io.mark = (io.mark or 0) + 1 io.log(io.mark) end`).logs).toEqual(['1']);
+      expect(v.tick(SENSORS, `function tick( end`).ok).toBe(false);
+      // Still the same firmware, with the io it already had; a new one starts with a fresh io.
+      expect(v.tick(SENSORS, null).logs).toEqual(['2']);
+      expect(v.tick(SENSORS, `function tick(io) io.log(io.mark) end`).logs).toEqual(['nil']);
+      v.close();
+    });
+
+    it('reads the same data after each deploy of the same firmware', () => {
+      const v = vm();
+      const readings = [0, 1, 2, 3].map(() => v.tick(SENSORS, `function tick() end`).ramUsedBytes);
+      expect(Math.max(...readings) - Math.min(...readings)).toBeLessThan(64);
+      v.close();
+    });
+  });
+
   describe('string.format', () => {
     // Runs the body as a tick on a fresh board.
     const run = (body: string) => {
