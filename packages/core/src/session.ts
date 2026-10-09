@@ -2,6 +2,7 @@ import { applyActions } from './actions.ts';
 import { raiseAlert } from './alerts.ts';
 import { deployFirmware, runTransitions } from './boards.ts';
 import { runDatacenters, runFires } from './datacenter.ts';
+import { runEmf } from './emf.ts';
 import type { FirmwareHost } from './firmware-host.ts';
 import { runPower } from './power.ts';
 import { createRng, deriveSeed } from './rng.ts';
@@ -63,6 +64,7 @@ export class Session {
     const ticked = runBoardTicks(this.ctx, s);
     applyActions(this.ctx, s, ticked);
     runDatacenters(this.ctx, s);
+    runEmf(this.ctx, ticked);
     runFires(this.ctx, s);
     this.checkSeasonEnd(s);
     w.step = s + 1;
