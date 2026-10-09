@@ -14,10 +14,13 @@ const DEFAULT_PORT = 7840;
  * The user's config directory, outside the repository: the token is a secret and the repository is public.
  * XDG_CONFIG_HOME counts only as an absolute path (the XDG Base Directory spec: an empty value is unset, a relative one is
  * invalid). Taken as it stands it could be relative, and the token would land under the server's working directory.
+ * An empty or relative home directory would do the same through the fallback, so then there is no directory at all.
  */
 export function configDir(): string {
   const xdg = process.env.XDG_CONFIG_HOME;
-  return join(xdg && isAbsolute(xdg) ? xdg : join(homedir(), '.config'), 'turing-city');
+  const base = xdg && isAbsolute(xdg) ? xdg : join(homedir(), '.config');
+  if (!isAbsolute(base)) throw new Error('no absolute config directory: set XDG_CONFIG_HOME to an absolute path, or HOME');
+  return join(base, 'turing-city');
 }
 
 function newToken(): string {

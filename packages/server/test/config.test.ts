@@ -65,6 +65,27 @@ describe('config: what the brief left unpinned', () => {
   it.each(['', 'config', './config', '../config', '~/.config'])('ignores XDG_CONFIG_HOME=%j, which is not an absolute path', (value) => {
     withXdgConfigHome(value, () => expect(configDir()).toBe(join(homedir(), '.config', 'turing-city')));
   });
+
+  // The same hole through the fallback: an empty or relative HOME gives the relative '.config', so there is no fallback then.
+  // (os.homedir() answers "" for HOME="" and the value itself for a relative HOME, as it reads HOME at each call.)
+  it.skipIf(process.platform === 'win32')(
+    'has no config directory, rather than one under the working directory, when HOME is not absolute',
+    () => {
+      const saved = process.env.HOME;
+      try {
+        for (const home of ['', 'relative/home']) {
+          process.env.HOME = home;
+          withXdgConfigHome(undefined, () => expect(() => configDir()).toThrow('absolute'));
+          withXdgConfigHome('config', () => expect(() => configDir()).toThrow('absolute'));
+          // an absolute XDG_CONFIG_HOME does not depend on HOME
+          withXdgConfigHome('/somewhere/config', () => expect(configDir()).toBe(join('/somewhere/config', 'turing-city')));
+        }
+      } finally {
+        if (saved === undefined) delete process.env.HOME;
+        else process.env.HOME = saved;
+      }
+    },
+  );
 });
 
 /** Runs `check` with XDG_CONFIG_HOME set to `value` (unset when undefined), then puts back what was there. */
