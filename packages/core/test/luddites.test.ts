@@ -565,6 +565,11 @@ describe('Luddites', () => {
     const run = () =>
       session((j) => {
         j.tuning.emf.rumourThreshold = 200;
+        // The raids smash P, DA and DB by step 300, and a town with every board down falls: the season would end there and the
+        // rest of the run would compare a finished world. A fourth board that gives off no EMF, far from the others, is one the
+        // groups never detect, so the town stands, the groups give up and leave, and the season runs to the last step.
+        const db = j.facilities[2]!;
+        j.facilities.push({ ...db, id: 'DC', x: 0, y: 11, board: { ...db.board, baseEmfPerSecond: 0 } });
       });
     const a = run();
     const b = run();
@@ -574,5 +579,8 @@ describe('Luddites', () => {
       expect(stateHash(b.world), `step ${i}`).toBe(stateHash(a.world));
     }
     expect(a.world.stats.raids).toBeGreaterThanOrEqual(2);
+    expect(a.world.boards.map((x) => x.status)).toEqual(['destroyed', 'destroyed', 'destroyed', 'running']); // all three they can see, not the fourth
+    expect(a.world.luddites).toEqual([]); // and every group has left
+    expect(a.world.ended, 'the season is still running at the last step').toBeNull();
   });
 });

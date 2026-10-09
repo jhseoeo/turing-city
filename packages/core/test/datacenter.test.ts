@@ -164,11 +164,14 @@ describe('datacenters', () => {
 
   it('never catches fire at or below 90 °C', () => {
     const s = powered();
+    // The helper's thermal 300 costs 2,100 to 2,700 a day: with the town's 5,000 it goes bankrupt at step 4,060 and the loop's last 939 steps do nothing.
+    s.world.money = 100_000 * MICRO;
     for (let i = 0; i < 5000; i++) {
       s.world.datacenters.DA!.tempMilli = 90_000;
       s.step();
     }
     expect(s.world.boards[1]!.status).toBe('running');
+    expect(s.world.ended, 'the season is still running at the last step').toBeNull();
   });
 
   it('counts a step as processing exactly when the power phase charges the job for it', () => {
