@@ -545,6 +545,51 @@ describe('BoardVm', () => {
     });
   });
 
+  describe('tostring', () => {
+    // getmetatable shows a __metatable field in place of the real metatable, so a table can show one that has a
+    // __tostring while its real metatable has none. No string that firmware can see may carry an address.
+    const run = (body: string, kind: 'datacenter' | 'power' = 'datacenter') => {
+      const v = vm({ kind });
+      const r = v.tick(SENSORS, `function tick(io) ${body} end`);
+      v.close();
+      return r;
+    };
+    const DECOY = `local d = setmetatable({}, { __metatable = { __tostring = true } })`;
+
+    it('prints no address for a table whose __metatable hides its real metatable', () => {
+      const r = run(`${DECOY} io.log(tostring(d), string.format("%s", d), d) print(d)`);
+      expect(r.logs).toEqual(['table\ttable\ttable', 'table']);
+    });
+
+    it('prints no address through any path', () => {
+      const r = run(`${DECOY} local t = {}
+        io.log(t, d, print, coroutine.create(print), io, tostring(t), tostring(d), string.format("%s|%s|%s", t, d, print))
+        print(t, d, io)`);
+      expect(r.logs).toHaveLength(2);
+      for (const line of r.logs) expect(line).not.toMatch(/0x[0-9a-f]+/i);
+    });
+
+    it('calls the __tostring that getmetatable shows', () => {
+      const r = run(
+        `local d = setmetatable({}, { __metatable = { __tostring = function() return "decoy" end } }) io.log(tostring(d), string.format("%s", d), d)`,
+      );
+      expect(r.logs).toEqual(['decoy\tdecoy\tdecoy']);
+    });
+
+    it("prints no address in set_priority's error either", () => {
+      const r = run(`${DECOY} io.set_priority({ d })`, 'power');
+      expect(r.error?.message).toContain('unknown facility: table');
+      expect(r.error?.message).not.toMatch(/0x[0-9a-f]+/i);
+    });
+
+    it('requires __tostring to return a string, as tostring does, and takes a number', () => {
+      expect(run(`io.log(tostring(setmetatable({}, { __tostring = function() return {} end })))`).error?.message).toContain(
+        "'__tostring' must return a string",
+      );
+      expect(run(`io.log(tostring(setmetatable({}, { __tostring = function() return 5 end })))`).logs).toEqual(['5']);
+    });
+  });
+
   describe('string.format', () => {
     // Runs the body as a tick on a fresh board.
     const run = (body: string) => {

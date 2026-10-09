@@ -11,12 +11,21 @@ local pairs, ipairs, next, pcall, xpcall, assert, tonumber = pairs, ipairs, next
 local S, T, M, C = string, table, math, coroutine
 local collect = collectgarbage
 
+-- What a value looks like to firmware. A table prints through the __tostring that getmetatable shows, which is called
+-- here and not through tostring_raw: getmetatable hands back a __metatable field in place of the real metatable, so
+-- tostring_raw would look in a metatable that has no __tostring and print an address. A __tostring that is not a
+-- function has nothing to call: the table is just "table".
 local function safe_tostring(v)
   local tv = type(v)
   if tv == "table" then
     local mt = getmetatable(v)
-    if type(mt) == "table" and rawget(mt, "__tostring") then return tostring_raw(v) end
-    return "table"
+    local f = type(mt) == "table" and rawget(mt, "__tostring")
+    if type(f) ~= "function" then return "table" end
+    local s = f(v)
+    local ts = type(s)
+    if ts == "string" then return s end
+    if ts == "number" then return tostring_raw(s) end
+    error("'__tostring' must return a string", 0)
   elseif tv == "function" or tv == "thread" or tv == "userdata" then
     return tv
   end
