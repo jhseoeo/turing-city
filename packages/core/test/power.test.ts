@@ -109,7 +109,13 @@ describe('power', () => {
   });
 
   it('moves wind and job price within their bounds, and redraws fuel daily', () => {
-    const s = new Session(m1Scenario(), 99, new FakeHost());
+    const s = new Session(
+      m1Scenario((j) => {
+        j.tuning.emf.rumourThreshold = 1_000_000_000; // the gauge can't fill: on default tuning a raid at step 3,179 smashes every board and ends the season at 3,640
+      }),
+      99,
+      new FakeHost(),
+    );
     const winds = new Set<number>();
     const fuel = new Set<number>();
     for (let i = 0; i < 800 * 5; i++) {
@@ -123,6 +129,7 @@ describe('power', () => {
     }
     expect(winds.size).toBeGreaterThan(20);
     expect([...fuel].every((f) => f >= 5 && f <= 9)).toBe(true);
+    expect(s.world.ended, 'the season is still running at the last step').toBeNull();
   });
 
   it("draws a job's power through its last step and not after it", () => {
