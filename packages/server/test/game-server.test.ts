@@ -222,8 +222,8 @@ describe('game server', () => {
   it('refuses a WebSocket handshake that sends no Origin', async () => {
     const server = await startGameServer({ port: 0, configDir: mkdtempSync(join(tmpdir(), 'tc-server-')), viewerDist: null });
     stop = server.close;
-    // A browser always sends an Origin. A handshake without one comes from some other program on this machine,
-    // and the hello message it would get carries the token that config.json keeps owner-only.
+    // A browser always sends an Origin, so a handshake without one is no web page: a client that does not set the header.
+    // (A program that sets it itself gets in; it runs as the player and could read the token file anyway, spec section 7.1.)
     await expect(viewer(server.port, null)).rejects.toThrow('403');
     const handshake = `GET /ws HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n`;
     expect(await raw(server.port, handshake)).toBe('HTTP/1.1 403 Forbidden');

@@ -9,8 +9,9 @@ export interface ViewerHubOptions {
   readonly hello: () => ServerToViewer;
   readonly reissueToken: () => void;
   /**
-   * Origins allowed to open the viewer socket. A handshake with no Origin is refused too: a browser always sends one, so
-   * it comes from some other program, and the hello message carries the token that config.json keeps owner-only.
+   * Origins allowed to open the viewer socket. A handshake with no Origin is refused too, because a browser always sends
+   * one. That keeps out web pages and clients that don't set the header. It does not keep out a program that sets the
+   * header itself: such a program runs as the player and could read the token file anyway (spec section 7.1).
    */
   readonly allowedOrigins: readonly string[];
 }
