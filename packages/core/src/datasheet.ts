@@ -1,67 +1,96 @@
+import { idiv, MILLI } from './fixed.ts';
 import { facilityDemand, plantBoard } from './power.ts';
-import type { FacilityKind, SensorName } from './scenario.ts';
+import type { FacilityKind, SensorName, Tuning } from './scenario.ts';
 import { SENSOR_KEYS } from './sensors.ts';
 import { findBoard, manhattan, type SimContext } from './world.ts';
 
-export const SENSOR_DOCS: Record<SensorName, { unit: string; meaning: string }> = {
-  wind: { unit: 'power units', meaning: "the wind module's output right now; it costs nothing" },
-  demand: { unit: 'power units', meaning: 'everything the town requests this step, transmission loss included' },
-  fuelPrice: { unit: 'money per unit per day', meaning: 'what each unit of thermal output costs, redrawn every day' },
-  temp: { unit: '°C', meaning: "this datacenter's temperature; above 90 it can catch fire, and fire destroys the board" },
-  powerHeadroom: { unit: 'power units', meaning: 'generation minus demand; negative means the plant is shedding facilities' },
-  price: { unit: 'money per second of processing', meaning: 'the current job price, which drifts over time' },
-  emf: { unit: 'EMF units', meaning: "the EMF in this board's cell; Luddites hunt the strongest" },
-  ludditeDist: { unit: 'cells', meaning: 'the distance to the nearest Luddite group, nil when none is on the map' },
-};
+/** A milli-unit amount as a short decimal: 2000 is "2", 800 is "0.8", 95050 is "95.05". */
+function milli(amount: number): string {
+  const fraction = String(amount % MILLI)
+    .padStart(3, '0')
+    .replace(/0+$/, '');
+  return fraction === '' ? String(idiv(amount, MILLI)) : `${idiv(amount, MILLI)}.${fraction}`;
+}
+
+/** What each sensor reads. The numbers in the words are the scenario's own. */
+export function sensorDocs(t: Tuning): Record<SensorName, { unit: string; meaning: string }> {
+  return {
+    wind: { unit: 'power units', meaning: "the wind module's output right now; it costs nothing" },
+    demand: { unit: 'power units', meaning: 'everything the town requests this step, transmission loss included' },
+    fuelPrice: { unit: 'money per unit per day', meaning: 'what each unit of thermal output costs, redrawn every day' },
+    temp: {
+      unit: '°C',
+      meaning: `this datacenter's temperature; above ${milli(t.datacenter.fireThresholdMilli)} it can catch fire, and fire destroys the board`,
+    },
+    powerHeadroom: { unit: 'power units', meaning: 'generation minus demand; negative means the plant is shedding facilities' },
+    price: { unit: 'money per second of processing', meaning: 'the current job price, which drifts over time' },
+    emf: { unit: 'EMF units', meaning: "the EMF in this board's cell; Luddites hunt the strongest" },
+    ludditeDist: { unit: 'cells', meaning: 'the distance to the nearest Luddite group, nil when none is on the map' },
+  };
+}
 
 const TIME_READS = [
   { name: 'day', unit: 'day', meaning: 'the season day, from 1' },
   { name: 'clock', unit: 'seconds', meaning: 'game seconds since the season started' },
 ];
 
-export const ACTION_DOCS: Record<FacilityKind | 'any', ReadonlyArray<{ call: string; meaning: string }>> = {
-  datacenter: [
-    {
-      call: 'io.process()',
-      meaning: 'run one job until your next tick: earns price x seconds, draws 150 power, and heats the datacenter (+2 °C/s)',
-    },
-    { call: 'io.cool(level)', meaning: 'set cooling to level 0-3; each level takes 0.8 °C/s off and draws 20 power; it stays set' },
-  ],
-  power: [
-    {
-      call: 'io.set_thermal(output)',
-      meaning: 'set the thermal module to 0-300 power units; it stays set and costs fuel_price per unit per day',
-    },
-    {
-      call: 'io.set_priority({ids})',
-      meaning: 'who keeps power in a shortage, highest first, such as {"DA", "DB"}; the unlisted come after',
-    },
-  ],
-  any: [
-    {
-      call: 'io.log(...)',
-      meaning:
-        'log a line (print does the same); 20 lines per tick, 200 characters each. It is not an action: it adds no action EMF, and its lines are kept when the tick fails',
-    },
-    { call: 'io.sleep(seconds)', meaning: 'deep sleep for 1-40 s: silent and nearly powerless, but RAM (mem and globals) is wiped' },
-  ],
-};
+/** The calls of each kind of board. The numbers in the words are the scenario's own. */
+export function actionDocs(t: Tuning): Record<FacilityKind | 'any', ReadonlyArray<{ call: string; meaning: string }>> {
+  const dc = t.datacenter;
+  return {
+    datacenter: [
+      {
+        call: 'io.process()',
+        meaning: `run one job until your next tick: earns price x seconds, draws ${dc.processPower} power, and heats the datacenter (+${milli(dc.heatMilliPerSecond)} °C/s)`,
+      },
+      {
+        call: 'io.cool(level)',
+        meaning: `set cooling to level 0-${dc.maxCoolingLevel}; each level takes ${milli(dc.coolingMilliPerLevelPerSecond)} °C/s off and draws ${dc.coolingPowerPerLevel} power; it stays set`,
+      },
+    ],
+    power: [
+      {
+        call: 'io.set_thermal(output)',
+        meaning: `set the thermal module to 0-${t.thermal.max} power units; it stays set and costs fuel_price per unit per day`,
+      },
+      {
+        call: 'io.set_priority({ids})',
+        meaning: 'who keeps power in a shortage, highest first, such as {"DA", "DB"}; the unlisted come after',
+      },
+    ],
+    any: [
+      {
+        call: 'io.log(...)',
+        meaning:
+          'log a line (print does the same); 20 lines per tick, 200 characters each. It is not an action: it adds no action EMF, and its lines are kept when the tick fails',
+      },
+      {
+        call: 'io.sleep(seconds)',
+        meaning: `deep sleep for 1-${t.maxSleepSeconds} s: silent and nearly powerless, but RAM (mem and globals) is wiped`,
+      },
+    ],
+  };
+}
 
-export const FIRMWARE_RULES: readonly string[] = [
-  "Define function tick(io, mem). It runs once per beat of the board's clock while the board is powered and awake.",
-  'mem persists across ticks and deploys (hot reload); globals reset on every deploy. Deep sleep and destruction wipe both.',
-  'Only mem carries over a deploy; each install gets a fresh io.',
-  'Actions queue during the tick and apply when it returns. A tick that errors, runs out of RAM, or exceeds the instruction cap is aborted: its actions are dropped, but its log lines and the writes it made to mem stay. A capped tick counts as the whole cap toward EMF.',
-  'RAM is firmware data beyond a fixed baseline: mem, globals, and what a tick allocates. Code doesn\'t count. After "out of RAM", mem still holds its data, so deploy firmware that frees what it no longer needs from mem first thing (its first tick gets a little extra room to do that).',
-  "EMF per tick = instructions / 100 + 10 per action (io.log isn't one); an awake board also emits its base EMF every second. Efficient firmware is quieter.",
-  'Available: the base library (pairs, pcall, setmetatable, ...), string, table, math, coroutine. Missing: os, io (the library), load, require, debug, collectgarbage, utf8.',
-  "string.find searches plain text only; string.match, gmatch, and gsub don't exist. math.randomseed doesn't exist; math.random is seeded per board.",
-  'tostring of a table or function gives just its type, and setmetatable refuses __gc and __mode.',
-  'string.format refuses %p, and tostring never shows an address.',
-  "coroutine.close isn't available. A coroutine that errors is never closed, so its <close> handlers don't run.",
-  'An xpcall handler runs after the stack has unwound, and never once the instruction cap is hit.',
-  'Adding keys to a table while traversing it with pairs or next gives an undefined order.',
-];
+/** What the firmware runs under. The numbers in the words are the scenario's own. */
+export function firmwareRules(t: Tuning): readonly string[] {
+  return [
+    "Define function tick(io, mem). It runs once per beat of the board's clock while the board is powered and awake.",
+    'mem persists across ticks and deploys (hot reload); globals reset on every deploy. Deep sleep and destruction wipe both.',
+    'Only mem carries over a deploy; each install gets a fresh io.',
+    'Actions queue during the tick and apply when it returns. A tick that errors, runs out of RAM, or exceeds the instruction cap is aborted: its actions are dropped, but its log lines and the writes it made to mem stay. A capped tick counts as the whole cap toward EMF.',
+    'RAM is firmware data beyond a fixed baseline: mem, globals, and what a tick allocates. Code doesn\'t count. After "out of RAM", mem still holds its data, so deploy firmware that frees what it no longer needs from mem first thing (its first tick gets a little extra room to do that).',
+    `EMF per tick = instructions / ${t.emf.instructionsPerUnit} + ${t.emf.perAction} per action (io.log isn't one); an awake board also emits its base EMF every second. Efficient firmware is quieter.`,
+    `A facility's power draw grows ${t.transmissionLossPctPerCell}% for each cell between it and the plant (distanceToPlant); powerDrawNow includes that.`,
+    'Available: the base library (pairs, pcall, setmetatable, ...), string, table, math, coroutine. Missing: os, io (the library), load, require, debug, collectgarbage, utf8.',
+    "string.find searches plain text only; string.match, gmatch, and gsub don't exist. math.randomseed doesn't exist; math.random is seeded per board.",
+    'tostring of a table or function gives just its type, and setmetatable refuses __gc and __mode.',
+    'string.format refuses %p, and tostring never shows an address.',
+    "coroutine.close isn't available. A coroutine that errors is never closed, so its <close> handlers don't run.",
+    'An xpcall handler runs after the stack has unwound, and never once the instruction cap is hit.',
+    'Adding keys to a table while traversing it with pairs or next gives an undefined order.',
+  ];
+}
 
 export interface Datasheet {
   readonly board: string;
@@ -87,13 +116,16 @@ export function datasheet(ctx: SimContext, boardId: string): Datasheet | null {
   const board = findBoard(ctx.world, boardId);
   if (!board) return null;
   const plant = plantBoard(ctx.world);
-  const reads = [...board.spec.sensors.map((s) => ({ name: SENSOR_KEYS[s], ...SENSOR_DOCS[s] })), ...TIME_READS];
+  const tuning = ctx.scenario.tuning;
+  const sensors = sensorDocs(tuning);
+  const actions = actionDocs(tuning);
+  const reads = [...board.spec.sensors.map((s) => ({ name: SENSOR_KEYS[s], ...sensors[s] })), ...TIME_READS];
   const last = board.lastTick;
   return {
     board: board.id,
     facility: { kind: board.kind, x: board.x, y: board.y, distanceToPlant: manhattan(board.x, board.y, plant.x, plant.y) },
     parts: { clockHz: board.spec.clockHz, instructionsPerTick: board.spec.instructionCap, ramBytes: board.spec.ramKb * 1024 },
-    io: { reads, actions: [...ACTION_DOCS[board.kind], ...ACTION_DOCS.any] },
+    io: { reads, actions: [...actions[board.kind], ...actions.any] },
     powerDrawNow: facilityDemand(ctx, board, ctx.world.step),
     baseEmfPerSecond: board.spec.baseEmfPerSecond,
     firmware: {
@@ -103,6 +135,6 @@ export function datasheet(ctx: SimContext, boardId: string): Datasheet | null {
       lastError: last?.error ? `${last.error.kind}: ${last.error.message}` : null,
       ramUsedBytes: last?.ramUsedBytes ?? null,
     },
-    rules: FIRMWARE_RULES,
+    rules: firmwareRules(tuning),
   };
 }

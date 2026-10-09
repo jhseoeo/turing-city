@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { AGENT_INSTRUCTIONS, AGENT_TOOLS, type GameApi, ToolError } from '../src/agent-tools.ts';
+import { LOG_LIMIT } from '../src/boards.ts';
 
 function fakeApi(): GameApi & { deployed: Array<[string, string]> } {
   const deployed: Array<[string, string]> = [];
@@ -144,5 +145,28 @@ describe('agent tools', () => {
     expect(accepts('get_alerts', {})).toBe(true);
     expect(accepts('get_alerts', { since: 4 })).toBe(true);
     expect(accepts('get_alerts', { since: '4' })).toBe(false);
+  });
+
+  it('puts no tuning number in a description: the datasheet carries them, from the scenario', () => {
+    // The one number is the length of a board's log, which is the board's own limit.
+    for (const t of AGENT_TOOLS)
+      expect(t.description.match(/\d+/g) ?? [], t.name).toEqual(t.name === 'read_logs' ? [String(LOG_LIMIT)] : []);
+    expect(AGENT_INSTRUCTIONS).not.toMatch(/\d/);
+    expect(tool('get_map').description).toContain('datasheet');
+  });
+
+  it("takes the log length it names from the board's own limit", async () => {
+    vi.resetModules();
+    vi.doMock('../src/boards.ts', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../src/boards.ts')>()),
+      LOG_LIMIT: 37,
+    }));
+    try {
+      const fresh = await import('../src/agent-tools.ts');
+      expect(fresh.AGENT_TOOLS.find((t) => t.name === 'read_logs')!.description).toContain('up to its last 37 lines');
+    } finally {
+      vi.doUnmock('../src/boards.ts');
+      vi.resetModules();
+    }
   });
 });

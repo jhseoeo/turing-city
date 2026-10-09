@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { datasheet } from '../src/datasheet.ts';
+import { type Datasheet, datasheet } from '../src/datasheet.ts';
 import { alertsView, firmwareView, inspectBoard, listBoards, logsView, mapView, snapshot, statusView, timeView } from '../src/queries.ts';
 import { sensorFrame } from '../src/sensors.ts';
 import { Session } from '../src/session.ts';
@@ -469,5 +469,51 @@ describe('views in detail', () => {
       'io.log(...)',
       'io.sleep(seconds)',
     ]);
+  });
+});
+
+// The datasheet is the agent's only source for what a call costs and does, so the numbers in its text are the scenario's.
+describe('the datasheet text and the scenario', () => {
+  const callOf = (sheet: Datasheet, call: string): string => sheet.io.actions.find((a) => a.call === call)!.meaning;
+  const readOf = (sheet: Datasheet, name: string): string => sheet.io.reads.find((r) => r.name === name)!.meaning;
+
+  it('writes the numbers of the m1 scenario as the text always read', () => {
+    const { s } = session();
+    const da = datasheet(s.ctx, 'DA')!;
+    const plant = datasheet(s.ctx, 'P')!;
+    expect(callOf(da, 'io.process()')).toContain('draws 150 power, and heats the datacenter (+2 °C/s)');
+    expect(callOf(da, 'io.cool(level)')).toContain('level 0-3; each level takes 0.8 °C/s off and draws 20 power');
+    expect(readOf(da, 'temp')).toContain('above 90 it can catch fire');
+    expect(callOf(plant, 'io.set_thermal(output)')).toContain('0-300 power units');
+    expect(callOf(da, 'io.sleep(seconds)')).toContain('deep sleep for 1-40 s');
+    const rules = da.rules.join('\n');
+    expect(rules).toContain('EMF per tick = instructions / 100 + 10 per action');
+    expect(rules).toContain("A facility's power draw grows 2% for each cell between it and the plant");
+  });
+
+  it('writes the numbers of the scenario it describes, so a retuned town reads differently', () => {
+    const { s } = session((j) => {
+      j.tuning.datacenter.processPower = 170;
+      j.tuning.datacenter.heatMilliPerSecond = 3_500;
+      j.tuning.datacenter.maxCoolingLevel = 5;
+      j.tuning.datacenter.coolingMilliPerLevelPerSecond = 50;
+      j.tuning.datacenter.coolingPowerPerLevel = 30;
+      j.tuning.datacenter.fireThresholdMilli = 95_050;
+      j.tuning.thermal.max = 400;
+      j.tuning.maxSleepSeconds = 25;
+      j.tuning.emf.instructionsPerUnit = 50;
+      j.tuning.emf.perAction = 7;
+      j.tuning.transmissionLossPctPerCell = 3;
+    });
+    const da = datasheet(s.ctx, 'DA')!;
+    const plant = datasheet(s.ctx, 'P')!;
+    expect(callOf(da, 'io.process()')).toContain('draws 170 power, and heats the datacenter (+3.5 °C/s)');
+    expect(callOf(da, 'io.cool(level)')).toContain('level 0-5; each level takes 0.05 °C/s off and draws 30 power');
+    expect(readOf(da, 'temp')).toContain('above 95.05 it can catch fire');
+    expect(callOf(plant, 'io.set_thermal(output)')).toContain('0-400 power units');
+    expect(callOf(da, 'io.sleep(seconds)')).toContain('deep sleep for 1-25 s');
+    const rules = da.rules.join('\n');
+    expect(rules).toContain('EMF per tick = instructions / 50 + 7 per action');
+    expect(rules).toContain("A facility's power draw grows 3% for each cell between it and the plant");
   });
 });

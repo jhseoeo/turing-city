@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { LOG_LIMIT } from './boards.ts';
 import type { Datasheet } from './datasheet.ts';
 import type { AlertView, BoardSummary, FirmwareView, LogView, MapView, StatusView } from './queries.ts';
 
@@ -77,15 +78,14 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
   },
   {
     name: 'read_logs',
-    description:
-      "A board's log, up to its last 200 lines: what its firmware logged, its errors (runtime, CPU limit, out of RAM), and system events such as deploys, power loss, sleep, and destruction.",
+    description: `A board's log, up to its last ${LOG_LIMIT} lines: what its firmware logged, its errors (runtime, CPU limit, out of RAM), and system events such as deploys, power loss, sleep, and destruction.`,
     inputSchema: { board, since },
     run: async (api, args) => known(await api.logs(args.board as string, args.since as number | undefined), args.board),
   },
   {
     name: 'get_map',
     description:
-      'The town map: each facility, its position on the grid, its state, and its distance to the power plant (transmission loss grows 2% per cell). EMF and Luddites are not on it: boards learn of them through their sensors.',
+      'The town map: each facility, its position on the grid, its state, and its distance to the power plant (power is lost in transmission over distance; the datasheet gives the rate). EMF and Luddites are not on it: boards learn of them through their sensors.',
     inputSchema: {},
     run: (api) => api.map(),
   },
