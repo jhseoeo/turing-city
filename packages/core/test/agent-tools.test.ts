@@ -1,7 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { AGENT_INSTRUCTIONS, AGENT_TOOLS, type GameApi, ToolError } from '../src/agent-tools.ts';
+import { AGENT_INSTRUCTIONS, AGENT_TOOLS, type GameApi, type StatusWithRun, ToolError } from '../src/agent-tools.ts';
 import { LOG_LIMIT } from '../src/boards.ts';
+
+// The session does not know the clock; the game API adds `run` from the server's controller.
+const STATUS: StatusWithRun = {
+  time: { day: 1, clock: '00:36', seconds: 1 },
+  seasonDays: 30,
+  money: 4999,
+  power: { generation: 20, demand: 28, shed: ['DB'] },
+  ended: null,
+  run: { paused: true, speed: 2 },
+};
 
 function fakeApi(): GameApi & { deployed: Array<[string, string]> } {
   const deployed: Array<[string, string]> = [];
@@ -16,7 +26,7 @@ function fakeApi(): GameApi & { deployed: Array<[string, string]> } {
     },
     logs: async () => [],
     map: async () => ({ width: 1, height: 1, facilities: [] }),
-    status: async () => ({}) as never,
+    status: async () => STATUS,
     alerts: async () => [],
   };
 }
@@ -145,6 +155,14 @@ describe('agent tools', () => {
     expect(accepts('get_alerts', {})).toBe(true);
     expect(accepts('get_alerts', { since: 4 })).toBe(true);
     expect(accepts('get_alerts', { since: '4' })).toBe(false);
+  });
+
+  it("returns the season's state with how the player has set the clock, and says so", async () => {
+    await expect(tool('get_status').run(fakeApi(), {})).resolves.toEqual(STATUS);
+    const { description } = tool('get_status');
+    expect(description).toContain('run.paused');
+    expect(description).toContain('run.speed');
+    expect(description).toContain("the player's to set, not yours");
   });
 
   it('puts no tuning number in a description: the datasheet carries them, from the scenario', () => {

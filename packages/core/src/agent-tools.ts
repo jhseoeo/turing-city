@@ -7,6 +7,19 @@ export type DeployOutcome =
   | { readonly ok: true; readonly version: number; readonly installsAt: string }
   | { readonly ok: false; readonly error: string };
 
+/** How the player has set the clock. The session does not know it (the server's controller does), so the game API supplies it. */
+export interface RunView {
+  /** Whether game time stands still. */
+  readonly paused: boolean;
+  /** How many times as fast as normal game time runs while it goes. */
+  readonly speed: 1 | 2 | 3;
+}
+
+/** What get_status returns: the season's state, and how the player has set the clock. */
+export interface StatusWithRun extends StatusView {
+  readonly run: RunView;
+}
+
 /** What the tools need from the game; the server implements it on top of the session. */
 export interface GameApi {
   listBoards(): Promise<BoardSummary[]>;
@@ -15,7 +28,7 @@ export interface GameApi {
   deploy(board: string, code: string): Promise<DeployOutcome>;
   logs(board: string, sinceSeconds: number | undefined): Promise<LogView[] | null>;
   map(): Promise<MapView>;
-  status(): Promise<StatusView>;
+  status(): Promise<StatusWithRun>;
   alerts(sinceSeconds: number | undefined): Promise<AlertView[]>;
 }
 
@@ -92,7 +105,7 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
   {
     name: 'get_status',
     description:
-      "The season's state: day and time, money, power generation and demand, which facilities are shed, and whether the season has ended. Pausing and speed are the player's, not yours.",
+      "The season's state: day and time, money, power generation and demand, which facilities are shed, and whether the season has ended. run.paused says whether the player has stopped the clock, and run.speed how many times as fast as normal it runs; pausing and speed are the player's to set, not yours.",
     inputSchema: {},
     run: (api) => api.status(),
   },
