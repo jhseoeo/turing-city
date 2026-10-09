@@ -167,4 +167,116 @@ describe('BoardVm', () => {
     expect(roll(7)).toBe(roll(7));
     expect(roll(7)).not.toBe(roll(8));
   });
+
+  it('refuses a __gc metatable as well as a __mode one', () => {
+    const v = vm();
+    const r = v.tick(SENSORS, `function tick() setmetatable({}, {__gc = function() end}) end`);
+    expect(r.ok).toBe(false);
+    expect(r.error?.message).toContain('__gc and __mode are not allowed');
+    v.close();
+  });
+
+  it('keeps power actions off a datacenter, as it keeps datacenter actions off a power board', () => {
+    const d = vm({ kind: 'datacenter' });
+    for (const call of ['io.set_thermal(1)', 'io.set_priority({"P"})']) {
+      const r = d.tick(SENSORS, `function tick(io) ${call} end`);
+      expect(r.ok).toBe(false);
+      expect(r.error?.kind).toBe('runtime');
+    }
+    d.close();
+  });
+
+  it('drops an action that does not fit whole at the 64-number limit, and still takes a later one that fits', () => {
+    const v = vm({ instructionCap: 20_000 });
+    // 31 cool(1) calls are 62 numbers and process() makes 63. The next cool(1) would reach 65 and is dropped whole;
+    // the last process() fits at 64.
+    const r = v.tick(SENSORS, `function tick(io) for i = 1, 31 do io.cool(1) end io.process() io.cool(1) io.process() end`);
+    expect(r.queue).toEqual([...Array.from({ length: 31 }, () => [2, 1]).flat(), 1, 1]);
+    v.close();
+  });
+
+  it('returns no actions from a tick that failed after queueing some', () => {
+    const v = vm();
+    const r = v.tick(SENSORS, `function tick(io) io.process() io.cool(2) error("after", 0) end`);
+    expect(r.ok).toBe(false);
+    expect(r.queue).toEqual([]);
+    v.close();
+  });
+
+  // Spec 6.5 lists the builtins that are charged by the work they do. Each row runs one on a large input in a tick of its
+  // own, next to a control tick that loads the same arguments and calls nothing charged. The call has to cost the
+  // difference: without its charge a call costs a handful of instructions.
+  const CHARGED: ReadonlyArray<readonly [string, string, string]> = [
+    ['string.rep', 'string.rep("x", 8000)', 'nil'],
+    ['string.upper', 'string.upper(big)', 'nil'],
+    ['string.lower', 'string.lower(big)', 'nil'],
+    ['string.reverse', 'string.reverse(big)', 'nil'],
+    ['string.byte', 'string.byte(big, 1, -1)', 'nil'],
+    ['string.char', 'string.char(table.unpack(list))', 'select("#", table.unpack(list))'],
+    ['string.format', 'string.format("%s", big)', 'nil'],
+    ['string.find', 'string.find(big, "y")', 'nil'],
+    ['table.concat', 'table.concat(parts)', 'nil'],
+    ['table.sort', 'table.sort(list)', 'nil'],
+    ['table.unpack', 'select("#", table.unpack(list))', 'nil'],
+  ];
+  it.each(CHARGED)('charges %s by the work it does', (_name, call, control) => {
+    const instructions = (statement: string): number => {
+      const v = vm({ instructionCap: 100_000, ramBytes: 256 * 1024 });
+      const r = v.tick(
+        SENSORS,
+        `function tick()
+        local big = string.rep("x", 8000)
+        local list = {} for i = 1, 600 do list[i] = 65 end
+        local parts = {big, big, big, big}
+        local _ = ${statement}
+      end`,
+      );
+      v.close();
+      expect(r.error).toBeNull();
+      return r.instructions;
+    };
+    expect(instructions(call) - instructions(control)).toBeGreaterThanOrEqual(400);
+  });
+
+  it('counts a charge in whole instructions', () => {
+    const v = vm();
+    // 20 bytes at one instruction per 16 bytes is 1.25, which counts as 2.
+    const r = v.tick(SENSORS, `function tick() local s = string.rep("x", 20) end`);
+    expect(Number.isInteger(r.instructions)).toBe(true);
+    v.close();
+  });
+
+  it('counts the tick after a capped one by what it ran', () => {
+    const v = vm();
+    v.tick(SENSORS, `function tick() while true do end end`);
+    const next = v.tick(SENSORS, `function tick() local s = 0 for i = 1, 10 do s = s + i end error("late", 0) end`);
+    expect(next.instructions).toBeLessThan(100);
+    expect(next.error).toEqual({ kind: 'runtime', message: 'late' });
+    v.close();
+  });
+
+  it('starts each tick with an empty queue and an empty log', () => {
+    const v = vm();
+    const once = `function tick(io, mem) if not mem.done then mem.done = true io.log("once") io.process() end end`;
+    const first = v.tick(SENSORS, once);
+    expect([first.queue, first.logs]).toEqual([[1], ['once']]);
+    const second = v.tick(SENSORS, null);
+    expect([second.queue, second.logs]).toEqual([[], []]);
+    v.close();
+  });
+
+  it('sorts a table that has a metatable through a copy, asking for its length once', () => {
+    const v = vm();
+    const r = v.tick(
+      SENSORS,
+      `function tick(io)
+        local asked = 0
+        local t = setmetatable({3, 1, 2}, { __len = function() asked = asked + 1 return 3 end })
+        table.sort(t)
+        io.log(asked, t[1], t[2], t[3])
+      end`,
+    );
+    expect(r.logs).toEqual(['1\t1\t2\t3']);
+    v.close();
+  });
 });
