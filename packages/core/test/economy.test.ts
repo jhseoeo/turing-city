@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { destroyBoard } from '../src/boards.ts';
 import { MICRO } from '../src/fixed.ts';
 import { stateHash } from '../src/hash.ts';
 import { replay, Session } from '../src/session.ts';
@@ -71,6 +72,39 @@ describe('economy', () => {
     expect(da.status).toBe('running');
     steps(s, 4);
     expect(da.log.filter((l) => l.kind === 'log').at(-1)?.text).toBe('n=1');
+  });
+
+  it('brings a rebuilt datacenter back as new hardware: ambient temperature, no cooling, and no fire roll', () => {
+    const s = calm(new FakeHost(), (j) => {
+      // Below the file's 25,000: the temperature phase lifts anything under ambient back up, so only a lower ambient shows where the reset read it.
+      j.tuning.datacenter.ambientMilli = 20_000;
+    });
+    const da = s.world.boards[1]!;
+    const wreck = s.world.datacenters.DA!;
+    const other = s.world.datacenters.DB!;
+    wreck.tempMilli = 140_000; // far above 122 °C: after the rebuild's 400 steps of leaking heat it is still above 90 °C
+    wreck.cooling = 3;
+    other.tempMilli = 80_000;
+    destroyBoard(s.ctx, da, 0, 'fire');
+    expect(s.rebuild('DA')).toEqual({ ok: true });
+    Object.assign(s.ctx.rng, { fire: { nextU32: () => 0, int: (lo: number) => lo, chancePpm: () => true } }); // any fire roll burns the board
+    steps(s, 401); // the board is back at step 400
+    expect(wreck.tempMilli).toBe(20_000);
+    expect(wreck.cooling).toBe(0);
+    expect(da.status).toBe('running');
+    steps(s, 5);
+    expect(da.status).toBe('running');
+    expect(s.world.alerts.some((a) => a.kind === 'fire')).toBe(false);
+    expect(other.tempMilli).toBeGreaterThan(20_000); // only the rebuilt board starts over
+  });
+
+  it('rebuilds the power plant too, which has no datacenter state to reset', () => {
+    const s = calm();
+    const plant = s.world.boards[0]!;
+    destroyBoard(s.ctx, plant, 0, 'luddites');
+    expect(s.rebuild('P')).toEqual({ ok: true });
+    steps(s, 401);
+    expect(plant.status).toBe('running');
   });
 
   it("refuses a rebuild it can't pay for", () => {

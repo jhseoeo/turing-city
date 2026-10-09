@@ -64,6 +64,12 @@ export function runTransitions(ctx: SimContext, step: number): void {
     } else if (board.status === 'rebuilding' && board.readyAt !== null && board.readyAt <= step) {
       board.status = 'running';
       board.readyAt = null;
+      // A rebuilt datacenter is new hardware: the wreck's heat and cooling level don't come back with it.
+      const dc = ctx.world.datacenters[board.id];
+      if (dc) {
+        dc.tempMilli = ctx.scenario.tuning.datacenter.ambientMilli;
+        dc.cooling = 0;
+      }
       appendLog(board, step, 'system', 'rebuilt');
     }
   }
