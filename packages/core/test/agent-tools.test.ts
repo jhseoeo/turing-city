@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { AGENT_INSTRUCTIONS, AGENT_TOOLS, type GameApi, ToolError } from '../src/agent-tools.ts';
 
 function fakeApi(): GameApi & { deployed: Array<[string, string]> } {
@@ -18,6 +18,28 @@ function fakeApi(): GameApi & { deployed: Array<[string, string]> } {
     status: async () => ({}) as never,
     alerts: async () => [],
   };
+}
+
+/** A GameApi that records each call as [method, ...arguments] and answers with a value that names the method. */
+function recordingApi(): { api: GameApi; calls: unknown[][] } {
+  const calls: unknown[][] = [];
+  const method =
+    (name: string) =>
+    async (...args: unknown[]) => {
+      calls.push([name, ...args]);
+      return { answered: name } as never;
+    };
+  const api: GameApi = {
+    listBoards: method('listBoards'),
+    datasheet: method('datasheet'),
+    firmware: method('firmware'),
+    deploy: method('deploy'),
+    logs: method('logs'),
+    map: method('map'),
+    status: method('status'),
+    alerts: method('alerts'),
+  };
+  return { api, calls };
 }
 
 const tool = (name: string) => AGENT_TOOLS.find((t) => t.name === name)!;
@@ -72,5 +94,55 @@ describe('agent tools', () => {
     }
     // Only the NUL itself is refused: other control characters, non-ASCII text, and a backslash-zero escape inside a Lua string are fine.
     expect(schema.safeParse('-- 한글, é, 😀\t\r\n\u0001\u007f print("a\\0b")').success).toBe(true);
+  });
+
+  it('passes each tool its arguments, and returns what the game answers', async () => {
+    const { api, calls } = recordingApi();
+    const cases: Array<[string, Record<string, unknown>, unknown[]]> = [
+      ['list_boards', {}, ['listBoards']],
+      ['get_datasheet', { board: 'DB' }, ['datasheet', 'DB']],
+      ['get_firmware', { board: 'DB' }, ['firmware', 'DB']],
+      ['deploy_firmware', { board: 'DB', code: 'x = 1' }, ['deploy', 'DB', 'x = 1']],
+      ['read_logs', { board: 'DB', since: 3 }, ['logs', 'DB', 3]],
+      ['read_logs', { board: 'DB' }, ['logs', 'DB', undefined]],
+      ['get_map', {}, ['map']],
+      ['get_status', {}, ['status']],
+      ['get_alerts', { since: 7 }, ['alerts', 7]],
+      ['get_alerts', {}, ['alerts', undefined]],
+    ];
+    for (const [name, args, call] of cases) {
+      calls.length = 0;
+      const answer = await tool(name).run(api, args);
+      expect(calls, name).toEqual([call]);
+      expect(answer, name).toEqual({ answered: call[0] });
+    }
+  });
+
+  it('refuses an unknown board in every tool that reads one, naming it and pointing to list_boards', async () => {
+    const api: GameApi = { ...recordingApi().api, datasheet: async () => null, firmware: async () => null, logs: async () => null };
+    for (const name of ['get_datasheet', 'get_firmware', 'read_logs']) {
+      const refused = tool(name).run(api, { board: 'ZZ' });
+      await expect(refused, name).rejects.toBeInstanceOf(ToolError);
+      await expect(refused, name).rejects.toThrow(/unknown board ZZ.*list_boards/);
+    }
+  });
+
+  it('asks for a board id where a tool needs one, and takes the time to read from as an optional number', () => {
+    const accepts = (name: string, args: unknown) => z.object(tool(name).inputSchema).safeParse(args).success;
+    for (const name of ['list_boards', 'get_map', 'get_status']) expect(accepts(name, {}), name).toBe(true);
+    for (const name of ['get_datasheet', 'get_firmware']) {
+      expect(accepts(name, {}), name).toBe(false);
+      expect(accepts(name, { board: 7 }), name).toBe(false);
+      expect(accepts(name, { board: 'DA' }), name).toBe(true);
+    }
+    expect(accepts('deploy_firmware', { board: 'DA' })).toBe(false);
+    expect(accepts('deploy_firmware', { board: 'DA', code: 'x' })).toBe(true);
+    expect(accepts('read_logs', { since: 1 })).toBe(false);
+    expect(accepts('read_logs', { board: 'DA' })).toBe(true);
+    expect(accepts('read_logs', { board: 'DA', since: 1.5 })).toBe(true);
+    expect(accepts('read_logs', { board: 'DA', since: 'now' })).toBe(false);
+    expect(accepts('get_alerts', {})).toBe(true);
+    expect(accepts('get_alerts', { since: 4 })).toBe(true);
+    expect(accepts('get_alerts', { since: '4' })).toBe(false);
   });
 });
