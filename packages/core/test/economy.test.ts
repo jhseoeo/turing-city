@@ -150,4 +150,37 @@ describe('economy', () => {
     expect(stateHash(again.world)).toBe(stateHash(live.world));
     expect(live.record.inputs).toEqual([{ step: 5, kind: 'rebuild', boardId: 'DB' }]);
   });
+
+  it('applies a recorded rebuild when it replays a session', () => {
+    const makeHost = (): FakeHost => {
+      const host = new FakeHost();
+      host.program('burn', () => ({ actions: [{ kind: 'process' }] }));
+      return host;
+    };
+    // The world has to destroy the board, since a replay applies only recorded inputs: a board that heats 20 °C a step burns
+    // for certain above 90 °C, so DA under a firmware that never stops processing burns at step 7.
+    const live = calm(makeHost(), (j) => {
+      j.tuning.datacenter.heatMilliPerSecond = 400_000;
+      j.tuning.datacenter.firePermillePerDegreePerSecond = 1_000_000;
+    });
+    live.deploy('DA', 'burn');
+    steps(live, 40);
+    expect(live.world.boards[1]!.status).toBe('destroyed');
+    expect(live.rebuild('DA')).toEqual({ ok: true });
+    steps(live, 440); // back at step 440 with its last firmware, which burns it again
+    expect(live.world.stats.boardsLost).toBe(2);
+    expect(live.record.inputs.map((i) => [i.step, i.kind])).toEqual([
+      [0, 'deploy'],
+      [40, 'rebuild'],
+    ]);
+
+    const again = replay(live.scenario, live.seed, live.record, makeHost(), live.world.step);
+    expect(stateHash(again.world)).toBe(stateHash(live.world));
+    expect(again.record.inputs).toEqual(live.record.inputs);
+    // The hash has to tell the two apart, or the equality above proves nothing.
+    const withoutRebuild = { ...live.record, inputs: live.record.inputs.filter((i) => i.kind !== 'rebuild') };
+    const skipped = replay(live.scenario, live.seed, withoutRebuild, makeHost(), live.world.step);
+    expect(skipped.world.boards[1]!.status).toBe('destroyed');
+    expect(stateHash(skipped.world)).not.toBe(stateHash(live.world));
+  });
 });
