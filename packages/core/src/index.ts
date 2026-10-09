@@ -1,7 +1,9 @@
 export * from './actions.ts';
+export * from './agent-tools.ts';
 export * from './alerts.ts';
 export * from './boards.ts';
 export * from './datacenter.ts';
+export * from './datasheet.ts';
 export * from './economy.ts';
 export * from './emf.ts';
 export * from './firmware-host.ts';
@@ -9,6 +11,7 @@ export * from './fixed.ts';
 export * from './hash.ts';
 export * from './luddites.ts';
 export * from './power.ts';
+export * from './queries.ts';
 export * from './rng.ts';
 export * from './scenario.ts';
 export * from './sensors.ts';
