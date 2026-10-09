@@ -14,6 +14,11 @@ describe('idiv', () => {
     expect(idiv(big, 1)).toBe(big);
     expect(idiv(big * 2 - 1, 2)).toBe(big - 1);
   });
+  it('stays exact for negative numbers near -2^53', () => {
+    // In both cases q * d is -(2^53 + 3), which no double holds (above 2^53 they are all even).
+    expect(idiv(-9007199254740991, 5)).toBe(-1801439850948199);
+    expect(idiv(-9007199254740989, 7)).toBe(-1286742750677285);
+  });
 });
 
 describe('mulDiv', () => {
