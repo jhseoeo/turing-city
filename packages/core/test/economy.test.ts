@@ -260,4 +260,147 @@ describe('economy', () => {
     expect(skipped.world.boards[1]!.status).toBe('destroyed');
     expect(stateHash(skipped.world)).not.toBe(stateHash(live.world));
   });
+
+  // The rules below are the ones the titles of the first tests name but their numbers (m1's own 10, 7, 500, 3 days) cannot
+  // tell from a value hard-coded to match, or that a board's state in them never exercises.
+
+  it('charges upkeep at the scenario rate for a board that runs or sleeps, and none for one destroyed or being rebuilt', () => {
+    const s = calm(new FakeHost(), (j) => {
+      j.tuning.boardUpkeepPerDay = 25;
+    });
+    s.world.boards[0]!.status = 'asleep';
+    s.world.boards[1]!.status = 'destroyed';
+    s.world.boards[2]!.status = 'rebuilding';
+    steps(s, DAY);
+    expect(s.world.ledger.upkeep).toBe(25 * MICRO);
+  });
+
+  it("spreads fuel and upkeep over the scenario's day, a step at a time, rounded down, and pays both out of the money", () => {
+    const s = calm(new FakeHost(), (j) => {
+      j.time.secondsPerDay = 21; // 420 steps a day, which neither 100 * 7 million nor 30 million divides
+    });
+    s.world.plant.thermalSetting = 100;
+    steps(s, 420);
+    const fuel = 420 * 1_666_666; // 700 million / 420 = 1,666,666.67 a step
+    const upkeep = 420 * 71_428; // 30 million / 420 = 71,428.57 a step
+    expect(s.world.ledger.fuel).toBe(fuel);
+    expect(s.world.ledger.upkeep).toBe(upkeep);
+    expect(s.world.money).toBe(5000 * MICRO - fuel - upkeep);
+  });
+
+  it("charges fuel at the day's price, not at the price the season started with", () => {
+    const s = calm();
+    s.world.plant.thermalSetting = 100;
+    s.world.plant.fuelPrice = 9; // the file's start price is 7, and the series redraws only at the end of the day
+    steps(s, DAY);
+    expect(s.world.ledger.fuel).toBe(900 * MICRO);
+  });
+
+  it("goes bankrupt after the scenario's days below zero, in the scenario's day length, and says so", () => {
+    const s = calm(new FakeHost(), (j) => {
+      j.time.secondsPerDay = 10; // 200 steps a day
+      j.tuning.bankruptcyDays = 2;
+    });
+    s.world.money = -1;
+    steps(s, 2 * 200 - 1);
+    expect(s.world.ended).toBeNull();
+    s.step();
+    expect(s.world.ended).toEqual({ kind: 'bankrupt', step: 399 });
+    expect(s.world.alerts.at(-1)).toMatchObject({ kind: 'seasonEnd', facilityId: null, message: '파산했어요' });
+    expect(s.world.alerts.find((a) => a.kind === 'moneyBelowZero')).toMatchObject({
+      step: 0,
+      facilityId: null,
+      message: '자금이 바닥났어요',
+    });
+  });
+
+  it("treats exactly zero as not below zero, and judges the money after the step's own charges", () => {
+    const upkeepStep = 37_500; // 30 a day over 800 steps, in micro-units
+    const exact = calm();
+    exact.world.money = upkeepStep; // this step's upkeep takes it to exactly zero
+    exact.step();
+    expect(exact.world.money).toBe(0);
+    expect(exact.world.belowZeroSince).toBeNull();
+    expect(exact.world.alerts.some((a) => a.kind === 'moneyBelowZero')).toBe(false);
+    const under = calm();
+    under.world.money = upkeepStep - 1; // and a micro-unit less takes it below zero in this very step
+    under.step();
+    expect(under.world.belowZeroSince).toBe(0);
+    expect(under.world.alerts.filter((a) => a.kind === 'moneyBelowZero')).toHaveLength(1);
+  });
+
+  it('counts a board being rebuilt as lost when the town falls, and a board asleep as still standing', () => {
+    const lost = calm();
+    lost.world.boards[0]!.status = 'destroyed';
+    lost.world.boards[1]!.status = 'rebuilding';
+    lost.world.boards[2]!.status = 'destroyed';
+    lost.step();
+    expect(lost.world.ended?.kind).toBe('fallen');
+    const standing = calm();
+    standing.world.boards[0]!.status = 'destroyed';
+    standing.world.boards[1]!.status = 'destroyed';
+    standing.world.boards[2]!.status = 'asleep';
+    standing.step();
+    expect(standing.world.ended).toBeNull();
+  });
+
+  it('ends the season as bankrupt, not fallen, when both are true on the same step', () => {
+    const s = calm();
+    for (const b of s.world.boards) b.status = 'destroyed';
+    s.world.money = -1;
+    s.world.belowZeroSince = -(3 * DAY - 1); // the third day below zero ends with this step
+    s.step();
+    expect(s.world.ended).toEqual({ kind: 'bankrupt', step: 0 });
+  });
+
+  it('ends the season as fallen, not completed, when the last board goes on the last step', () => {
+    const s = calm(new FakeHost(), (j) => {
+      j.time.secondsPerDay = 1;
+      j.time.seasonDays = 1; // 20 steps
+    });
+    steps(s, 19);
+    for (const b of s.world.boards) b.status = 'destroyed';
+    s.step();
+    expect(s.world.ended).toEqual({ kind: 'fallen', step: 19 });
+    expect(s.world.alerts.at(-1)).toMatchObject({ kind: 'seasonEnd', message: '마을이 함락됐어요' });
+  });
+
+  it('ends a season that nothing ruins as completed, and says so', () => {
+    const s = calm(new FakeHost(), (j) => {
+      j.time.secondsPerDay = 1;
+      j.time.seasonDays = 1;
+    });
+    steps(s, 20);
+    expect(s.world.ended).toEqual({ kind: 'completed', step: 19 });
+    expect(s.world.alerts.at(-1)).toMatchObject({ kind: 'seasonEnd', facilityId: null, message: '시즌이 끝났어요' });
+  });
+
+  it('rebuilds only a destroyed board, and a refusal costs nothing and is not recorded', () => {
+    const s = calm();
+    s.world.boards[1]!.status = 'rebuilding';
+    s.world.boards[2]!.status = 'asleep';
+    for (const id of ['P', 'DA', 'DB']) expect(s.rebuild(id), id).toEqual({ ok: false, reason: `${id} is not destroyed` });
+    expect(s.rebuild('ZZ')).toEqual({ ok: false, reason: 'unknown board ZZ' });
+    s.world.boards[0]!.status = 'destroyed';
+    s.world.money = 100 * MICRO;
+    expect(s.rebuild('P')).toEqual({ ok: false, reason: 'not enough money' });
+    expect(s.world.money).toBe(100 * MICRO);
+    expect(s.world.ledger.rebuild).toBe(0);
+    expect(s.world.boards[0]!.status).toBe('destroyed');
+    expect(s.record.inputs).toEqual([]);
+  });
+
+  it("rebuilds for exactly the scenario's cost and time, with no money to spare, and books it", () => {
+    const s = calm(new FakeHost(), (j) => {
+      j.tuning.rebuild = { cost: 200, seconds: 10 };
+    });
+    s.world.boards[2]!.status = 'destroyed';
+    s.world.money = 200 * MICRO - 1;
+    expect(s.rebuild('DB')).toEqual({ ok: false, reason: 'not enough money' });
+    s.world.money = 200 * MICRO;
+    expect(s.rebuild('DB')).toEqual({ ok: true });
+    expect(s.world.money).toBe(0);
+    expect(s.world.ledger.rebuild).toBe(200 * MICRO);
+    expect(s.world.boards[2]!.readyAt).toBe(200); // 10 s at 20 steps a second, from step 0
+  });
 });
