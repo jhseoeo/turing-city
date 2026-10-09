@@ -29,6 +29,9 @@ importers:
 
   packages/firmware:
     dependencies:
+      '@turing-city/core':
+        specifier: workspace:*
+        version: link:../core
       wasmoon:
         specifier: 1.16.0
         version: 1.16.0

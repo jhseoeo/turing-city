@@ -10,6 +10,7 @@
     "typecheck": "tsc -p . && tsc -p tsconfig.test.json"
   },
   "dependencies": {
+    "@turing-city/core": "workspace:*",
     "wasmoon": "1.16.0"
   },
   "devDependencies": {
