@@ -430,4 +430,67 @@ describe('BoardVm', () => {
       v.close();
     });
   });
+
+  describe('string.format', () => {
+    // Runs the body as a tick on a fresh board.
+    const run = (body: string) => {
+      const v = vm();
+      const r = v.tick(SENSORS, `function tick(io) ${body} end`);
+      v.close();
+      return r;
+    };
+
+    it('prints a table, a function and a coroutine as tostring does, with no address', () => {
+      const r = run(`io.log(string.format("%s", {})) io.log(string.format("%s|%s|%s", {}, print, coroutine.create(print)))`);
+      expect(r.logs).toEqual(['table', 'table|function|thread']);
+    });
+
+    it('prints a table through its __tostring, as tostring does', () => {
+      const r = run(`io.log(string.format("[%s]", setmetatable({}, { __tostring = function() return "custom" end })))`);
+      expect(r.logs).toEqual(['[custom]']);
+    });
+
+    it('does the same through the method syntax', () => {
+      expect(run(`io.log(("%s"):format({}))`).logs).toEqual(['table']);
+    });
+
+    it.each([
+      ['%p', '{}'],
+      ['%5p', 'print'],
+      ['%-5p', '{}'],
+      ['%+p', '{}'],
+      ['%.2p', '{}'],
+      ['x %d %p', '1, {}'],
+    ])('refuses the address conversion in %j', (fmt, args) => {
+      const r = run(`io.log(string.format("${fmt}", ${args}))`);
+      expect(r.ok).toBe(false);
+      expect(r.error?.kind).toBe('runtime');
+      expect(r.error?.message).toContain("bad argument #1 to 'format' (the %p conversion prints an address and is not available)");
+    });
+
+    it('refuses it through the method syntax too', () => {
+      expect(run(`io.log(("%p"):format({}))`).error?.message ?? '(no error)').toContain('the %p conversion');
+    });
+
+    it('keeps %% working, also in front of a p', () => {
+      const r = run(`io.log(string.format("100%%"), string.format("%%p"), string.format("%%%%p"), string.format("%dp", 5))`);
+      expect(r.logs).toEqual(['100%\t%p\t%%p\t5p']);
+    });
+
+    it('takes a %p in an argument as text', () => {
+      expect(run(`io.log(string.format("%s", "%p"))`).logs).toEqual(['%p']);
+    });
+
+    it('formats numbers, strings, nil and booleans as before, and keeps their places around a nil', () => {
+      expect(run(`io.log(string.format("%5.1f|%d|%s|%q|%s|%s", 3.14159, 42, "x", "a", nil, true))`).logs).toEqual([
+        '  3.1|42|x|"a"|nil|true',
+      ]);
+      expect(run(`io.log(string.format("%s|%s|%s", 1, nil, 3))`).logs).toEqual(['1|nil|3']);
+      expect(run(`io.log(string.format("%s|%s", 1, nil))`).logs).toEqual(['1|nil']);
+    });
+
+    it('still names format when its first argument is not a string', () => {
+      expect(run(`io.log(string.format(nil))`).error?.message).toContain("bad argument #1 to 'format'");
+    });
+  });
 });

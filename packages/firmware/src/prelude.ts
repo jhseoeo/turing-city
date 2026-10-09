@@ -63,14 +63,27 @@ local safe_string = {
     return S.byte(s, i, j)
   end,
   char = function(...) charge(select("#", ...)); return S.char(...) end,
+  -- A table, function, thread, or userdata goes through safe_tostring first, so %s prints what tostring does and
+  -- never an address. %p prints the address of any value, so it is refused. "%%" is a percent sign, not a conversion:
+  -- once those pairs are gone, a % followed by flags, digits, or a dot and a p is a %p. The pattern is one class
+  -- and a star, so it stays linear however the format string is built. The charge counts the converted arguments.
   format = function(fmt, ...)
+    local args = T.pack(...)
     local n = len(fmt)
-    for k = 1, select("#", ...) do
-      local a = select(k, ...)
+    for k = 1, args.n do
+      local a = args[k]
+      local ta = type(a)
+      if ta == "table" or ta == "function" or ta == "thread" or ta == "userdata" then
+        a = safe_tostring(a)
+        args[k] = a
+      end
       if type(a) == "string" then n = n + #a end
     end
     charge(n / 16)
-    return S.format(fmt, ...)
+    if type(fmt) == "string" and S.find(S.gsub(fmt, "%%%%", ""), "%%[-+ #0-9.]*p") then
+      error("bad argument #1 to 'format' (the %p conversion prints an address and is not available)", 2)
+    end
+    return S.format(fmt, T.unpack(args, 1, args.n))
   end,
   -- Plain substring search only: Lua patterns can backtrack for seconds inside one instruction.
   -- Even a plain search can compare the needle at every position, so both lengths count.
