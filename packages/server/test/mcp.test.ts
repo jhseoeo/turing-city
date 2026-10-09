@@ -205,3 +205,42 @@ describe('MCP endpoint', () => {
     await client.close().catch(() => undefined);
   });
 });
+
+/** What a tool result says: the text of its first content block. */
+function textOf(result: unknown): string {
+  return (result as { content: Array<{ text: string }> }).content[0]?.text ?? '';
+}
+
+describe('tool input', () => {
+  // core's tools trust their arguments (AgentTool.run casts them): the limits live in each tool's input schema, and the
+  // server must check them before any tool runs.
+  it('refuses firmware with a NUL byte, over 64 KB, or of the wrong shape, before the game sees it', async () => {
+    const r = await start();
+    const { client } = await connect(r.url);
+    // what to send, and the word the agent's error must carry so it can tell what to fix
+    const refused: Array<[string, Record<string, unknown>, string]> = [
+      ['a NUL byte', { board: 'DA', code: 'function tick() end\u0000os.exit()' }, 'NUL byte'],
+      ['one character over 64 KB', { board: 'DA', code: 'x'.repeat(65_537) }, '65536'],
+      ['no code', { board: 'DA' }, 'code'],
+      ['code that is not text', { board: 'DA', code: 42 }, 'code'],
+      ['no board', { code: 'function tick() end' }, 'board'],
+    ];
+    const answers: Record<string, { isError: unknown; mentions: boolean }> = {};
+    for (const [why, args, mention] of refused) {
+      const result = await client.callTool({ name: 'deploy_firmware', arguments: args });
+      answers[why] = { isError: result.isError, mentions: textOf(result).includes(mention) };
+    }
+    expect(answers).toEqual(Object.fromEntries(refused.map(([why]) => [why, { isError: true, mentions: true }])));
+    expect(r.api.deployed).toEqual([]);
+    await client.close();
+  });
+
+  it('lets through firmware of exactly 64 KB', async () => {
+    const r = await start();
+    const { client } = await connect(r.url);
+    const result = await client.callTool({ name: 'deploy_firmware', arguments: { board: 'DA', code: 'x'.repeat(65_536) } });
+    expect(result.isError).toBeFalsy();
+    expect(r.api.deployed.map(([board, code]) => [board, code.length])).toEqual([['DA', 65_536]]);
+    await client.close();
+  });
+});
