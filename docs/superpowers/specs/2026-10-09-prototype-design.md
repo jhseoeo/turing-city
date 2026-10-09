@@ -281,9 +281,12 @@ The scenario fixes every board's parts (§9).
 Firmware is untrusted. The prelude:
 - **Removes** `os`, the standard `io` library, `load`, `loadstring`, `dofile`, `require`, `debug`, `collectgarbage`, `string.dump`, `utf8`, `string.pack`, and `string.unpack`.
 - **Removes the pattern functions** `string.find`, `string.match`, `string.gmatch`, and `string.gsub`. At most a plain substring find is kept. Why: one `string.find` with a backtracking pattern on 400 characters ran for 7.1 seconds while counting 15 instructions, so the cap can't stop it.
-- **Charges builtins that work in proportion to their input or output** in instructions, by the work done: `string.rep`, `table.concat`, `string.format` output, `table.sort`, `table.unpack`, `string.byte`, and `string.char`.
+- **Charges builtins that work in proportion to their input or output** in instructions, by the work done: `string.rep`, `table.concat`, `string.format` output, `table.sort`, `table.unpack`, `string.byte`, `string.char`, `string.upper`, `string.lower`, `string.reverse`, and the plain find.
+  - A charge is never negative or NaN, either of which would turn the cap off for the rest of the tick. Costs come only from real string lengths and integer arguments, computed in floating point, and the host ignores any amount that isn't positive.
+  - `table.insert`, `table.remove`, and `table.move` run in Lua, so every element they shift counts, whatever a `__len` metamethod claims.
+  - What stays uncharged is bounded per instruction by one string: at most RAM, or a constant in the 64 KB source.
 - **Caps memory** per board (§6.3), through wasmoon's allocation tracking.
-- **Blocks hidden code paths:** `setmetatable` refuses `__gc` and `__mode` (no finalizers, no weak tables).
+- **Blocks hidden code paths:** `setmetatable` refuses a metatable with `__gc` or `__mode`. That rules out finalizers, which could run firmware outside a tick: Lua marks an object for finalizing only when its metatable is set. A `__mode` added to a metatable afterward still makes a weak table, which is harmless.
 - **Pins `tostring`** for tables and functions to a stable string with no address.
 - **Seeds `math.random` per board** from the scenario seed and the board's id.
 - **Keeps coroutines.** Counting follows them, and they suit state machines that span ticks.
@@ -333,6 +336,7 @@ A hostile-firmware test suite (§11) exercises all three layers.
   - a bearer token must be present;
   - the `Origin` header is checked, and requests from browser origins are refused;
   - inputs are size-limited (firmware source to 64 KB).
+- **Nothing a client sends may crash the server**, on any of its routes (MCP, the viewer's WebSocket, the built viewer): any web page the player visits can make the browser send requests to 127.0.0.1. A malformed request gets an error response.
 - **The token** is generated once and stored in the server's local config, which lives in the user's config directory outside the repository. The start screen can reissue it. This differs from the design doc's token-per-launch: with a new token on every launch, the player would re-add the server to their agent every time they open the game. Loopback binding plus the token still keep out other programs and browser-based attacks such as DNS rebinding.
 - **Connecting:** the start screen shows the connect command with a copy button, for example `claude mcp add --transport http turing-city http://127.0.0.1:7840/mcp --header "Authorization: Bearer <token>"`.
 - **Development:** for agents working on this repository, a `.mcp.json` can read the token from an environment variable: `"Authorization": "Bearer ${TURING_CITY_TOKEN}"`. The repository is public, so no token is committed.
@@ -503,7 +507,8 @@ All of these are starting values to tune, in one place so that code reads them f
   - an infinite loop, one inside `pcall`, one inside a coroutine;
   - runaway recursion;
   - string, table, and memory bombs;
-  - a pattern-function call (gone from the sandbox, so it errors).
+  - a pattern-function call (gone from the sandbox, so it errors);
+  - builtins fed empty strings, negative or NaN ranges, overflowing counts, or a lying `__len`.
 - **Season checks** with `pnpm sim`: reference firmware sets we write, one careless and one careful, each run a full season. The season must finish, the careful set must score clearly higher, and a second run must give the same result.
 - **MCP tests:**
   - a missing or wrong token is refused, and so is a browser origin;
