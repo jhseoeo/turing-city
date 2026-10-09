@@ -49,8 +49,13 @@ export class BoardVm {
   private ops = 0;
   private capped = false;
   private counting = false;
-  /** Memory in use after boot, with no firmware: the runtime and the prelude. Fixed for the board's life. */
+  /**
+   * Memory in use by the board as it comes up, with no firmware: the runtime, the prelude with its queue and log at
+   * their limits, and io with the sensor keys of the first frame. None of it is the firmware's to pay for. It is
+   * measured on the first tick, after that frame, and fixed for the board's life.
+   */
   private bootBytes = 0;
+  private baselined = false;
   /** What compiling the installed firmware added: its chunk and its environment. Code doesn't count as RAM. */
   private codeBytes = 0;
   /** The last tick ran out of RAM, so the next deploy gets room to start (see STARTUP_BYTES). */
@@ -91,13 +96,12 @@ export class BoardVm {
     lua.lua_pushinteger(this.L, BigInt(options.seed));
     const status = lua.lua_pcallk(this.L, 3, 0, 0, 0, null);
     if (status !== 0) throw new Error(`board prelude failed: ${this.errorText(-1)}`);
-    this.collect();
-    this.bootBytes = this.engine.global.getMemoryUsed();
   }
 
   /** Installs newSource (if given), writes the sensors into io, and runs one tick under the caps. */
   tick(sensors: Readonly<Record<string, number | undefined>>, newSource: string | null): VmTickResult {
     const { lua, L } = this;
+    if (!this.baselined) this.baseline(sensors);
     if (newSource !== null) {
       const failure = this.deploy(newSource);
       if (failure) return this.result(false, 0, [], [], failure);
@@ -130,6 +134,14 @@ export class BoardVm {
     this.lua.lua_sethook(this.L, null, 0, 0);
     this.engine.global.close();
     this.lua.module.removeFunction(this.hook);
+  }
+
+  /** Takes the baseline: the first sensor frame goes into io, then everything the board holds is measured, collected. */
+  private baseline(sensors: Readonly<Record<string, number | undefined>>): void {
+    this.writeSensors(sensors);
+    this.collect();
+    this.bootBytes = this.engine.global.getMemoryUsed() - this.codeBytes;
+    this.baselined = true;
   }
 
   /**

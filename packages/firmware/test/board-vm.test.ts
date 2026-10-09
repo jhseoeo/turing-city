@@ -430,6 +430,55 @@ describe('BoardVm', () => {
       v.close();
     });
 
+    // What compiling added is code, and code does not count as RAM. Anything the firmware can free and then spend as
+    // data would turn into RAM, so the installed firmware keeps all of it: the main chunk and the environment.
+    it("keeps the main chunk's code installed, so that freeing it does not become data", () => {
+      const v = vm({ ramBytes: 6 * 1024, instructionCap: 20_000 });
+      // 30 KB of constants in the main chunk, which would be garbage once it has run.
+      expect(v.tick(SENSORS, `local pad = "${'x'.repeat(30_000)}" ${GROW}`).error).toBeNull();
+      // 400 integers need 8 KB, more than the 6 KB above the code.
+      expect(v.tick(SENSORS, null).error?.kind).toBe('ram');
+      v.close();
+    });
+
+    it('keeps the copies of the standard libraries installed, so that dropping them does not become data', () => {
+      const v = vm({ ramBytes: 6 * 1024 });
+      expect(v.tick(SENSORS, holdInMem('a')).error).toBeNull();
+      // Dropping the four copies frees about 2.6 KB of code. It must not buy room: 150 integers (2.4 KB) still do not fit.
+      const ints = Array.from({ length: 150 }, (_, i) => i + 1).join(',');
+      const r = v.tick(SENSORS, `string = nil table = nil math = nil coroutine = nil function tick() local t = {${ints}} end`);
+      expect(r.error?.kind).toBe('ram');
+      v.close();
+    });
+
+    // The host's own structures are part of the board, not of the firmware's data.
+    it("does not count the host's queue and log arrays as firmware data", () => {
+      // The same firmware and sensors on two boards, so that only the history differs: one of them once queued 64
+      // numbers and logged 20 lines, which grows the two arrays for good. Each redeploy collects before it reads.
+      const noisy = `function tick(io) if io.noisy == 1 then for i = 1, 20 do io.log("x") end for i = 1, 32 do io.cool(1) end end end`;
+      const a = vm({ instructionCap: 20_000 });
+      a.tick({ ...SENSORS, noisy: 1 }, noisy);
+      const after = a.tick({ ...SENSORS, noisy: 0 }, noisy).ramUsedBytes;
+      const b = vm({ instructionCap: 20_000 });
+      b.tick({ ...SENSORS, noisy: 0 }, noisy);
+      const never = b.tick({ ...SENSORS, noisy: 0 }, noisy).ramUsedBytes;
+      expect(Math.abs(after - never)).toBeLessThan(64);
+      a.close();
+      b.close();
+    });
+
+    it('counts the first sensor frame as part of the board, not as firmware data', () => {
+      const tiny = `function tick() end`;
+      const frame = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`sensor_${i}`, i]));
+      const withSensors = vm();
+      const a = withSensors.tick(frame, tiny).ramUsedBytes;
+      const without = vm();
+      const b = without.tick({}, tiny).ramUsedBytes;
+      expect(Math.abs(a - b)).toBeLessThan(64);
+      withSensors.close();
+      without.close();
+    });
+
     // The host allocates outside any protected call: the keys it writes into io, the text of an error value it reads.
     // A refused allocation there aborts the whole Lua runtime, so the RAM cap may hold only while firmware runs.
     it('reads a number error value on a board that is over its cap, instead of throwing', () => {

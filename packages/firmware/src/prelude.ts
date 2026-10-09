@@ -166,7 +166,10 @@ local safe_math = copy(M); safe_math.randomseed = nil
 local safe_coroutine = copy(C)
 
 local io_t, mem, q, logs = {}, {}, {}, {}
-local env, pending = nil, nil
+-- pending is a compiled firmware waiting for the next step; installed is the record of the one that runs (its main
+-- closure, its environment, and the copies of the libraries in it), kept whole so that nothing compiling added
+-- can be freed by the firmware and then spent as data.
+local env, pending, installed = nil, nil, nil
 
 local function log(...)
   local parts = {}
@@ -182,19 +185,26 @@ local function push(...)
 end
 
 local function make_env()
+  local libs = { copy(safe_string), copy(safe_table), copy(safe_math), copy(safe_coroutine) }
   local e = {
     assert = assert, error = error, ipairs = ipairs, next = next, pairs = pairs, pcall = pcall, xpcall = xpcall,
     select = select, tonumber = tonumber, tostring = safe_tostring, type = type, rawequal = rawequal,
     rawget = rawget, rawset = rawset, rawlen = rawlen, setmetatable = safe_setmetatable, getmetatable = getmetatable,
-    print = log, string = copy(safe_string), table = copy(safe_table), math = copy(safe_math),
-    coroutine = copy(safe_coroutine), _VERSION = _VERSION,
+    print = log, string = libs[1], table = libs[2], math = libs[3],
+    coroutine = libs[4], _VERSION = _VERSION,
   }
   e._G = e
-  return e
+  return e, libs
 end
 
 function __boot(kind, fids, seed)
   M.randomseed(seed)
+  -- The queue and the log keep the arrays they grow to, and an array never shrinks. They start at their limits (64
+  -- numbers, 20 lines of an array of 32) so that the baseline holds them and no tick can leave them to the firmware.
+  for k = 1, 64 do q[k] = 0 end
+  for k = 1, 64 do q[k] = nil end
+  for k = 1, 20 do logs[k] = "" end
+  for k = 1, 20 do logs[k] = nil end
   local fidx = {}
   for k = 1, #fids do fidx[fids[k]] = k end
   io_t.log = log
@@ -218,15 +228,15 @@ function __boot(kind, fids, seed)
 end
 
 function __compile(src)
-  local e = make_env()
+  local e, libs = make_env()
   local f, err = load(src, "=firmware", "t", e)
   if not f then error("syntax error: " .. err, 0) end
-  pending = { f = f, env = e }
+  pending = { f = f, env = e, libs = libs }
 end
 
 -- Drops the installed firmware and its globals. The host calls it once a deploy has compiled and been measured,
 -- so that the chunk waiting in pending is the only firmware alive when the RAM cap is set.
-function __release() env = nil end
+function __release() env, installed = nil, nil end
 
 function __collect() collect("collect") end
 
@@ -234,7 +244,7 @@ function __step()
   if pending then
     local p = pending
     pending = nil
-    env = p.env
+    installed, env = p, p.env
     p.f()
   end
   if env == nil then error("__NOTICK__ no firmware installed", 0) end
