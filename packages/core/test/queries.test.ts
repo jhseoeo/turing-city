@@ -58,7 +58,7 @@ describe('views', () => {
   it("tells the agent how the sandbox behaves after its hardening, in the datasheet's rules", () => {
     const { s } = session();
     const rules = datasheet(s.ctx, 'DA')!.rules.join('\n');
-    // One short key phrase per point; the behavior itself is pinned by the firmware package's tests.
+    // One short key phrase per point. This pins that the agent is told; what the sandbox does is the firmware package's to test.
     const points: Array<[string, string]> = [
       ['only mem carries over a deploy, and each install gets a fresh io', 'fresh io'],
       ["RAM counts the firmware's data above a baseline, and its code doesn't count", "Code doesn't count"],
