@@ -83,8 +83,9 @@ export class Session {
     return { version };
   }
 
-  /** The human's rebuild of a destroyed board. */
+  /** The human's rebuild of a destroyed board. Refused once the season has ended: money is the score, and a replay stops there. */
   rebuild(boardId: string): { ok: true } | { ok: false; reason: string } {
+    if (this.world.ended) return { ok: false, reason: 'the season has ended' };
     const board = findBoard(this.world, boardId);
     if (!board) return { ok: false, reason: `unknown board ${boardId}` };
     const result = startRebuild(this.ctx, board, this.world.step);

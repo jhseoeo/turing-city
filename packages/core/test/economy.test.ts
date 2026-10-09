@@ -390,6 +390,37 @@ describe('economy', () => {
     expect(s.record.inputs).toEqual([]);
   });
 
+  it('refuses a rebuild once the season has ended, however it ended, and charges and records nothing', () => {
+    // Money is the score, and a replay stops where the season ended, so a rebuild after it would change one and could not be replayed.
+    const endings: Record<string, (s: Session) => void> = {
+      completed: (s) => steps(s, 20),
+      fallen: (s) => {
+        for (const b of s.world.boards) b.status = 'destroyed';
+        s.step();
+      },
+      bankrupt: (s) => {
+        s.world.money = -1;
+        steps(s, 20);
+      },
+    };
+    for (const [kind, end] of Object.entries(endings)) {
+      const s = calm(new FakeHost(), (j) => {
+        j.time.secondsPerDay = 1;
+        j.time.seasonDays = 1; // 20 steps
+        j.tuning.bankruptcyDays = 1;
+      });
+      s.world.boards[2]!.status = 'destroyed'; // a board that could be rebuilt, were the season still on
+      end(s);
+      expect(s.world.ended?.kind, kind).toBe(kind);
+      const money = s.world.money;
+      expect(s.rebuild('DB'), kind).toEqual({ ok: false, reason: 'the season has ended' });
+      expect(s.world.money, kind).toBe(money);
+      expect(s.world.ledger.rebuild, kind).toBe(0);
+      expect(s.world.boards[2]!.status, kind).toBe('destroyed');
+      expect(s.record.inputs, kind).toEqual([]);
+    }
+  });
+
   it("rebuilds for exactly the scenario's cost and time, with no money to spare, and books it", () => {
     const s = calm(new FakeHost(), (j) => {
       j.tuning.rebuild = { cost: 200, seconds: 10 };
