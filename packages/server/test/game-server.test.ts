@@ -1,6 +1,6 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { connect, type Socket } from 'node:net';
-import { tmpdir } from 'node:os';
+import { networkInterfaces, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -56,6 +56,17 @@ async function viewer(
   return { ws, seen, send: (m) => ws.send(JSON.stringify(m)) };
 }
 
+/** An agent connected over MCP with the token in configDir, the way Claude Code connects. */
+async function connectAgent(server: GameServer, configDir: string): Promise<Client> {
+  const transport = new StreamableHTTPClientTransport(new URL(`${server.url}/mcp`), {
+    requestInit: { headers: { Authorization: `Bearer ${loadConfig(configDir).token}` } },
+  });
+  const agent = new Client({ name: 'test-agent', version: '0.0.1' });
+  await agent.connect(transport as Transport);
+  closers.push(() => agent.close());
+  return agent;
+}
+
 const until = async (cond: () => boolean, ms = 5000): Promise<void> => {
   const t0 = Date.now();
   while (!cond()) {
@@ -63,6 +74,48 @@ const until = async (cond: () => boolean, ms = 5000): Promise<void> => {
     await new Promise((r) => setTimeout(r, 20));
   }
 };
+
+/** As until(), for a condition that has to be asked of the game. */
+const eventually = async (cond: () => Promise<boolean>, ms = 5000): Promise<void> => {
+  const t0 = Date.now();
+  while (!(await cond())) {
+    if (Date.now() - t0 > ms) throw new Error('timed out waiting');
+    await new Promise((r) => setTimeout(r, 20));
+  }
+};
+
+/** Whether a TCP connection to this address opens. */
+function canConnect(port: number, host: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = connect({ port, host, timeout: 2000 }, () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.on('error', () => resolve(false));
+    socket.on('timeout', () => {
+      socket.destroy();
+      resolve(false);
+    });
+  });
+}
+
+/** The status the MCP endpoint answers an initialize request that carries this token. */
+async function initializeStatus(server: GameServer, token: string): Promise<number> {
+  const res = await fetch(`${server.url}/mcp`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'probe', version: '1' } },
+    }),
+  });
+  await res.body?.cancel();
+  return res.status;
+}
+
+const textOf = (result: unknown): string => (result as { content: Array<{ text: string }> }).content[0]?.text ?? '';
 
 /** Sends raw bytes and gives the reply's first line ('' when the server just hangs up). */
 function raw(port: number, text: string): Promise<string> {
@@ -222,5 +275,203 @@ describe('game server', () => {
     const c = await viewer(server.port);
     await until(() => last(c.seen, 'status') !== undefined);
     expect(last(c.seen, 'status')!.status.speed).toBe(2);
+  });
+
+  it('closes the viewers and frees the port when the server closes', async () => {
+    const { server } = await start();
+    const v = await viewer(server.port);
+    const closed = new Promise<number>((resolve) => v.ws.once('close', resolve));
+    await server.close();
+    await closed;
+    expect(await canConnect(server.port, '127.0.0.1')).toBe(false);
+  });
+
+  it('listens on the loopback address only', async () => {
+    const { server } = await start();
+    // A server bound to every IPv4 interface answers on this machine's own network addresses, and one bound to the default
+    // host (every interface, IPv6 included) answers on ::1 as well.
+    const network = Object.values(networkInterfaces()).flatMap((list) =>
+      (list ?? []).filter((i) => i.family === 'IPv4' && !i.internal).map((i) => i.address),
+    );
+    expect(await canConnect(server.port, '127.0.0.1')).toBe(true);
+    for (const host of ['::1', ...network]) expect(await canConnect(server.port, host), host).toBe(false);
+  });
+
+  it('lets only the /mcp path reach the MCP endpoint', async () => {
+    const dist = mkdtempSync(join(tmpdir(), 'tc-viewer-'));
+    writeFileSync(join(dist, 'index.html'), '<!doctype html>');
+    const { server } = await start({ viewerDist: dist });
+    const status = async (path: string): Promise<number> => (await fetch(`${server.url}${path}`)).status;
+    // The endpoint turns away a request with no token, which tells it from the viewer.
+    expect(await status('/mcp')).toBe(401);
+    expect(await status('/mcp?next=1')).toBe(401);
+    for (const path of ['/', '/ws', '/mcp/', '/mcp/x', '/mcpx', '/MCP', '/x/mcp', '/%6dcp']) expect(await status(path), path).toBe(200);
+  });
+
+  it('upgrades only /ws to a WebSocket', async () => {
+    const { server } = await start();
+    const upgrade = (path: string): string =>
+      `GET ${path} HTTP/1.1\r\nHost: 127.0.0.1\r\nOrigin: http://127.0.0.1:${server.port}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n`;
+    for (const path of ['/', '/wss', '/ws/', '/mcp']) expect(await raw(server.port, upgrade(path)), path).toBe('');
+    await viewer(server.port); // /ws itself opens
+  });
+
+  it('serves the built viewer: each file by its type, index.html for any other path, and nothing from outside the directory', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'tc-viewer-'));
+    const dist = join(base, 'dist');
+    mkdirSync(join(dist, 'assets'), { recursive: true });
+    const page = '<!doctype html><title>viewer</title>';
+    writeFileSync(join(dist, 'index.html'), page);
+    writeFileSync(join(dist, 'assets', 'app.js'), 'export {};');
+    writeFileSync(join(dist, 'assets', 'app.css'), 'body {}');
+    writeFileSync(join(base, 'secret.txt'), 'outside the build directory');
+    mkdirSync(join(base, 'dist-old'));
+    writeFileSync(join(base, 'dist-old', 'key.txt'), 'in a directory whose name starts like the build directory');
+    const { server } = await start({ viewerDist: dist });
+    const get = async (path: string): Promise<{ status: number; type: string | null; body: string }> => {
+      const res = await fetch(`${server.url}${path}`);
+      return { status: res.status, type: res.headers.get('content-type'), body: await res.text() };
+    };
+    const html = { status: 200, type: 'text/html; charset=utf-8', body: page };
+    expect(await get('/')).toEqual(html);
+    expect(await get('/assets/app.js')).toEqual({ status: 200, type: 'text/javascript; charset=utf-8', body: 'export {};' });
+    expect((await get('/assets/app.css')).type).toBe('text/css; charset=utf-8');
+    // A path that names no file, or a directory, is the page: the viewer routes by itself.
+    for (const path of ['/nope', '/assets/missing.js', '/assets/', '/assets']) expect(await get(path), path).toEqual(html);
+    // An escaped slash is a slash once decoded, and would climb out of the directory, into a sibling whose name starts like it too.
+    for (const path of ['/..%2fsecret.txt', '/assets/..%2f..%2fsecret.txt', '/..%2fdist-old%2fkey.txt'])
+      expect(await get(path), path).toEqual({ status: 403, type: null, body: '' });
+  });
+
+  it('says what to do when the viewer has not been built, and has nothing at / when it is told to serve none', async () => {
+    const { server } = await start({ viewerDist: mkdtempSync(join(tmpdir(), 'tc-viewer-')) });
+    const res = await fetch(`${server.url}/`);
+    expect(res.status).toBe(404);
+    expect(await res.text()).toContain('run pnpm start');
+    const { server: bare } = await start();
+    expect((await fetch(`${bare.url}/`)).status).toBe(404);
+  });
+
+  it('offers the dev tools only to a server started with the dev flag', async () => {
+    const toolNames = async (dev: boolean): Promise<string[]> => {
+      const { server, configDir } = await start({ dev });
+      return (await (await connectAgent(server, configDir)).listTools()).tools.map((tool) => tool.name);
+    };
+    const plain = await toolNames(false);
+    expect(plain).toContain('deploy_firmware');
+    expect(plain.filter((name) => name.startsWith('dev_'))).toEqual([]);
+    expect((await toolNames(true)).filter((name) => name.startsWith('dev_')).sort()).toEqual([
+      'dev_new_season',
+      'dev_pause',
+      'dev_play',
+      'dev_rebuild',
+      'dev_run_until',
+      'dev_set_speed',
+    ]);
+  });
+
+  it('reissues the token: the old one stops working, the agent is cut off, and every viewer gets the new connect command', async () => {
+    const { server, configDir } = await start();
+    const v = await viewer(server.port);
+    const w = await viewer(server.port);
+    await connectAgent(server, configDir);
+    await until(() => last(v.seen, 'status')?.status.agent.connected === true);
+    const oldToken = loadConfig(configDir).token;
+    expect(last(v.seen, 'hello')).toMatchObject({ port: server.port });
+    expect(last(v.seen, 'hello')!.connect).toContain(`:${server.port}/mcp`);
+    // Whenever a viewer is told the agent is gone, the old token has to be dead already: the token switches before the sessions drop.
+    const tokenWhenTold: string[] = [];
+    const write = WebSocket.prototype.send;
+    vi.spyOn(WebSocket.prototype, 'send').mockImplementation(function (this: WebSocket, ...args: unknown[]) {
+      if (typeof args[0] === 'string' && args[0].includes('"connected":false')) tokenWhenTold.push(loadConfig(configDir).token);
+      (write as (...a: unknown[]) => void).apply(this, args);
+    });
+    v.send({ type: 'reissueToken' });
+    const hellos = (x: typeof v): number => x.seen.filter((m) => m.type === 'hello').length;
+    await until(() => hellos(v) === 2 && hellos(w) === 2 && last(v.seen, 'status')?.status.agent.connected === false);
+    vi.restoreAllMocks();
+    const newToken = loadConfig(configDir).token;
+    expect(newToken).not.toBe(oldToken);
+    for (const x of [v, w]) {
+      expect(last(x.seen, 'hello')!.connect).toContain(newToken);
+      expect(last(x.seen, 'hello')!.connect).not.toContain(oldToken);
+    }
+    expect([...new Set(tokenWhenTold)]).toEqual([newToken]); // told at least once, and always with the new token in place
+    // The old token is refused from now on, and the new one lets an agent in again.
+    expect(await initializeStatus(server, oldToken)).toBe(401);
+    await connectAgent(server, configDir);
+    await until(() => last(v.seen, 'status')?.status.agent.connected === true);
+  });
+
+  it('ignores what a viewer sends that is not a command, and keeps serving', async () => {
+    const { server } = await start();
+    const v = await viewer(server.port);
+    await until(() => last(v.seen, 'status') !== undefined);
+    // Text that is not JSON, JSON that is not an object, objects that name no command, and bytes.
+    for (const text of ['', 'not json', '{"type":', 'null', '[]', '"play"', '7', '{}', '{"type":"nope"}', '{"__proto__":{"type":"play"}}'])
+      v.ws.send(text);
+    v.ws.send(Buffer.from([0xff, 0x00, 0x01]));
+    // The same connection still gets its commands answered.
+    v.send({ type: 'inspect', board: 'DA' });
+    await until(() => v.seen.some((m) => m.type === 'error' && m.message.includes("hasn't started")));
+  });
+
+  it("streams the season to every viewer and carries the player's commands", async () => {
+    const { server, configDir } = await start({ dev: true });
+    const v = await viewer(server.port);
+    const agent = await connectAgent(server, configDir);
+    await until(() => last(v.seen, 'status')?.status.agent.connected === true);
+    const call = async (name: string, args: Record<string, unknown>): Promise<unknown> => {
+      const result = await agent.callTool({ name, arguments: args });
+      expect((result as { isError?: boolean }).isError).toBeFalsy();
+      return result;
+    };
+    await call('dev_new_season', { seed: 1 }); // the same season every run
+    await until(() => last(v.seen, 'status')?.status.state === 'paused');
+
+    // A viewer that opens the page later is given the season as it stands, at once.
+    const late = await viewer(server.port);
+    await until(() => last(late.seen, 'snapshot') !== undefined);
+    expect(last(late.seen, 'status')!.status.state).toBe('paused');
+    expect(last(late.seen, 'snapshot')).toEqual(last(v.seen, 'snapshot'));
+
+    // The clock's commands reach the controller, and what it announces reaches every viewer.
+    const heard = (): ReturnType<typeof last<'status'>> => last(late.seen, 'status');
+    v.send({ type: 'speed', speed: 3 });
+    await until(() => heard()?.status.speed === 3);
+    v.send({ type: 'autoPause', kinds: ['fire'] });
+    await until(() => heard()?.status.autoPause.join() === 'fire');
+    v.send({ type: 'play' });
+    await until(() => heard()?.status.state === 'running');
+    v.send({ type: 'pause' });
+    await until(() => heard()?.status.state === 'paused');
+
+    // A rebuild the game refuses is told to the viewer that asked and to nobody else. Messages to a viewer arrive in order, so
+    // an answer to the other viewer's own question shows that nothing was sent to it before.
+    v.send({ type: 'rebuild', board: 'DA' });
+    await until(() => last(v.seen, 'error')?.message === 'DA is not destroyed');
+    late.send({ type: 'inspect', board: 'DA' });
+    await until(() => last(late.seen, 'inspection') !== undefined);
+    expect(last(late.seen, 'error')).toBeUndefined();
+    // An inspection answers the viewer that asked and no other. The other viewer's came first, so it would sit before this
+    // one's own answer on this connection if it had been sent here.
+    v.send({ type: 'inspect', board: 'DB' });
+    await until(() => v.seen.some((m) => m.type === 'inspection' && m.board === 'DB'));
+    expect(v.seen.some((m) => m.type === 'inspection' && m.board === 'DA')).toBe(false);
+
+    // Alerts go to everyone. With no firmware the Luddites smash a board in the fifth game day.
+    await call('dev_run_until', { alertKinds: ['boardDestroyed'] });
+    const destroyed = (x: typeof v) =>
+      x.seen.flatMap((m) => (m.type === 'alerts' ? m.alerts : [])).find((a) => a.kind === 'boardDestroyed');
+    await until(() => destroyed(v) !== undefined && destroyed(late) !== undefined);
+    const lost = destroyed(v)!.facility!;
+
+    // Rebuilding the lost board from the viewer is accepted: the game says nothing and the board is being rebuilt.
+    v.send({ type: 'rebuild', board: lost });
+    await eventually(async () => {
+      const boards = JSON.parse(textOf(await call('list_boards', {}))) as Array<{ id: string; status: string }>;
+      return boards.find((b) => b.id === lost)?.status === 'rebuilding';
+    });
+    expect(v.seen.filter((m) => m.type === 'error')).toHaveLength(1);
   });
 });
