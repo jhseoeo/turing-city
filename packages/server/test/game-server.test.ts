@@ -6,16 +6,36 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { ServerToViewer, ViewerToServer } from '@turing-city/core';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import { loadConfig } from '../src/config.ts';
 import { startGameServer } from '../src/game-server.ts';
 
 let stop: (() => Promise<void>) | null = null;
+/** What a test opened, undone last in, first out: viewers go before the server they are connected to. */
+const closers: Array<() => unknown> = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
+  for (const close of closers.splice(0).reverse()) {
+    try {
+      await close();
+    } catch {
+      // already gone
+    }
+  }
   await stop?.();
   stop = null;
 });
+
+type GameServer = Awaited<ReturnType<typeof startGameServer>>;
+
+/** A game server on a free port with a config directory of its own, closed when the test ends. */
+async function start(options: { dev?: boolean; viewerDist?: string | null } = {}): Promise<{ server: GameServer; configDir: string }> {
+  const configDir = mkdtempSync(join(tmpdir(), 'tc-server-'));
+  const server = await startGameServer({ port: 0, configDir, viewerDist: null, ...options });
+  closers.push(() => server.close());
+  return { server, configDir };
+}
 
 /**
  * A viewer connection that records every message. A browser always sends an Origin on a WebSocket handshake, so by default
@@ -26,6 +46,7 @@ async function viewer(
   origin: string | null = `http://127.0.0.1:${port}`,
 ): Promise<{ ws: WebSocket; seen: ServerToViewer[]; send: (m: ViewerToServer) => void }> {
   const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, origin === null ? {} : { origin });
+  closers.push(() => ws.terminate());
   const seen: ServerToViewer[] = [];
   ws.on('message', (data) => seen.push(JSON.parse(String(data)) as ServerToViewer));
   await new Promise<void>((resolve, reject) => {
@@ -175,5 +196,31 @@ describe('game server', () => {
       'http://127.0.0.1:5174': false,
       [lookalike]: false,
     });
+  });
+
+  // The controller announces its events from timers and from the agent's connection, where a throw would end the process.
+  it('survives a viewer it cannot write to, and drops it', async () => {
+    const { server } = await start();
+    const a = await viewer(server.port);
+    const b = await viewer(server.port);
+    await until(() => last(a.seen, 'status') !== undefined && last(b.seen, 'status') !== undefined);
+    const dropped = [a, b].map((v) => new Promise<number>((resolve) => v.ws.once('close', resolve)));
+    // From here on every write throws, except the ones this test makes itself on the viewer's side.
+    const write = WebSocket.prototype.send;
+    let mine = false;
+    vi.spyOn(WebSocket.prototype, 'send').mockImplementation(function (this: WebSocket, ...args: unknown[]) {
+      if (!mine) throw new Error('write failed');
+      (write as (...a: unknown[]) => void).apply(this, args);
+    });
+    mine = true;
+    a.send({ type: 'speed', speed: 2 });
+    mine = false;
+    // The new speed makes the controller announce its status to both viewers. Neither write works, so both are dropped.
+    await Promise.all(dropped);
+    vi.restoreAllMocks();
+    // The server is still there, and the command was carried out.
+    const c = await viewer(server.port);
+    await until(() => last(c.seen, 'status') !== undefined);
+    expect(last(c.seen, 'status')!.status.speed).toBe(2);
   });
 });

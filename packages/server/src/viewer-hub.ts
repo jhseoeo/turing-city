@@ -35,8 +35,17 @@ export function createViewerHub(options: ViewerHubOptions): {
   const { controller } = options;
   const wss = new WebSocketServer({ noServer: true });
   const clients = new Set<WebSocket>();
+  /**
+   * Never throws. It runs inside the controller's events, which come from timers and from the agent's connection, where a
+   * throw would end the process; a viewer that can't be written to is dropped instead.
+   */
   const send = (ws: WebSocket, message: ServerToViewer): void => {
-    if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(message));
+    if (ws.readyState !== ws.OPEN) return;
+    try {
+      ws.send(JSON.stringify(message));
+    } catch {
+      ws.terminate(); // its close listener takes it out of the set
+    }
   };
   const broadcast = (message: ServerToViewer): void => {
     for (const ws of clients) send(ws, message);
