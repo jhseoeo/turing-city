@@ -113,6 +113,21 @@ const ScenarioSchema = z
     if (s.facilities.filter((f) => f.kind === 'power').length !== 1) {
       ctx.addIssue({ code: 'custom', path: ['facilities'], message: 'exactly one power plant is required' });
     }
+    // A series starts inside its range and stays there (the wind's range is 0..max). An inverted range or a start
+    // outside it is a mistake in the file, so it is refused here rather than met in the middle of a session.
+    const { wind, fuelPrice, jobPrice } = s.tuning;
+    const series = [
+      ['wind', 0, wind.max, wind.start],
+      ['fuelPrice', fuelPrice.min, fuelPrice.max, fuelPrice.start],
+      ['jobPrice', jobPrice.min, jobPrice.max, jobPrice.start],
+    ] as const;
+    for (const [name, min, max, start] of series) {
+      if (min > max) {
+        ctx.addIssue({ code: 'custom', path: ['tuning', name], message: `min ${min} is above max ${max}` });
+      } else if (start < min || start > max) {
+        ctx.addIssue({ code: 'custom', path: ['tuning', name, 'start'], message: `start ${start} is outside the range ${min}..${max}` });
+      }
+    }
   });
 
 export type Scenario = z.infer<typeof ScenarioSchema>;

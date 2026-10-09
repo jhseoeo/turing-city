@@ -58,6 +58,29 @@ describe('parseScenario', () => {
     expect(problems(none)).toContain('facilities: exactly one power plant is required');
   });
 
+  it('rejects an inverted series range or a start outside it, but accepts the edges', () => {
+    const inverted = m1Copy();
+    inverted.tuning.fuelPrice = { start: 7, min: 9, max: 5 };
+    inverted.tuning.jobPrice.min = 80;
+    inverted.tuning.jobPrice.max = 15;
+    const invertedProblems = problems(inverted);
+    expect(invertedProblems).toContain('tuning.fuelPrice: min 9 is above max 5');
+    expect(invertedProblems).toContain('tuning.jobPrice: min 80 is above max 15');
+    const outside = m1Copy();
+    outside.tuning.wind.start = 230;
+    outside.tuning.fuelPrice.start = 4;
+    outside.tuning.jobPrice.start = 90;
+    const outsideProblems = problems(outside);
+    expect(outsideProblems).toContain('tuning.wind.start: start 230 is outside the range 0..220');
+    expect(outsideProblems).toContain('tuning.fuelPrice.start: start 4 is outside the range 5..9');
+    expect(outsideProblems).toContain('tuning.jobPrice.start: start 90 is outside the range 15..80');
+    const edges = m1Copy();
+    edges.tuning.wind.start = 220;
+    edges.tuning.fuelPrice = { start: 7, min: 7, max: 7 };
+    edges.tuning.jobPrice.start = 15;
+    expect(() => parseScenario(edges)).not.toThrow();
+  });
+
   it('names the path of a missing tuning value', () => {
     const s = m1Copy() as Record<string, unknown>;
     delete (s.tuning as Record<string, unknown>).bankruptcyDays;

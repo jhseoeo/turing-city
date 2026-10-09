@@ -15,7 +15,7 @@
 - Imports inside the workspace carry the `.ts` suffix, and code uses only erasable TypeScript syntax (no `enum`, `namespace`, or constructor parameter properties). Node runs the server's worker thread with its own type stripping, which needs both.
 - `core` uses no Node and no DOM API, holds every quantity as an integer (money in micro-units, temperature and EMF in milli-units), and draws randomness only from its seeded streams: no `Math.random`, `Date.now`, or timers. `firmware`'s `src` uses no Node API.
 - Determinism: the same scenario, seed, and inputs give the same `stateHash` at every step. Only `Session.step()` touches a board's Lua state; one `WasmoonHost` (one Lua runtime) serves one session; deploy-time syntax checks run in a separate runtime (`SyntaxChecker`).
-- Every number from spec §10 is read from the scenario file, never hard-coded.
+- Every number from spec §10 that tunes the game is read from the scenario file, never hard-coded. §10's last three rows (log length and firmware size, the watchdog, the MCP port, ping interval, and misses) are runtime and transport limits: named constants where they're enforced.
 - The firmware sandbox (spec §6.5): no `os`, `io` library, `load`, `require`, `debug`, `collectgarbage`, `utf8`, `string.dump`, `string.pack/unpack`, pattern functions (`find` is plain only); size-proportional builtins charged by work, with a charge that no argument can make negative or NaN, and `table.insert`, `table.remove`, and `table.move` written in Lua so every shift counts; `__gc` and `__mode` refused; `tostring` without addresses; `math.random` seeded per board; RAM capped; the instruction cap counted by a C-level hook that survives `pcall` and follows coroutines.
 - MCP (spec §7.1): bound to 127.0.0.1 (default port 7840), a bearer token on every request, any `Origin` header refused, firmware source at most 64 KB; the token lives in `~/.config/turing-city/config.json`, outside the repository, because the repository is public.
 - Nothing a client sends may crash the game server: any web page can make the browser send requests to 127.0.0.1, so every HTTP handler turns errors into responses and every WebSocket has an `error` listener.
@@ -739,7 +739,7 @@ git commit -m "Add integer math, seeded randomness, and game time to the core"
 
 ### Task 3: The scenario format and the milestone-1 scenario
 
-Every number in spec §10 lives in a scenario file, which the core validates before a session starts. Milestone 1 plays a scenario with only the power plant and two datacenters (spec §12, step 4).
+Every number in spec §10 that tunes the game lives in a scenario file, which the core validates before a session starts; §10's last three rows are runtime and transport limits, named constants where they're enforced. Milestone 1 plays a scenario with only the power plant and two datacenters (spec §12, step 4).
 
 **Files:**
 - Create: `packages/core/src/scenario.ts`, `scenarios/m1-power.json`

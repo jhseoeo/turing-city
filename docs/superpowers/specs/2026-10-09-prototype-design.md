@@ -456,7 +456,7 @@ The approved mockups (v1 to v5, in the brainstorming session) shaped this sectio
 
 ## 10. Tuning values
 
-All of these are starting values to tune, in one place so that code reads them from the scenario file rather than hard-coding them:
+The game's values are starting values to tune. They live in the scenario file, so that code reads them from data rather than hard-coding them. The exception is the last three rows (log length and firmware size, the watchdog, and the MCP port, ping interval, and misses): those are limits of the runtime and the transport, not game tuning, and stay named constants where they're enforced (the MCP port is also in the user's config, §7.1).
 
 | Value | Start |
 |---|---|
