@@ -93,7 +93,6 @@ export class BoardVm {
     if (status !== 0) throw new Error(`board prelude failed: ${this.errorText(-1)}`);
     this.collect();
     this.bootBytes = this.engine.global.getMemoryUsed();
-    this.capRam();
   }
 
   /** Installs newSource (if given), writes the sensors into io, and runs one tick under the caps. */
@@ -102,16 +101,23 @@ export class BoardVm {
     if (newSource !== null) {
       const failure = this.deploy(newSource);
       if (failure) return this.result(false, 0, [], [], failure);
-      this.capRam(this.startupRoom());
     }
     this.writeSensors(sensors);
     this.ops = 0;
     this.capped = false;
+    // The RAM cap holds around the step only. What the host does outside it (writing the sensor keys, reading the text
+    // of an error value, emptying the lists) allocates with no protected call around it, and a refused allocation
+    // there aborts the whole Lua runtime instead of failing a tick.
+    this.capRam(newSource !== null ? this.startupRoom() : 0);
     this.counting = true;
     this.pushRef('step');
-    const status = lua.lua_pcallk(L, 0, 0, 0, 0, null);
-    this.counting = false;
-    this.capRam();
+    let status: number;
+    try {
+      status = lua.lua_pcallk(L, 0, 0, 0, 0, null);
+    } finally {
+      this.counting = false;
+      this.engine.global.setMemoryMax(undefined);
+    }
     const error = status === 0 ? null : this.classify(status, this.errorText(-1));
     this.starved = error?.kind === 'ram';
     lua.lua_settop(L, 0);
@@ -128,15 +134,14 @@ export class BoardVm {
 
   /**
    * Compiles source, which the next step installs. Returns why it did not compile; the board is then as it was.
-   * Code doesn't count as RAM (it would live in flash), so it compiles without a cap, and the caller sets the cap
-   * ramBytes above the runtime and this code. The code's size is what compiling added to live memory: collect,
-   * measure, compile, collect, measure. Only then is the installed firmware released, so its globals take no part
-   * in the difference and only one firmware is alive when the cap is set. Nothing stays staged between ticks, since
-   * tick() runs the step right after, so the chunk measured here is the only new one.
+   * Code doesn't count as RAM (it would live in flash), so the cap, which holds only around the step, sits ramBytes
+   * above the runtime and this code. The code's size is what compiling added to live memory: collect, measure,
+   * compile, collect, measure. Only then is the installed firmware released, so its globals take no part in the
+   * difference and only one firmware is alive when the cap is set. Nothing stays staged between ticks, since tick()
+   * runs the step right after, so the chunk measured here is the only new one.
    */
   private deploy(source: string): TickError | null {
     const { lua, L } = this;
-    this.engine.global.setMemoryMax(undefined);
     this.collect();
     const before = this.engine.global.getMemoryUsed();
     this.pushRef('compile');
@@ -145,7 +150,6 @@ export class BoardVm {
     if (status !== 0) {
       const message = this.errorText(-1);
       lua.lua_settop(L, 0);
-      this.capRam();
       return { kind: 'runtime', message };
     }
     this.collect();

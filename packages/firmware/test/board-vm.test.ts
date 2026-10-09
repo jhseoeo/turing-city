@@ -429,6 +429,28 @@ describe('BoardVm', () => {
       expect(v.tick(SENSORS, null).error?.kind).toBe('ram');
       v.close();
     });
+
+    // The host allocates outside any protected call: the keys it writes into io, the text of an error value it reads.
+    // A refused allocation there aborts the whole Lua runtime, so the RAM cap may hold only while firmware runs.
+    it('reads a number error value on a board that is over its cap, instead of throwing', () => {
+      const v = vm();
+      expect(v.tick(SENSORS, FILL_TO_THE_BRIM).error?.kind).toBe('ram');
+      // The room for this deploy lets 40 tables in, so the board ends the tick over its cap, with the error text still to read.
+      const r = v.tick(SENSORS, `function tick(io, mem) for i = 1, 40 do mem[i] = {} end error(918273645) end`);
+      expect(r.error).toEqual({ kind: 'runtime', message: '918273645' });
+      v.close();
+    });
+
+    it('writes a sensor the board has not seen before while it is over its cap, instead of throwing', () => {
+      const v = vm();
+      expect(v.tick(SENSORS, FILL_TO_THE_BRIM).error?.kind).toBe('ram');
+      // A recovery tick that keeps 40 more tables than the cap allows: the room is for starting, and the board is over its cap.
+      const recover = `function tick(io, mem) if not mem.done then mem.done = true for i = 1, 40 do mem[i] = {} end end end`;
+      expect(v.tick(SENSORS, recover).error).toBeNull();
+      // The new key's name and its slot in io are allocated by the host.
+      expect(() => v.tick({ ...SENSORS, never_seen_before: 7 }, null)).not.toThrow();
+      v.close();
+    });
   });
 
   describe('string.format', () => {
