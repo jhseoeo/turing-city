@@ -7,7 +7,7 @@ export const PRELUDE = String.raw`
 local charge = __charge; __charge = nil
 local load, type, error, select, tostring_raw = load, type, error, select, tostring
 local setmetatable_raw, getmetatable, rawget, rawset, rawlen, rawequal = setmetatable, getmetatable, rawget, rawset, rawlen, rawequal
-local pairs, ipairs, next, pcall, xpcall, assert, tonumber = pairs, ipairs, next, pcall, xpcall, assert, tonumber
+local pairs, ipairs, next, pcall, assert, tonumber = pairs, ipairs, next, pcall, assert, tonumber
 local S, T, M, C = string, table, math, coroutine
 local collect = collectgarbage
 
@@ -172,7 +172,37 @@ local safe_table = {
   end,
 }
 local safe_math = copy(M); safe_math.randomseed = nil
+
+-- Lua switches its hooks off while a hook runs, and on again only when a protected call catches the error the hook
+-- raised. The cap ends a tick by raising that error from the count hook, so firmware that runs before a protected call
+-- catches it is not counted. The real xpcall and coroutine.wrap are two ways to run firmware there:
+--  - xpcall calls its message handler inside lua_error, before the stack unwinds. Here pcall catches the error first and
+--    the handler is called afterwards, as code like any other. Once the cap is hit every instruction raises, so a
+--    handler cannot start. It no longer sees the frame that failed, which firmware has no debug library to inspect.
+--  - A coroutine that the cap killed dies with its hooks off and its stack not unwound. coroutine.wrap and
+--    coroutine.close close a coroutine that failed, which runs its pending <close> handlers on it, uncounted. Here wrap
+--    only resumes and re-raises the error object, and there is no coroutine.close: nothing closes a dead coroutine, so
+--    its <close> handlers never run.
+local function xpcall_done(msgh, ok, ...)
+  if ok then return true, ... end
+  return false, (msgh((...)))
+end
+local function safe_xpcall(f, msgh, ...)
+  if type(msgh) ~= "function" then
+    error("bad argument #2 to 'xpcall' (function expected, got " .. type(msgh) .. ")", 2)
+  end
+  return xpcall_done(msgh, pcall(f, ...))
+end
+local function wrap_done(ok, ...)
+  if ok then return ... end
+  error((...), 0)
+end
 local safe_coroutine = copy(C)
+safe_coroutine.close = nil
+safe_coroutine.wrap = function(f)
+  local co = C.create(f)
+  return function(...) return wrap_done(C.resume(co, ...)) end
+end
 
 local mem, q, logs = {}, {}, {}
 -- actions holds the io actions of the board's kind; io_t is the io table of the firmware that runs.
@@ -198,7 +228,7 @@ end
 local function make_env()
   local libs = { copy(safe_string), copy(safe_table), copy(safe_math), copy(safe_coroutine) }
   local e = {
-    assert = assert, error = error, ipairs = ipairs, next = next, pairs = pairs, pcall = pcall, xpcall = xpcall,
+    assert = assert, error = error, ipairs = ipairs, next = next, pairs = pairs, pcall = pcall, xpcall = safe_xpcall,
     select = select, tonumber = tonumber, tostring = safe_tostring, type = type, rawequal = rawequal,
     rawget = rawget, rawset = rawset, rawlen = rawlen, setmetatable = safe_setmetatable, getmetatable = getmetatable,
     print = log, string = libs[1], table = libs[2], math = libs[3],

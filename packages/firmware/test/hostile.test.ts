@@ -110,6 +110,21 @@ const CASES: ReadonlyArray<readonly [string, string, TickErrorKind]> = [
   ['table.move whose range overflows', 'function tick() pcall(table.move, {}, -(1 << 62), 1 << 62, 1) while true do end end', 'cpu'],
   ['a huge table.move', 'function tick() table.move({}, 1, 1 << 40, 2) end', 'cpu'],
   ['string.byte whose range overflows', 'function tick() string.byte("abc", -(1 << 62), 1 << 62) while true do end end', 'cpu'],
+  // The count hook stops a tick by raising an error from inside the hook, and Lua keeps its hooks off while a hook runs: it
+  // switches them on again only when a protected call catches the error. Firmware that runs before that is not counted.
+  // xpcall calls its message handler inside lua_error, before the stack unwinds, still inside the hook.
+  [
+    'an xpcall message handler that loops',
+    'function tick() xpcall(function() while true do end end, function() while true do end end) end',
+    'cpu',
+  ],
+  // A coroutine that the cap killed dies with its hooks still off and its stack not unwound. coroutine.wrap closes a
+  // coroutine that failed, and so does coroutine.close (the test below): they run its pending <close> handlers on it.
+  [
+    'a <close> handler that coroutine.wrap runs for a coroutine the cap killed',
+    'function tick() coroutine.wrap(function() local x <close> = setmetatable({}, { __close = function() while true do end end }) while true do end end)() end',
+    'cpu',
+  ],
 ];
 
 describe('hostile firmware', () => {
@@ -133,6 +148,25 @@ describe('hostile firmware', () => {
     if (reports === 'hung') return;
     expect(reports[1]?.kind).toBeNull();
     expect(reports[1]?.elapsedMs).toBeLessThan(BUDGET_MS);
+  });
+
+  it('does not close a coroutine that the cap killed, on a later tick either', async () => {
+    // Tick 1 starts a coroutine with a <close> handler and the cap kills it: it dies with its hooks off. Closing it on
+    // tick 2 with coroutine.close would run the handler uncounted. The sandbox has no coroutine.close, so tick 2 fails
+    // at once on the missing function.
+    const reports = await runTicks([
+      'function tick(io, mem) if mem.co then coroutine.close(mem.co) return end mem.co = coroutine.create(function() local x <close> = setmetatable({}, { __close = function() while true do end end }) while true do end end) coroutine.resume(mem.co) end',
+      null,
+      ALIVE,
+    ]);
+    expect(reports).not.toBe('hung');
+    if (reports === 'hung') return;
+    expect(reports[0]?.kind).toBe('cpu');
+    expect(reports[0]?.elapsedMs).toBeLessThan(BUDGET_MS);
+    expect(reports[1]?.kind).toBe('runtime');
+    expect(reports[1]?.message).toContain("field 'close'");
+    expect(reports[1]?.elapsedMs).toBeLessThan(BUDGET_MS);
+    expect(reports[2]?.logs).toEqual(['still alive']);
   });
 
   it('reads an error object without calling its __tostring', async () => {

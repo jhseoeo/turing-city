@@ -652,4 +652,78 @@ describe('BoardVm', () => {
       expect(run(`io.log(string.format(nil))`).error?.message).toContain("bad argument #1 to 'format'");
     });
   });
+
+  describe('xpcall and coroutine.wrap', () => {
+    // Lua keeps its hooks off while a hook runs, and switches them on again when a protected call catches the error the
+    // hook raised. Firmware that runs before that is not counted by the cap. The real xpcall calls its message handler
+    // inside lua_error. The real coroutine.wrap, like coroutine.close, runs the <close> handlers of a coroutine that
+    // failed on that coroutine, and one that the cap killed died with its hooks off. So the prelude has its own xpcall
+    // and wrap, and no close.
+    const run = (body: string) => {
+      const v = vm();
+      const r = v.tick(SENSORS, `function tick(io) ${body} end`);
+      v.close();
+      return r;
+    };
+
+    it('does not call a message handler once the cap is hit', () => {
+      const r = run(`xpcall(function() while true do end end, function() io.log("handler ran") return "x" end)`);
+      expect(r.error?.kind).toBe('cpu');
+      expect(r.logs).toEqual([]);
+    });
+
+    it('calls the message handler with the error after an ordinary error, and returns one value from it', () => {
+      const r = run(
+        `io.log(xpcall(function() error("boom", 0) end, function(...) io.log(select("#", ...), ...) return "handled", "dropped" end))`,
+      );
+      expect(r.logs).toEqual(['1\tboom', 'false\thandled']);
+    });
+
+    it('passes the arguments and the results of a call that succeeds through xpcall', () => {
+      const r = run(`io.log(xpcall(function(a, b) return a + b, "x", nil end, function() end, 1, 2))`);
+      expect(r.logs).toEqual(['true\t3\tx\tnil']);
+    });
+
+    it('refuses a message handler that is not a function, before it calls anything', () => {
+      const r = run(`xpcall(function() io.log("ran") end)`);
+      expect(r.error?.message ?? '(no error)').toMatch(/^firmware:1: bad argument #2 to 'xpcall' \(function expected/);
+      expect(r.logs).toEqual([]);
+    });
+
+    it('does not close a coroutine that the cap killed, so its <close> handler does not run uncounted', () => {
+      const r = run(
+        `coroutine.wrap(function() local x <close> = setmetatable({}, { __close = function() io.log("closed") end }) while true do end end)()`,
+      );
+      expect(r.error?.kind).toBe('cpu');
+      expect(r.logs).toEqual([]);
+    });
+
+    it('has no coroutine.close, and keeps the rest of the coroutine library', () => {
+      const r = run(
+        `io.log(type(coroutine.close), type(coroutine.wrap), type(coroutine.create), type(coroutine.resume), type(coroutine.yield))`,
+      );
+      expect(r.logs).toEqual(['nil\tfunction\tfunction\tfunction\tfunction']);
+    });
+
+    it('passes values both ways through coroutine.wrap, and ends a generic for', () => {
+      const r = run(`
+        local f = coroutine.wrap(function(a) local b = coroutine.yield(a * a) return b + 1 end)
+        io.log(f(3), f(10))
+        local seen = {}
+        for v in coroutine.wrap(function() for i = 1, 3 do coroutine.yield(i * 10) end end) do seen[#seen + 1] = v end
+        io.log(table.concat(seen, ","))
+        io.log(coroutine.wrap(function() coroutine.yield(1, nil, 3) end)())`);
+      expect(r.logs).toEqual(['9\t11', '10,20,30', '1\tnil\t3']);
+    });
+
+    it('raises the error object of a wrapped coroutine as it was, and refuses to resume a dead one', () => {
+      const r = run(`
+        local ok, e = pcall(coroutine.wrap(function() error({ code = 7 }) end))
+        io.log(ok, type(e), e.code)
+        local g = coroutine.wrap(function() error("boom", 0) end)
+        io.log(select(2, pcall(g)))
+        io.log(select(2, pcall(g)))`);
+      expect(r.logs).toEqual(['false\ttable\t7', 'boom', 'cannot resume dead coroutine']);
+    });
+  });
 });
