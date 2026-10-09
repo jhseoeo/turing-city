@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import type { AgentStatus, GameApi } from '@turing-city/core';
+import { AGENT_INSTRUCTIONS, type AgentStatus, type GameApi } from '@turing-city/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createMcpEndpoint, type DevTools } from '../src/mcp.ts';
 
@@ -293,6 +293,79 @@ describe('a failure inside the game', () => {
       answers[name] = { isError: result.isError, text: textOf(result) };
     }
     expect(answers).toEqual(Object.fromEntries(Object.keys(calls).map((name) => [name, { isError: true, text: message }])));
+    await client.close();
+  });
+});
+
+describe('what the agent is given beyond the eight tools', () => {
+  it("gives the agent the game's instructions", async () => {
+    const r = await start();
+    const { client } = await connect(r.url);
+    expect(client.getInstructions()).toBe(AGENT_INSTRUCTIONS);
+    await client.close();
+  });
+
+  it('hands each dev tool its arguments, and returns what the game answers', async () => {
+    const r = await start(true);
+    const calls: unknown[][] = [];
+    Object.assign(r.dev, {
+      play: () => void calls.push(['play']),
+      pause: () => void calls.push(['pause']),
+      setSpeed: (speed: number) => void calls.push(['setSpeed', speed]),
+      runUntil: async (goal: unknown) => void calls.push(['runUntil', goal]),
+      newSeason: async (seed: number) => void calls.push(['newSeason', seed]),
+      rebuild: async (board: string) => {
+        calls.push(['rebuild', board]);
+        return { ok: false, reason: 'DB is not destroyed' };
+      },
+    });
+    const { client } = await connect(r.url);
+    const answer = async (name: string, args: Record<string, unknown>): Promise<unknown> =>
+      JSON.parse(textOf(await client.callTool({ name, arguments: args })));
+    const done = { ok: true };
+    expect(await answer('dev_play', {})).toEqual(done);
+    expect(await answer('dev_pause', {})).toEqual(done);
+    expect(await answer('dev_set_speed', { speed: 3 })).toEqual(done);
+    expect(await answer('dev_run_until', { seconds: 5, alertKinds: ['raid'] })).toEqual(done);
+    expect(await answer('dev_run_until', { alertKinds: ['fire'] })).toEqual(done);
+    expect(await answer('dev_run_until', {})).toEqual(done);
+    expect(await answer('dev_new_season', { seed: 7 })).toEqual(done);
+    expect(await answer('dev_rebuild', { board: 'DB' })).toEqual({ ok: false, reason: 'DB is not destroyed' });
+    expect(calls).toStrictEqual([
+      ['play'],
+      ['pause'],
+      ['setSpeed', 3],
+      ['runUntil', { seconds: 5, alertKinds: ['raid'] }],
+      ['runUntil', { alertKinds: ['fire'] }], // what the agent left out stays out
+      ['runUntil', {}],
+      ['newSeason', 7],
+      ['rebuild', 'DB'],
+    ]);
+    await client.close();
+  });
+
+  it('refuses dev arguments that fit no speed, no time, and no seed, before the game sees them', async () => {
+    const r = await start(true);
+    const calls: unknown[] = [];
+    Object.assign(r.dev, {
+      setSpeed: (speed: number) => calls.push(speed),
+      runUntil: async (goal: unknown) => calls.push(goal),
+      newSeason: async (seed: number) => calls.push(seed),
+    });
+    const { client } = await connect(r.url);
+    const refused: Array<[string, Record<string, unknown>]> = [
+      ['dev_set_speed', { speed: 4 }],
+      ['dev_set_speed', { speed: '2' }],
+      ['dev_run_until', { seconds: 0 }],
+      ['dev_run_until', { seconds: -3 }],
+      ['dev_run_until', { alertKinds: 'raid' }],
+      ['dev_new_season', { seed: 1.5 }],
+      ['dev_new_season', {}],
+    ];
+    const answers: unknown[] = [];
+    for (const [name, args] of refused) answers.push((await client.callTool({ name, arguments: args })).isError);
+    expect(answers).toEqual(refused.map(() => true));
+    expect(calls).toEqual([]);
     await client.close();
   });
 });
