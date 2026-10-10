@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyFacilityAction } from '../src/actions.ts';
 import { wreckFacility } from '../src/boards.ts';
-import { isCooling } from '../src/datacenter.ts';
+import { isCooling, isProcessing } from '../src/datacenter.ts';
 import { type Action, countsAsAction } from '../src/firmware-host.ts';
 import { MICRO } from '../src/fixed.ts';
 import { stateHash } from '../src/hash.ts';
@@ -84,6 +84,7 @@ describe('facility actions from the hand and from firmware', () => {
     steps(s, 70); // the cycle's last step is 79
     s.hand('DA', { kind: 'cool' });
     expect(cooling()).toEqual(range(80, 160)); // a press at its end goes on with it: a whole new cycle from step 80
+    expect(windows(s, 'DA').cool).toEqual([0, 160]); // in the same window, which now holds two back-to-back cycles
     steps(s, 100);
     expect(cooling()).toEqual([]); // the cycle ended at 160, and the world is at step 180
     s.hand('DA', { kind: 'cool' });
@@ -325,6 +326,27 @@ describe('facility actions from the hand and from firmware', () => {
       expect(charged, `charged, ${label}`).toEqual(range(firstStep, 331));
       expect(cooled, `cooled, ${label}`).toEqual(range(firstStep, 331));
     }
+  });
+
+  // A window [a, s) is over at step s. A press whose startStep is s goes on with it (the step before, s - 1, was covered). The first
+  // press that does not is the one with startStep s + 1: step s was never covered, so it stays idle and the window starts afresh.
+
+  it('starts a job afresh, leaving the step between idle, when a press comes one step after the end of the last', () => {
+    const s = quiet();
+    Object.assign(s.world.datacenters.DA!, { busyFrom: 4, busyUntil: 14 }); // steps 4 to 13
+    applyFacilityAction(s.ctx, findFacility(s.world, 'DA')!, { kind: 'process' }, 15);
+    expect(windows(s, 'DA').busy).toEqual([15, 25]);
+    expect(isProcessing(s.ctx, 'DA', 14)).toBe(false);
+    expect(isProcessing(s.ctx, 'DA', 15)).toBe(true);
+  });
+
+  it('starts a cooling cycle afresh, leaving the step between idle, when a press comes one step after the end of the last', () => {
+    const s = quiet();
+    Object.assign(s.world.datacenters.DA!, { coolFrom: 4, coolUntil: 84 }); // steps 4 to 83
+    applyFacilityAction(s.ctx, findFacility(s.world, 'DA')!, { kind: 'cool' }, 85);
+    expect(windows(s, 'DA').cool).toEqual([85, 165]);
+    expect(isCooling(s.ctx, 'DA', 84)).toBe(false);
+    expect(isCooling(s.ctx, 'DA', 85)).toBe(true);
   });
 
   it('leaves a real gap where a beat skips cool(): nothing in it is charged or cooled, and the next cycle starts after its call', () => {

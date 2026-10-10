@@ -95,7 +95,10 @@ export interface DatacenterState {
   /** Processing covers steps busyFrom <= step < busyUntil. */
   busyFrom: number;
   busyUntil: number;
-  /** A cooling cycle covers steps coolFrom <= step < coolUntil. */
+  /**
+   * Cooling covers steps coolFrom <= step < coolUntil. The window may hold back-to-back cycles, each coolSteps long from coolFrom: a
+   * press at the step after a cycle's last goes on with it. Its length is a whole number of cycles.
+   */
   coolFrom: number;
   coolUntil: number;
 }
