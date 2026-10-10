@@ -1,6 +1,11 @@
 # turing-city (working title)
 
-An automation and town-management game. The player builds small boards into the town's facilities, the player's own AI agent (Claude Code or any other) writes their Lua firmware through the game's local MCP server, and the electromagnetic noise the working machines leak draws Luddites who smash them. Planned stack: TypeScript, Phaser, and Electron for a desktop game; a web build is parked (see "Design"). Solo side project, developed on a Mac; the repository started 2026-10-09. The prototype in `docs/design.md` (첫 프로토타입) checks whether the loop of an agent writing and fixing firmware is fun. Milestone 1 is built: the power plant and two datacenters, with the player's agent writing their firmware over MCP and a browser viewer for the player (the user's playtest checklist is in `docs/playtests/`). The food chain (farms, the warehouse, trucks, housing) and the season wrap-up are milestone 2.
+An automation and town-management game. The player builds small boards into the town's facilities, the player's own AI agent (Claude Code or any other) writes their Lua firmware through the game's local MCP server, and the electromagnetic noise the working machines leak draws Luddites who smash them. Planned stack: TypeScript, Phaser, and Electron for a desktop game; a web build is parked (see "Design"). Solo side project, developed on a Mac; the repository started 2026-10-09. The prototype in `docs/design.md` (첫 프로토타입) checks whether the early stage is fun: running the town by hand, automating it with firmware written in the game, and then handing boards to an agent.
+- **Milestone 1 is built:** the power plant and two datacenters, with the player's agent writing their firmware over MCP, and a browser viewer for the player. Its playtest checklist is in `docs/playtests/`.
+- **Milestone 2 is redirected.** The user played milestone 1 on 2026-10-10 and redirected milestone 2 to the early stage:
+  - per-facility tiers: T0 by hand, T1 a board with an in-game editor, T2 a comm module with MCP;
+  - a board manual;
+  - the food chain (farms, the warehouse, trucks, housing).
 
 Read `docs/design.md` first. It's the game design document, in Korean: the vision, the systems, the decision log (결정 기록), and a hand-off section for implementation (구현 핸드오프).
 
@@ -20,6 +25,7 @@ Read `docs/design.md` first. It's the game design document, in Korean: the visio
 - Specs and plans go in `docs/superpowers/specs/` and `docs/superpowers/plans/`, in English.
 - Platform (the user, 2026-10-09): a desktop game, Electron with the local MCP server. A web build is parked, with its door kept open (see "Code and checks"). A web demo of the copy-paste stage needs no WebMCP and can come any time. A full web build waits until a browser ships WebMCP: in October 2026 only Chrome and Edge ran origin trials, and Claude Code reached a page's tools only through a browser-automation bridge, which also handed the agent the whole page. The decision log in `docs/design.md` has the reasons.
 - The prototype: `docs/superpowers/specs/2026-10-09-prototype-design.md`, agreed with the user section by section on 2026-10-09. On the prototype, it's the reference where it and the design doc differ.
+- Milestone 2: `docs/superpowers/specs/2026-10-10-early-stage-design.md`, agreed with the user on 2026-10-10. It wins where it and the 10-09 spec differ.
 
 ### Open questions
 

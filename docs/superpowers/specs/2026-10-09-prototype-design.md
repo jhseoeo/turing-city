@@ -3,6 +3,8 @@
 Status: agreed with the user section by section on 2026-10-09; this document records those decisions.
 Source of the game's design: `docs/design.md` (Korean). Where the two differ on the prototype, this document is the reference, and the design doc points here.
 
+**Changed on 2026-10-10.** After playing milestone 1, the user redirected the prototype to the early stage. Facilities start without boards and are worked by hand. A board (T1) brings the game's own firmware editor. A comm module (T2) brings the agent over MCP. `2026-10-10-early-stage-design.md` records it. That spec wins wherever the two differ: the goal, the tiers, manual work, the EMF sources, the Luddites' targets, the endings, the connection rule, and the viewer. Everything it leaves alone still stands here.
+
 ## 1. Goal
 
 The first milestone answers one question from the design doc (첫 프로토타입): is the loop of an AI agent writing and fixing firmware fun?
