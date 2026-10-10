@@ -423,6 +423,25 @@ try {
   check('Space pauses a running game', await waitUntil(async () => (await status()).run.paused && (await playButton()) === '▶'));
   await page.keyboard.press('Space');
   check('Space plays a paused game', await waitUntil(async () => !(await status()).run.paused && (await playButton()) === '⏸'));
+
+  // A held key repeats keydown (repeat set), and the repeats come after the page has shown the first one's result: if they acted,
+  // a held Space would flip pause and play at the repeat rate.
+  await page.keyboard.down('Space');
+  check('a held Space pauses a running game', await waitUntil(async () => (await status()).run.paused && (await playButton()) === '▶'));
+  await page.keyboard.down('Space'); // the key repeating
+  await page.waitForTimeout(300);
+  check('the repeat of a held Space does not play again', (await status()).run.paused);
+  // A Space left to the page would scroll it, and a held one would on every repeat.
+  const repeatCancelled = await page.evaluate(() => {
+    const repeat = new KeyboardEvent('keydown', { code: 'Space', key: ' ', repeat: true, bubbles: true, cancelable: true });
+    document.body.dispatchEvent(repeat);
+    return repeat.defaultPrevented;
+  });
+  check('the repeat of a held Space is kept from scrolling the page', repeatCancelled);
+  await page.keyboard.up('Space');
+  await page.keyboard.press('Space');
+  check('Space plays again once it is released', await waitUntil(async () => !(await status()).run.paused && (await playButton()) === '⏸'));
+
   for (const speed of [3, 2, 1]) {
     await page.keyboard.press(String(speed));
     check(`${speed} sets the speed to ${speed}x`, await waitUntil(async () => (await status()).run.speed === speed));
@@ -432,12 +451,35 @@ try {
   await agent.call('dev_pause');
   const mapShot = (): Promise<Buffer> => page.screenshot({ clip: { x: map.x, y: map.y, width: map.width, height: map.height } });
   const plain = await mapShot();
-  await page.keyboard.press('h');
+  /** Presses twice, and says whether the heatmap came on after the first press and was off again after the second. */
+  const heatmapToggledBy = async (press: () => Promise<unknown>): Promise<boolean> => {
+    await press();
+    await page.waitForTimeout(300);
+    const heated = await mapShot();
+    await press();
+    await page.waitForTimeout(300);
+    return !plain.equals(heated) && plain.equals(await mapShot());
+  };
+  check('H shows the heatmap and hides it again', await heatmapToggledBy(() => page.keyboard.press('h')));
+  // With the Korean input source on, Chrome reports the H key as 'Process': only its code says which key it was.
+  const processedH = (): Promise<unknown> =>
+    page.evaluate(() =>
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Process', code: 'KeyH', keyCode: 229, bubbles: true })),
+    );
+  check('H toggles the heatmap when it is reported as key "Process", code "KeyH"', await heatmapToggledBy(processedH));
+
+  // With Cmd, Ctrl or Alt down a key is the system's or the browser's shortcut (Cmd+H, Ctrl+1), not a command to the game.
+  for (const modifier of ['Meta', 'Control', 'Alt']) {
+    await page.keyboard.down(modifier);
+    await page.keyboard.press('3');
+    await page.keyboard.press('h');
+    await page.keyboard.up(modifier);
+  }
   await page.waitForTimeout(300);
-  const heated = await mapShot();
-  await page.keyboard.press('h');
-  await page.waitForTimeout(300);
-  check('H shows the heatmap and hides it again', !plain.equals(heated) && plain.equals(await mapShot()));
+  check(
+    'the speed and heatmap keys pressed with Cmd, Ctrl or Alt do nothing',
+    (await status()).run.speed === 1 && plain.equals(await mapShot()),
+  );
   await agent.call('dev_play');
 
   await page.keyboard.press('Escape');
