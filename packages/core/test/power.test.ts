@@ -194,6 +194,27 @@ describe('power', () => {
       },
     );
 
+    it('keeps the step a board was last cut in the world state, and so in the state hash, on its own', () => {
+      const s = sheddable();
+      expect(dbOf(s).lastCutStep).toBeNull();
+      run(s, 0, 0, true);
+      expect(dbOf(s).lastCutStep).toBe(0);
+      run(s, 1, 1, false);
+      expect(dbOf(s).lastCutStep).toBe(0); // owed until the board has been steady for the quiet time
+      // Two worlds that differ in this field of one board and in nothing else.
+      const a = sheddable();
+      const b = sheddable();
+      expect(stateHash(a.world)).toBe(stateHash(b.world));
+      a.world.boards[2]!.lastCutStep = 7;
+      expect(stateHash(a.world)).not.toBe(stateHash(b.world));
+      b.world.boards[2]!.lastCutStep = 7;
+      expect(stateHash(a.world)).toBe(stateHash(b.world));
+      // It is per board: the same step on another board is another state.
+      b.world.boards[2]!.lastCutStep = null;
+      b.world.boards[1]!.lastCutStep = 7;
+      expect(stateHash(a.world)).not.toBe(stateHash(b.world));
+    });
+
     it('takes the time to be steady from the scenario, in the words of its log too', () => {
       const s = sheddable(3); // 3 seconds are 60 steps
       run(s, 0, 0, true);
@@ -364,17 +385,23 @@ describe('power', () => {
       expect(shortages(s)).toHaveLength(1);
     });
 
-    it('keeps the last step of a shed in the world state, so that it enters the state hash', () => {
+    it('keeps the last step of a shed in the world state, and so in the state hash, on its own', () => {
       const s = sheddable();
       expect(s.world.plant.lastShedStep).toBeNull();
       run(s, 0, 0, true);
       expect(s.world.plant.lastShedStep).toBe(0);
-      const hash = stateHash(s.world);
       run(s, 1, 1, false);
       expect(s.world.plant.lastShedStep).toBe(0); // clear steps do not move it
       run(s, 2, 2, true);
       expect(s.world.plant.lastShedStep).toBe(2);
-      expect(stateHash(s.world)).not.toBe(hash);
+      // Two worlds that differ in this field and in nothing else.
+      const a = sheddable();
+      const b = sheddable();
+      expect(stateHash(a.world)).toBe(stateHash(b.world));
+      a.world.plant.lastShedStep = 7;
+      expect(stateHash(a.world)).not.toBe(stateHash(b.world));
+      b.world.plant.lastShedStep = 7;
+      expect(stateHash(a.world)).toBe(stateHash(b.world));
     });
 
     it('is a tuning value of the scenario: zero ends the episode as soon as nothing is shed', () => {
