@@ -13,6 +13,12 @@ export const SENSOR_KEYS: Record<SensorName, string> = {
   price: 'price',
   emf: 'emf',
   ludditeDist: 'luddite_dist',
+  ripeness: 'ripeness',
+  outbox: 'outbox',
+  stock: 'stock',
+  farms: 'farms',
+  housing: 'housing',
+  trucks: 'trucks',
 };
 
 function nearestLudditeDistance(ctx: SimContext, board: BoardState): number | undefined {
@@ -43,6 +49,14 @@ function read(ctx: SimContext, board: BoardState, sensor: SensorName): number | 
       return (w.emf[cellIndex(ctx.scenario, board.x, board.y)] ?? 0) / MILLI;
     case 'ludditeDist':
       return nearestLudditeDistance(ctx, board);
+    // Farms and the warehouse have no rules yet: their sensors read nil until Task 7 (farms) and Task 8 (the warehouse).
+    case 'ripeness':
+    case 'outbox':
+    case 'stock':
+    case 'farms':
+    case 'housing':
+    case 'trucks':
+      return undefined;
   }
 }
 

@@ -108,7 +108,7 @@ describe('WasmoonHost lifetime', () => {
   const scenario = parseScenario(m1);
   const bootInfo = (boardId: string): BootInfo => {
     const f = scenario.facilities.find((x) => x.id === boardId)!;
-    return { boardId, kind: f.kind, spec: f.board, facilityIds: scenario.facilities.map((x) => x.id), seed: 1 };
+    return { boardId, kind: f.kind, spec: f.board!, facilityIds: scenario.facilities.map((x) => x.id), seed: 1 };
   };
 
   it("closes a board's VM when it shuts down or boots again, and every VM when the host closes", async () => {

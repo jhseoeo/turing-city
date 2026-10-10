@@ -27,6 +27,12 @@ export function sensorDocs(t: Tuning): Record<SensorName, { unit: string; meanin
     price: { unit: 'money per second of processing', meaning: 'the current job price, which drifts over time' },
     emf: { unit: 'EMF units', meaning: "the EMF in this board's cell; Luddites hunt the strongest" },
     ludditeDist: { unit: 'cells', meaning: 'the distance to the nearest Luddite group, nil when none is on the map' },
+    ripeness: { unit: 'percent', meaning: 'how far the crop has grown; 100 is ripe' },
+    outbox: { unit: 'food units', meaning: `harvested food waiting for a truck, up to ${t.farm.outboxCapacity}` },
+    stock: { unit: 'food units', meaning: `the food the warehouse holds; ${t.warehouse.spoilagePctPerDay}% of it spoils every day` },
+    farms: { unit: 'list', meaning: 'each farm as {id, outbox, distance}' },
+    housing: { unit: 'list', meaning: 'each housing block as {id, food, residents, distance}' },
+    trucks: { unit: 'list', meaning: 'each truck as {id, status, x, y, load, target}' },
   };
 }
 
@@ -59,6 +65,19 @@ export function actionDocs(t: Tuning): Record<FacilityKind | 'any', ReadonlyArra
         meaning: 'who keeps power in a shortage, highest first, such as {"DA", "DB"}; the unlisted come after',
       },
     ],
+    farm: [
+      {
+        call: 'io.harvest()',
+        meaning: `move a ripe crop to the outbox (${t.farm.yield} food, up to ${t.farm.outboxCapacity} in all) and replant`,
+      },
+    ],
+    warehouse: [
+      {
+        call: 'io.dispatch(truck, from, to, amount)',
+        meaning: `send an idle truck (up to ${t.warehouse.truckCapacity} food): from a farm to this warehouse collects, from this warehouse to a housing block delivers`,
+      },
+    ],
+    housing: [],
     any: [
       {
         call: 'io.log(...)',
