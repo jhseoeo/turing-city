@@ -107,7 +107,8 @@ describe('Session', () => {
     run(s, 4); // P beats at 0, DA at 3
     expect(s.world.plant.thermalSetting).toBe(300);
     expect(s.world.plant.priority).toEqual(['DB', 'DA']);
-    expect(s.world.datacenters.DA).toMatchObject({ cooling: 3, jobFrom: 4, jobUntil: 7 });
+    // The job runs until DA's next beat (step 7); a cooling level above 0 starts one cycle of 4 s, 80 steps.
+    expect(s.world.datacenters.DA).toMatchObject({ busyFrom: 4, busyUntil: 8, coolFrom: 4, coolUntil: 84 });
   });
 
   it('sleeps a board, wipes its VM, and reboots it with the same firmware', () => {

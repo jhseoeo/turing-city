@@ -14,7 +14,8 @@ export interface Ticked {
 /** Phase 4: runs the firmware of every powered, awake board whose beat falls on this step. */
 export function runBoardTicks(ctx: SimContext, step: number): Ticked[] {
   const ticked: Ticked[] = [];
-  const facilityIds = ctx.world.boards.map((b) => b.id);
+  // Firmware names facilities by id (set_priority, dispatch): every facility of the town, with a board or not.
+  const facilityIds = ctx.world.facilities.map((f) => f.id);
   for (const board of ctx.world.boards) {
     if (board.status !== 'running' || !board.powered || !isBeat(step, board.period, board.phase)) continue;
     if (board.firmware === null && board.pending === null) continue;

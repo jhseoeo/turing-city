@@ -2,40 +2,48 @@ import { clearFlag, raiseOnce } from './alerts.ts';
 import { appendLog } from './boards.ts';
 import { mulDiv } from './fixed.ts';
 import { stepsForSeconds } from './time.ts';
-import { type BoardState, manhattan, type SimContext, type WorldState } from './world.ts';
+import { type BoardState, type FacilityState, findBoard, manhattan, type SimContext, type WorldState } from './world.ts';
 
-export function plantBoard(world: WorldState): BoardState {
-  const plant = world.boards.find((b) => b.kind === 'power');
+/** The town's one power plant (the scenario guarantees it). */
+export function plantFacility(world: WorldState): FacilityState {
+  const plant = world.facilities.find((f) => f.kind === 'power');
   if (!plant) throw new Error('the scenario has no power plant');
   return plant;
 }
 
-/** What a facility requests this step, transmission loss included. */
-export function facilityDemand(ctx: SimContext, board: BoardState, step: number): number {
+/** What a board itself draws: its parts while running, sleep power while asleep, nothing while destroyed or being rebuilt. */
+function boardDraw(ctx: SimContext, board: BoardState | undefined): number {
+  if (!board) return 0;
+  if (board.status === 'running') return board.spec.power;
+  if (board.status === 'asleep') return ctx.scenario.tuning.sleepPower;
+  return 0;
+}
+
+/**
+ * What a facility requests this step, transmission loss included: its board's draw, a datacenter's job and cooling on the steps
+ * their windows cover, and housing's own use. A wrecked or repairing facility requests nothing.
+ */
+export function facilityDemand(ctx: SimContext, facility: FacilityState, step: number): number {
+  if (facility.condition !== 'ok') return 0;
   const t = ctx.scenario.tuning;
-  let base: number;
-  if (board.status === 'destroyed' || board.status === 'rebuilding') return 0;
-  if (board.status === 'asleep') {
-    base = t.sleepPower;
-  } else {
-    base = board.spec.power;
-    const dc = ctx.world.datacenters[board.id];
-    if (dc) {
-      if (step >= dc.jobFrom && step <= dc.jobUntil) base += t.datacenter.processPower;
-      base += dc.cooling * t.datacenter.coolingPowerPerLevel;
-    }
+  let base = boardDraw(ctx, findBoard(ctx.world, facility.id));
+  const dc = ctx.world.datacenters[facility.id];
+  if (dc) {
+    if (dc.busyFrom <= step && step < dc.busyUntil) base += t.datacenter.processPower;
+    if (dc.coolFrom <= step && step < dc.coolUntil) base += t.datacenter.coolingPower;
   }
-  const plant = plantBoard(ctx.world);
-  const distance = manhattan(board.x, board.y, plant.x, plant.y);
+  if (facility.kind === 'housing') base += t.housing.power;
+  const plant = plantFacility(ctx.world);
+  const distance = manhattan(facility.x, facility.y, plant.x, plant.y);
   return base + mulDiv(base, t.transmissionLossPctPerCell * distance, 100);
 }
 
-/** Consumers (every board but the plant's), highest priority first. */
-export function priorityOrder(world: WorldState): BoardState[] {
-  const consumers = world.boards.filter((b) => b.kind !== 'power');
+/** Consumers (every facility but the plant), highest priority first: the plant's list, then the rest in scenario order. */
+export function priorityOrder(world: WorldState): FacilityState[] {
+  const consumers = world.facilities.filter((f) => f.kind !== 'power');
   const listed = world.plant.priority ?? [];
-  const first = listed.map((id) => consumers.find((b) => b.id === id)).filter((b): b is BoardState => b !== undefined);
-  return [...first, ...consumers.filter((b) => !first.includes(b))];
+  const first = listed.map((id) => consumers.find((f) => f.id === id)).filter((f): f is FacilityState => f !== undefined);
+  return [...first, ...consumers.filter((f) => !first.includes(f))];
 }
 
 /**
@@ -59,15 +67,16 @@ function logPower(ctx: SimContext, board: BoardState, wasPowered: boolean, step:
   }
 }
 
-/** Phase 3: generation, demand, and shedding. */
+/** Phase 3: generation, demand, and shedding. The grid sheds whole facilities; a facility's board has power when its facility has. */
 export function runPower(ctx: SimContext, step: number): void {
   const w = ctx.world;
-  const plant = plantBoard(w);
-  const thermal = plant.status === 'running' ? w.plant.thermalSetting : 0;
+  const plant = plantFacility(w);
+  const plantBoard = findBoard(w, plant.id);
+  const thermal = plantBoard?.status === 'running' ? w.plant.thermalSetting : 0;
   const generation = w.plant.wind + thermal;
   const plantDraw = facilityDemand(ctx, plant, step);
   const order = priorityOrder(w);
-  const demands = order.map((b) => facilityDemand(ctx, b, step));
+  const demands = order.map((f) => facilityDemand(ctx, f, step));
   const available = generation - plantDraw;
   let load = demands.reduce((a, b) => a + b, 0);
   const powered = order.map(() => true);
@@ -76,15 +85,20 @@ export function runPower(ctx: SimContext, step: number): void {
     powered[i] = false;
     load -= demands[i]!;
   }
+  // The plant's own board is never shed, even when nothing is generated, so its firmware can always start the thermal module.
   plant.powered = true;
-  order.forEach((b, i) => {
-    const was = b.powered;
-    b.powered = powered[i]!;
-    logPower(ctx, b, was, step);
+  if (plantBoard) plantBoard.powered = true;
+  order.forEach((f, i) => {
+    f.powered = powered[i]!;
+    const board = findBoard(w, f.id);
+    if (!board) return;
+    const was = board.powered;
+    board.powered = f.powered;
+    logPower(ctx, board, was, step);
   });
   w.plant.generation = generation;
   w.plant.demand = plantDraw + demands.reduce((a, b) => a + b, 0);
-  w.plant.shed = order.filter((_, i) => !powered[i] && demands[i]! > 0).map((b) => b.id);
+  w.plant.shed = order.filter((_, i) => !powered[i] && demands[i]! > 0).map((f) => f.id);
   if (w.plant.shed.length > 0) {
     w.plant.lastShedStep = step;
     raiseOnce(w, 'shortage', step, 'powerShortage', null, `전력 부족: ${w.plant.shed.join(', ')} 정전`);

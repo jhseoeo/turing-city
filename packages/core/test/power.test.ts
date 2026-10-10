@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { stateHash } from '../src/hash.ts';
-import { facilityDemand, plantBoard, priorityOrder, runPower } from '../src/power.ts';
+import { facilityDemand, priorityOrder, runPower } from '../src/power.ts';
 import { Session } from '../src/session.ts';
 import { stepsForSeconds } from '../src/time.ts';
+import { findBoard, type WorldState } from '../src/world.ts';
 import { FakeHost } from './helpers/fake-host.ts';
 import { m1Scenario } from './helpers/scenarios.ts';
 
@@ -36,8 +37,8 @@ function sheddable(quietSeconds?: number): Session {
     new FakeHost(),
   );
   for (const id of ['DA', 'DB']) {
-    s.world.datacenters[id]!.jobFrom = 0;
-    s.world.datacenters[id]!.jobUntil = 100_000;
+    s.world.datacenters[id]!.busyFrom = 0;
+    s.world.datacenters[id]!.busyUntil = 100_000;
   }
   return s;
 }
@@ -49,28 +50,34 @@ function run(s: Session, from: number, to: number, shedding: boolean): void {
 }
 
 const shortages = (s: Session) => s.world.alerts.filter((a) => a.kind === 'powerShortage');
+/** The plant's board: the test scenario starts with its three boards installed. */
+const plantBoard = (world: WorldState) => findBoard(world, 'P')!;
 const texts = (b: { log: ReadonlyArray<{ text: string }> }): string[] => b.log.map((l) => l.text);
 
 describe('power', () => {
   it("adds 2% per cell from the plant to a facility's draw", () => {
     const s = calm(120);
     const ctx = s.ctx;
-    const [p, da, db] = s.world.boards;
+    const [p, da, db] = s.world.facilities;
     expect(facilityDemand(ctx, p!, 0)).toBe(5);
     expect(facilityDemand(ctx, da!, 0)).toBe(10); // 1 cell: 10 + floor(10 * 2 / 100)
     expect(facilityDemand(ctx, db!, 0)).toBe(13); // 16 cells: 10 + floor(10 * 32 / 100)
   });
 
-  it("adds a running job and cooling to a datacenter's draw", () => {
+  it("adds a running job and a cooling cycle to a datacenter's draw on the steps their windows cover", () => {
     const s = calm(120);
     const ctx = s.ctx;
     const dc = s.world.datacenters.DA!;
-    dc.jobFrom = 5;
-    dc.jobUntil = 8;
-    dc.cooling = 2;
-    const da = s.world.boards[1]!;
-    expect(facilityDemand(ctx, da, 4)).toBe(50 + 1); // 10 + 40 cooling, + 2%
-    expect(facilityDemand(ctx, da, 5)).toBe(200 + 4); // + 150 for the job
+    dc.busyFrom = 5;
+    dc.busyUntil = 9;
+    dc.coolFrom = 4;
+    dc.coolUntil = 6;
+    const da = s.world.facilities[1]!;
+    expect(facilityDemand(ctx, da, 3)).toBe(10); // the board alone, 1 cell from the plant: 10 + floor(10 * 2 / 100)
+    expect(facilityDemand(ctx, da, 4)).toBe(410 + 8); // + 400 for the cooling cycle, + 2%
+    expect(facilityDemand(ctx, da, 5)).toBe(560 + 11); // + 150 for the job
+    expect(facilityDemand(ctx, da, 6)).toBe(160 + 3); // the cycle's window is over
+    expect(facilityDemand(ctx, da, 9)).toBe(10); // and so is the job's
   });
 
   it('draws only sleep power while asleep and nothing while destroyed', () => {
@@ -78,9 +85,9 @@ describe('power', () => {
     const ctx = s.ctx;
     const db = s.world.boards[2]!;
     db.status = 'asleep';
-    expect(facilityDemand(ctx, db, 0)).toBe(1); // 1 + floor(1 * 32 / 100)
+    expect(facilityDemand(ctx, s.world.facilities[2]!, 0)).toBe(1); // 1 + floor(1 * 32 / 100)
     db.status = 'destroyed';
-    expect(facilityDemand(ctx, db, 0)).toBe(0);
+    expect(facilityDemand(ctx, s.world.facilities[2]!, 0)).toBe(0);
   });
 
   it('powers everyone when generation covers demand', () => {
@@ -94,8 +101,8 @@ describe('power', () => {
     const s = calm(100);
     const ctx = s.ctx;
     for (const id of ['DA', 'DB']) {
-      s.world.datacenters[id]!.jobFrom = 0;
-      s.world.datacenters[id]!.jobUntil = 10;
+      s.world.datacenters[id]!.busyFrom = 0;
+      s.world.datacenters[id]!.busyUntil = 11;
     }
     s.world.plant.thermalSetting = 250; // generation 350; demand 5 + 163 + 211 = 379
     runPower(ctx, 0);
@@ -278,18 +285,17 @@ describe('power', () => {
   it("draws a job's power through its last step and not after it", () => {
     const s = calm(120);
     const dc = s.world.datacenters.DA!;
-    dc.jobFrom = 5;
-    dc.jobUntil = 8;
-    const da = s.world.boards[1]!;
+    dc.busyFrom = 5;
+    dc.busyUntil = 9;
+    const da = s.world.facilities[1]!;
     expect(facilityDemand(s.ctx, da, 8)).toBe(163); // 10 + 150, + floor(160 * 2 / 100)
     expect(facilityDemand(s.ctx, da, 9)).toBe(10);
   });
 
   it("draws nothing while the facility's board is being rebuilt", () => {
     const s = calm(120);
-    const db = s.world.boards[2]!;
-    db.status = 'rebuilding';
-    expect(facilityDemand(s.ctx, db, 0)).toBe(0);
+    s.world.boards[2]!.status = 'rebuilding';
+    expect(facilityDemand(s.ctx, s.world.facilities[2]!, 0)).toBe(0);
   });
 
   it('rounds the loss down, and charges it on sleep power too', () => {
@@ -301,9 +307,9 @@ describe('power', () => {
       1,
       new FakeHost(),
     );
-    const db = s.world.boards[2]!;
+    const db = s.world.facilities[2]!;
     expect(facilityDemand(s.ctx, db, 0)).toBe(14); // 16 cells: 11 + floor(11 * 32 / 100) = 11 + 3
-    db.status = 'asleep';
+    s.world.boards[2]!.status = 'asleep';
     expect(facilityDemand(s.ctx, db, 0)).toBe(14);
   });
 
@@ -329,8 +335,8 @@ describe('power', () => {
   it('raises a new shortage alert when a second shortage begins after the first has ended', () => {
     const s = calm(100);
     for (const id of ['DA', 'DB']) {
-      s.world.datacenters[id]!.jobFrom = 0;
-      s.world.datacenters[id]!.jobUntil = 1000; // through the quiet time that the test waits out
+      s.world.datacenters[id]!.busyFrom = 0;
+      s.world.datacenters[id]!.busyUntil = 1000; // through the quiet time that the test waits out
     }
     const shortages = () => s.world.alerts.filter((a) => a.kind === 'powerShortage');
     s.world.plant.thermalSetting = 250; // generation 350 against a demand of 379: DB is shed
@@ -415,8 +421,8 @@ describe('power', () => {
         new FakeHost(),
       );
       for (const id of ['DA', 'DB']) {
-        s.world.datacenters[id]!.jobFrom = 0;
-        s.world.datacenters[id]!.jobUntil = 100;
+        s.world.datacenters[id]!.busyFrom = 0;
+        s.world.datacenters[id]!.busyUntil = 101;
       }
       run(s, 0, 0, true);
       run(s, 1, 1, false);

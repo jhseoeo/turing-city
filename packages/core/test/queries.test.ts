@@ -127,8 +127,9 @@ describe('views', () => {
         rules,
         'keeps its value through a sleep, while mem and globals are wiped',
       ],
-      ['the settings named', rules, 'the cooling level, the thermal output, the priority list'],
-      ['cooling and the thermal module work only while awake', rules, 'only work while their board is awake'],
+      ['the settings named', rules, 'the thermal output, the priority list'],
+      ['a sleep ends the job and the cooling cycle', rules, "A sleep ends the datacenter's job and its cooling cycle"],
+      ['the thermal module works only while awake', rules, 'the thermal module only works while its board is awake'],
       ['a board that is awake and powered emits base EMF', rules, 'a board that is awake and powered also emits its base EMF every second'],
       ['log lines are cut at 200 bytes, which is about 66 Korean characters', log, 'cut at 200 bytes (about 66 Korean characters)'],
       [
@@ -355,7 +356,7 @@ describe('views in detail', () => {
       ],
     }));
     host.program('busy', () => ({
-      actions: [{ kind: 'process' }, { kind: 'cool', level: 2 }],
+      actions: [{ kind: 'process' }],
     }));
     host.program('boom', () => ({ error: { kind: 'runtime', message: 'boom' } }));
     s.deploy('P', 'plant');
@@ -364,14 +365,14 @@ describe('views in detail', () => {
     for (let i = 0; i < 8; i++) s.step();
     s.world.datacenters.DA!.tempMilli = 61_999;
     const snap = snapshot(s.ctx);
-    // Phase 3 of step 7: 220 wind + 100 thermal against P 5, DA 10 + 150 (its job runs through step 7) + 2 x 20 cooling, plus 2% of that
-    // for one cell (4), and DB 10 + 3. The job that DA renewed at step 7 covers step 8 too.
+    // Phase 3 of step 7: 220 wind + 100 thermal against P 5, DA 10 + 150 (its job runs through step 7), plus 2% of that for one cell
+    // (3), and DB 10 + 3. The job that DA renewed at step 7 covers step 8 too.
     expect(snap.plant).toEqual({
       wind: 220,
       thermal: 100,
       fuelPrice: s.world.plant.fuelPrice,
       generation: 320,
-      demand: 222,
+      demand: 181,
       shed: [],
       priority: ['DB', 'DA'],
     });
@@ -402,8 +403,8 @@ describe('views in detail', () => {
         erroring: false,
         tempC: 61,
         processing: true,
-        cooling: 2,
-        demand: 204,
+        cooling: 0,
+        demand: 163,
       },
       {
         id: 'DB',
@@ -420,6 +421,10 @@ describe('views in detail', () => {
         demand: 13,
       },
     ]);
+    // A datacenter whose cool window covers the step shows that it is cooling.
+    s.world.datacenters.DA!.coolFrom = 0;
+    s.world.datacenters.DA!.coolUntil = Number.MAX_SAFE_INTEGER;
+    expect(snapshot(s.ctx).boards[1]!.cooling).toBe(1);
   });
 
   it('snapshots which facilities the plant sheds, the state and power of every board, and whole money rounded down', () => {
@@ -570,7 +575,7 @@ describe('the datasheet text and the scenario', () => {
     const da = datasheet(s.ctx, 'DA')!;
     const plant = datasheet(s.ctx, 'P')!;
     expect(callOf(da, 'io.process()')).toContain('draws 150 power, and heats the datacenter (+2 °C/s)');
-    expect(callOf(da, 'io.cool(level)')).toContain('level 0-3; each level takes 0.8 °C/s off and draws 20 power');
+    expect(callOf(da, 'io.cool(level)')).toContain('it takes 15 °C off over 4 s, in even steps, and draws 400 power while it runs');
     expect(readOf(da, 'temp')).toContain('above 90 it can catch fire');
     expect(callOf(plant, 'io.set_thermal(output)')).toContain('0-300 power units');
     expect(callOf(da, 'io.sleep(seconds)')).toContain('deep sleep for 1-40 s');
@@ -583,9 +588,9 @@ describe('the datasheet text and the scenario', () => {
     const { s } = session((j) => {
       j.tuning.datacenter.processPower = 170;
       j.tuning.datacenter.heatMilliPerSecond = 3_500;
-      j.tuning.datacenter.maxCoolingLevel = 5;
-      j.tuning.datacenter.coolingMilliPerLevelPerSecond = 50;
-      j.tuning.datacenter.coolingPowerPerLevel = 30;
+      j.tuning.datacenter.coolingDropMilli = 12_500;
+      j.tuning.datacenter.coolingCycleMs = 3_000;
+      j.tuning.datacenter.coolingPower = 330;
       j.tuning.datacenter.fireThresholdMilli = 95_050;
       j.tuning.thermal.max = 400;
       j.tuning.maxSleepSeconds = 25;
@@ -596,7 +601,7 @@ describe('the datasheet text and the scenario', () => {
     const da = datasheet(s.ctx, 'DA')!;
     const plant = datasheet(s.ctx, 'P')!;
     expect(callOf(da, 'io.process()')).toContain('draws 170 power, and heats the datacenter (+3.5 °C/s)');
-    expect(callOf(da, 'io.cool(level)')).toContain('level 0-5; each level takes 0.05 °C/s off and draws 30 power');
+    expect(callOf(da, 'io.cool(level)')).toContain('it takes 12.5 °C off over 3 s, in even steps, and draws 330 power while it runs');
     expect(readOf(da, 'temp')).toContain('above 95.05 it can catch fire');
     expect(callOf(plant, 'io.set_thermal(output)')).toContain('0-400 power units');
     expect(callOf(da, 'io.sleep(seconds)')).toContain('deep sleep for 1-25 s');

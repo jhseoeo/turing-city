@@ -1,4 +1,4 @@
-import type { BoardSpec, FacilityKind } from './scenario.ts';
+import type { BoardKind, BoardSpec } from './scenario.ts';
 
 /** An action a board's firmware asked for during one tick. */
 export type Action =
@@ -17,7 +17,7 @@ export interface TickError {
 
 export interface BootInfo {
   readonly boardId: string;
-  readonly kind: FacilityKind;
+  readonly kind: BoardKind;
   readonly spec: BoardSpec;
   /** Every facility id in the scenario, in order: firmware names facilities by id. */
   readonly facilityIds: readonly string[];

@@ -1,4 +1,4 @@
-import { type BootInfo, parseScenario, Session } from '@turing-city/core';
+import { type BoardKind, type BootInfo, parseScenario, Session } from '@turing-city/core';
 import { describe, expect, it, vi } from 'vitest';
 import m1 from '../../../scenarios/m1-power.json' with { type: 'json' };
 import { BoardVm } from '../src/board-vm.ts';
@@ -22,7 +22,7 @@ describe('decodeActions', () => {
 describe('WasmoonHost in a session', () => {
   it('runs deployed Lua, applies its actions, and reboots it after a sleep with empty mem', async () => {
     const session = new Session(parseScenario(m1), 7, await WasmoonHost.create());
-    session.world.plant.thermalSetting = 300; // plenty of power once Task 9 adds it: DA's job is never shed
+    session.world.plant.thermalSetting = 1_000; // plenty of power: DA's job and its cooling are never shed
     session.deploy(
       'DA',
       `
@@ -36,7 +36,7 @@ describe('WasmoonHost in a session', () => {
     );
     for (let i = 0; i < 4; i++) session.step(); // DA's first beat is step 3
     const dc = session.world.datacenters.DA!;
-    expect(dc).toMatchObject({ jobFrom: 4, jobUntil: 7, cooling: 1 });
+    expect(dc).toMatchObject({ busyFrom: 4, busyUntil: 8, coolFrom: 4, coolUntil: 84 }); // one cooling cycle: 4 s, 80 steps
     for (let i = 0; i < 4; i++) session.step(); // second beat at 7: sleep 1 s
     const da = session.world.boards[1]!;
     expect(da.status).toBe('asleep');
@@ -108,7 +108,7 @@ describe('WasmoonHost lifetime', () => {
   const scenario = parseScenario(m1);
   const bootInfo = (boardId: string): BootInfo => {
     const f = scenario.facilities.find((x) => x.id === boardId)!;
-    return { boardId, kind: f.kind, spec: f.board!, facilityIds: scenario.facilities.map((x) => x.id), seed: 1 };
+    return { boardId, kind: f.kind as BoardKind, spec: f.board!, facilityIds: scenario.facilities.map((x) => x.id), seed: 1 };
   };
 
   it("closes a board's VM when it shuts down or boots again, and every VM when the host closes", async () => {

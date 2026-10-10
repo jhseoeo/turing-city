@@ -1,10 +1,30 @@
 import type { FirmwareHost, TickError } from './firmware-host.ts';
-import { MICRO } from './fixed.ts';
+import { MICRO, MILLI } from './fixed.ts';
 import type { Rng } from './rng.ts';
-import type { BoardSpec, FacilityKind, Scenario } from './scenario.ts';
+import type { BoardKind, BoardSpec, FacilityKind, FacilitySpec, Scenario } from './scenario.ts';
 import { beatPeriod } from './time.ts';
 
 export type BoardStatus = 'running' | 'asleep' | 'destroyed' | 'rebuilding';
+
+/** A facility works (ok), lies wrecked by Luddites or fire, or is being repaired. */
+export type FacilityCondition = 'ok' | 'wrecked' | 'repairing';
+
+/** Every facility of the scenario, with a board or not: the town the player works by hand. */
+export interface FacilityState {
+  readonly id: string;
+  /** Position in the scenario's facility list: board phases and the default priority use it. */
+  readonly index: number;
+  readonly kind: FacilityKind;
+  readonly x: number;
+  readonly y: number;
+  /** The board this facility takes, from the scenario; null for housing. */
+  readonly boardSpec: BoardSpec | null;
+  condition: FacilityCondition;
+  /** The step a repair finishes; null unless repairing. */
+  repairReadyAt: number | null;
+  /** Whether the grid supplies the facility this step (set by the power phase; always true for the plant). */
+  powered: boolean;
+}
 
 export interface LogLine {
   /** The step of the latest occurrence. */
@@ -20,11 +40,13 @@ export interface FirmwareImage {
   readonly source: string;
 }
 
+/** An installed board. It exists only once the player installed it (or the scenario says startsInstalled). */
 export interface BoardState {
+  /** Its facility's id. */
   readonly id: string;
-  /** Position in the scenario's facility list. */
+  /** Its facility's position in the scenario's facility list. */
   readonly index: number;
-  readonly kind: FacilityKind;
+  readonly kind: BoardKind;
   readonly spec: BoardSpec;
   readonly x: number;
   readonly y: number;
@@ -39,6 +61,8 @@ export interface BoardState {
    * after the quiet time) or until it is smashed. Null when no such line is owed.
    */
   lastCutStep: number | null;
+  /** A comm module is mounted: the board is T2, and an agent connected over MCP can reach it. */
+  comm: boolean;
   vmBooted: boolean;
   bootCount: number;
   firmware: FirmwareImage | null;
@@ -68,10 +92,55 @@ export interface PlantState {
 
 export interface DatacenterState {
   tempMilli: number;
-  /** The current job covers steps jobFrom..jobUntil (inclusive). */
-  jobFrom: number;
-  jobUntil: number;
-  cooling: number;
+  /** Processing covers steps busyFrom <= step < busyUntil. */
+  busyFrom: number;
+  busyUntil: number;
+  /** A cooling cycle covers steps coolFrom <= step < coolUntil. */
+  coolFrom: number;
+  coolUntil: number;
+}
+
+export interface FarmState {
+  /** The step the current crop was planted; it is ripe from plantedAt + ripen steps and rots ripen + rot steps after planting. */
+  plantedAt: number;
+  /** Whole food units waiting for a truck. */
+  outbox: number;
+}
+
+export type TruckStatus = 'idle' | 'outbound' | 'returning';
+
+export interface TruckJob {
+  readonly kind: 'collect' | 'deliver';
+  readonly targetId: string;
+  readonly amount: number;
+}
+
+export interface TruckState {
+  /** 1-based. */
+  readonly id: number;
+  status: TruckStatus;
+  job: TruckJob | null;
+  /** The cells of the current leg, in order, not counting the cell it starts from. */
+  path: Array<[number, number]>;
+  /** Cells of `path` already entered. */
+  cellsDone: number;
+  /** The step the current leg started. */
+  legFrom: number;
+  x: number;
+  y: number;
+  /** Whole food units aboard. */
+  load: number;
+}
+
+export interface WarehouseState {
+  stockMilli: number;
+  trucks: TruckState[];
+}
+
+export interface HousingState {
+  foodMilli: number;
+  /** Whether its residents ate at the last step. */
+  fed: boolean;
 }
 
 export interface LudditeGroup {
@@ -90,8 +159,13 @@ export interface LudditeGroup {
 /** Season totals in micro-units. */
 export interface Ledger {
   datacenterIncome: number;
+  tax: number;
+  /** Thermal fuel. */
   fuel: number;
+  truckFuel: number;
   upkeep: number;
+  installs: number;
+  repairs: number;
   rebuild: number;
 }
 
@@ -133,10 +207,15 @@ export interface WorldState {
   money: number;
   belowZeroSince: number | null;
   ended: { kind: EndKind; step: number } | null;
-  /** In scenario order. */
+  /** Every facility, in scenario order. */
+  facilities: FacilityState[];
+  /** Installed boards, kept in scenario (facility index) order whatever order they were installed in. */
   boards: BoardState[];
   plant: PlantState;
   datacenters: Record<string, DatacenterState>;
+  farms: Record<string, FarmState>;
+  warehouses: Record<string, WarehouseState>;
+  housing: Record<string, HousingState>;
   /** Money per second of processing. */
   jobPrice: number;
   /** Milli-EMF per cell, row-major (y * width + x). */
@@ -170,44 +249,76 @@ export interface SimContext {
   readonly rng: Streams;
 }
 
+/** A new board for a facility: running, with no firmware. Its beat's phase is its facility's index, as every board's is. */
+export function createBoard(scenario: Scenario, facility: FacilitySpec, index: number): BoardState {
+  if (facility.board === null || facility.kind === 'housing') throw new Error(`${facility.id} takes no board`);
+  const period = beatPeriod(scenario.time, facility.board.clockHz);
+  return {
+    id: facility.id,
+    index,
+    kind: facility.kind,
+    spec: facility.board,
+    x: facility.x,
+    y: facility.y,
+    period,
+    phase: index % period,
+    status: 'running',
+    powered: true,
+    lastCutStep: null,
+    comm: false,
+    vmBooted: false,
+    bootCount: 0,
+    firmware: null,
+    pending: null,
+    nextVersion: 1,
+    wakeAt: null,
+    readyAt: null,
+    lastTick: null,
+    log: [],
+  };
+}
+
 export function createWorld(scenario: Scenario): WorldState {
   const t = scenario.tuning;
-  const boards: BoardState[] = [];
-  scenario.facilities.forEach((f, index) => {
-    if (f.board === null) return; // housing takes no board
-    const period = beatPeriod(scenario.time, f.board.clockHz);
-    boards.push({
+  const facilities = scenario.facilities.map(
+    (f, index): FacilityState => ({
       id: f.id,
       index,
       kind: f.kind,
-      spec: f.board,
       x: f.x,
       y: f.y,
-      period,
-      phase: index % period,
-      status: 'running',
+      boardSpec: f.board,
+      condition: 'ok',
+      repairReadyAt: null,
       powered: true,
-      lastCutStep: null,
-      vmBooted: false,
-      bootCount: 0,
-      firmware: null,
-      pending: null,
-      nextVersion: 1,
-      wakeAt: null,
-      readyAt: null,
-      lastTick: null,
-      log: [],
-    });
-  });
+    }),
+  );
+  const boards = scenario.facilities.flatMap((f, index) => (f.board?.startsInstalled ? [createBoard(scenario, f, index)] : []));
   const datacenters: Record<string, DatacenterState> = {};
+  const farms: Record<string, FarmState> = {};
+  const warehouses: Record<string, WarehouseState> = {};
+  const housing: Record<string, HousingState> = {};
   for (const f of scenario.facilities) {
-    if (f.kind === 'datacenter') datacenters[f.id] = { tempMilli: t.datacenter.ambientMilli, jobFrom: -1, jobUntil: -1, cooling: 0 };
+    if (f.kind === 'datacenter') {
+      datacenters[f.id] = { tempMilli: t.datacenter.ambientMilli, busyFrom: -1, busyUntil: -1, coolFrom: -1, coolUntil: -1 };
+    } else if (f.kind === 'farm') {
+      farms[f.id] = { plantedAt: 0, outbox: 0 };
+    } else if (f.kind === 'warehouse') {
+      const trucks = Array.from(
+        { length: t.warehouse.trucks },
+        (_, i): TruckState => ({ id: i + 1, status: 'idle', job: null, path: [], cellsDone: 0, legFrom: 0, x: f.x, y: f.y, load: 0 }),
+      );
+      warehouses[f.id] = { stockMilli: 0, trucks };
+    } else if (f.kind === 'housing') {
+      housing[f.id] = { foodMilli: t.housing.startFood * MILLI, fed: true };
+    }
   }
   return {
     step: 0,
     money: scenario.startMoney * MICRO,
     belowZeroSince: null,
     ended: null,
+    facilities,
     boards,
     plant: {
       wind: t.wind.start,
@@ -220,12 +331,15 @@ export function createWorld(scenario: Scenario): WorldState {
       lastShedStep: null,
     },
     datacenters,
+    farms,
+    warehouses,
+    housing,
     jobPrice: t.jobPrice.start,
     emf: new Array<number>(scenario.grid.width * scenario.grid.height).fill(0),
     rumour: 0,
     luddites: [],
     nextLudditeId: 1,
-    ledger: { datacenterIncome: 0, fuel: 0, upkeep: 0, rebuild: 0 },
+    ledger: { datacenterIncome: 0, tax: 0, fuel: 0, truckFuel: 0, upkeep: 0, installs: 0, repairs: 0, rebuild: 0 },
     stats: { raids: 0, boardsLost: 0, instructions: 0, deploys: 0 },
     alerts: [],
     nextAlertId: 1,
@@ -233,6 +347,11 @@ export function createWorld(scenario: Scenario): WorldState {
   };
 }
 
+export function findFacility(world: WorldState, id: string): FacilityState | undefined {
+  return world.facilities.find((f) => f.id === id);
+}
+
+/** An installed board; undefined for a facility without one (T0, or housing) and for an unknown id. */
 export function findBoard(world: WorldState, id: string): BoardState | undefined {
   return world.boards.find((b) => b.id === id);
 }

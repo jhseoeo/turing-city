@@ -11,12 +11,5 @@ function tick(io, mem)
     io.sleep(20)
     return
   end
-  if io.temp > 70 and mem.cooling ~= 1 then
-    io.cool(1)
-    mem.cooling = 1
-  elseif io.temp < 50 and mem.cooling ~= 0 then
-    io.cool(0)
-    mem.cooling = 0
-  end
-  if io.temp < 86 then io.process() end
+  if io.temp < 75 then io.process() end
 end
