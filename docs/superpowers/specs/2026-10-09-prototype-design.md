@@ -86,7 +86,7 @@ Tooling: TypeScript in strict mode, pnpm, Vite for the viewer, and Vitest.
 
 ### 4.3 Headless runner
 
-`pnpm sim <scenario> --firmware <dir> [--seed n] [--until day]` runs a session from its start to its end, or to the given day, with no viewer and no MCP. It prints the result and the score breakdown. Tests, QA, and the depth check use it; the game itself never offers it.
+`pnpm sim [scenario.json] [--firmware <dir>] [--seed <n>] [--until <day>] [--rebuild]` runs a session from its start to its end, or to the given day, with no viewer and no MCP. Every argument is optional: without them it plays the milestone-1 scenario with no firmware, on seed 1, to the season's end. `--rebuild` stands in for the player and rebuilds each smashed board as soon as the money allows. It prints the result as JSON: how the season ended, the day, `money` in whole units, the `ledger` (each income and cost line) in micro-units, the stats (raids, boards lost, instructions, deploys), and a state hash. Tests, QA, and the depth check use it; the game itself never offers it.
 
 ### 4.4 Where WebAssembly is used
 
@@ -132,12 +132,13 @@ This refines the design doc's 틱 처리 순서, now called 스텝 처리 순서
   - The plant's firmware sets the priority (`set_priority`); without it, a default order applies.
   - An unpowered board doesn't tick and keeps its `mem`.
   - An unpowered facility doesn't work.
-  - The plant's own board is never shed while the plant generates anything.
+  - The plant's own board is never shed, even when nothing is generated, so its firmware can always start the thermal module.
 
 ### 5.3 Datacenter
 
 - **`process()`:** callable at most once per tick. Each call runs a job for the board's tick period, until its next tick (0.2 s at 5 Hz). Through those steps the datacenter draws its processing power and heats up. It earns the job price pro rata.
   - Calling `process()` on every tick keeps the datacenter running.
+  - A `process()` while a job is still running continues it from that step, so a datacenter that processes on every beat is charged power, paid, and heated on every step, with no gap and no overlap.
   - Every call is an action for EMF (§5.7).
 - **Job price:** money per second of processing, following a seeded market series.
 - **Temperature:**
@@ -187,14 +188,18 @@ This refines the design doc's 틱 처리 순서, now called 스텝 처리 순서
   - A town-wide rumour gauge fills with total EMF. When it's full, a group of 3 Luddites appears at a seeded point on the map's edge, and the gauge empties. A noisier town is raided more often.
   - They walk cell by cell, 1 cell a second, toward the strongest EMF they detect, re-aiming at every cell.
   - They target boards, not people. Arriving at a board, they smash it, then head for the next strongest EMF.
-  - With nothing above the detection threshold for 10 seconds, they walk to the nearest map edge and leave.
+  - With nothing at or above the detection threshold for 10 seconds, they walk to the nearest map edge and leave.
 - **Sleep:** `io.sleep(seconds)` stops the board and its facility. A truck already on the road finishes its trip. A sleeping board emits no EMF and draws minimal power, but sleep wipes its RAM: `mem` restarts empty. There is no storage part, so hiding costs memory.
+  - A plant board that sleeps (or is destroyed or being rebuilt) stops only the thermal module: the wind module keeps delivering, because the board controls the thermal module and the priority list, not the turbine.
 - **Fire:** a datacenter above 90 °C rolls a seeded fire chance each step, which grows with the temperature. A fire destroys the board.
 - **Destroyed boards:**
   - A smashed or burned board stops, and its `mem` is lost.
   - The human rebuilds it from the viewer: it costs 500 and takes half a day. The board then comes back with its last deployed firmware and an empty `mem`.
   - A deploy to a destroyed board is accepted, and the board comes back with that firmware.
   - Agents can't rebuild: hardware is the human's. Only the dev-only tools can.
+  - A board being rebuilt draws no power and still counts as lost for the fall (§5.9).
+  - The plant's thermal setting and priority list are the town's, not the board's `mem`: they survive sleep, destruction, and rebuild (the thermal module stays off while the board isn't running).
+  - A rebuilt datacenter is new hardware: it comes back at ambient temperature with no cooling.
   - Whether rebuilding should be instant or delayed stays open; half a day is the placeholder.
 
 ### 5.9 Money, score, and game over
@@ -208,7 +213,9 @@ This refines the design doc's 틱 처리 순서, now called 스텝 처리 순서
   - Past seasons are listed beside it for comparison.
 - **Game over** ends the session at once, and the wrap-up names the ending:
   - bankruptcy: money stays below zero for 3 days;
-  - fall: all seven firmware boards are destroyed at the same time.
+  - fall: every firmware board is destroyed at the same time (all seven in the full scenario). A board being rebuilt still counts as lost.
+  - The endings are checked in the order bankrupt, then fallen, then completed (the season's last step), so a step that meets two names the first.
+  - Once the season has ended, rebuilds are refused: money is the score.
 
 ### 5.10 Alerts
 
@@ -253,17 +260,23 @@ end
 | Datacenter | temperature, power headroom, job price, local EMF, nearest Luddite distance | `process()`, `cool(level)` |
 | Farm | ripeness, outbox | `harvest()` |
 | Warehouse | stock, farms (outbox, distance), housing (food, population, distance), trucks (state, position, load) | `dispatch(truck, from, to, amount)` |
-| Every board | game time (day, hour, second) | `log(msg)`, `sleep(seconds)` |
+| Every board | the season day and the game clock (`io.day`, and `io.clock` in game seconds since the season started) | `sleep(seconds)` |
+
+`log(msg)` (and `print`) is on every board but is not an action: it costs no action EMF (§5.7), and its lines are kept when a tick fails, as are the writes the tick made to `mem`.
 
 ### 6.3 Parts
 
 | Part | What it sets |
 |---|---|
 | CPU | the clock (ticks per second) and the instruction cap per tick |
-| RAM | the board's Lua memory limit, beyond a fixed baseline for the runtime; going past it fails the tick with "out of RAM" |
+| RAM | the cap on the firmware's data: Lua memory beyond a fixed baseline; going past it fails the tick with "out of RAM" |
 | Sensors | which readings appear in `io` |
 
 The scenario fixes every board's parts (§9).
+
+- **The RAM baseline** is what the board holds with no firmware data: the runtime, the host's own lists, the first sensor frame, and the installed firmware's code. Code doesn't count as RAM; `mem`, globals, and what a tick allocates do.
+- **Recovery room:** a board whose last tick ran out of RAM gets up to 4 KB of room on the tick that installs its next firmware, so that a fix can free `mem`. Every other tick is held to the cap.
+- **Tolerance:** the accounting can be off by about 2 KB for firmware that empties and rehashes its environment or library tables. It is accepted: closing it would take read-only proxies over the shared builtins.
 
 ### 6.4 Counting and caps
 
@@ -273,6 +286,7 @@ The scenario fixes every board's parts (§9).
 - **The cap:** reaching the CPU's cap aborts the tick.
   - The hook keeps raising on every instruction until the tick unwinds, so a `pcall` can't swallow the abort.
   - The C hook also follows into coroutines.
+  - Lua leaves its hooks off in a few paths after the abort, where firmware could run uncounted. The sandbox closes them (§6.5).
   - After an abort, the state is healthy and `mem` keeps the writes made before it.
   - A capped tick is logged as "CPU limit exceeded", and its instruction count for EMF is the cap: a board stuck in a loop is the noisiest in town.
 
@@ -287,16 +301,19 @@ Firmware is untrusted. The prelude:
   - What stays uncharged is bounded per instruction by one string: at most RAM, or a constant in the 64 KB source.
 - **Caps memory** per board (§6.3), through wasmoon's allocation tracking.
 - **Blocks hidden code paths:** `setmetatable` refuses a metatable with `__gc` or `__mode`. That rules out finalizers, which could run firmware outside a tick: Lua marks an object for finalizing only when its metatable is set. A `__mode` added to a metatable afterward still makes a weak table, which is harmless.
-- **Pins `tostring`** for tables and functions to a stable string with no address.
+- **Keeps addresses out of every string firmware can see.** `tostring` (which `print` and `io.log` use) prints a table through its own `__tostring`, or as "table", and a function, thread, or userdata as its type name. `string.format` refuses `%p` and renders those values the same way for `%s`.
 - **Seeds `math.random` per board** from the scenario seed and the board's id.
-- **Keeps coroutines.** Counting follows them, and they suit state machines that span ticks.
+- **Keeps coroutines**, without `coroutine.close`. Counting follows them, and they suit state machines that span ticks.
+- **Runs no firmware while Lua has its hooks off.** Lua switches its hooks off while the count hook runs, and on again only when a protected call catches the error the hook raised. After the cap's error, three paths would run firmware in that gap, uncounted: an `xpcall` message handler (the real one runs inside `lua_error`, before the stack unwinds), and `coroutine.wrap` and `coroutine.close` (they run the pending `<close>` handlers of a coroutine the cap killed). So `xpcall` is a prelude function over `pcall`, whose handler runs after the stack has unwound; `coroutine.wrap` is a prelude function that never closes a coroutine; and `coroutine.close` is not offered. Only the watchdog (§6.8) would have stopped them.
 
 Lua leaves `next` and `pairs` undefined when keys are added during the traversal; the datasheet says so.
 
 ### 6.6 Determinism
 
-Every board's Lua must behave the same in every run. The spike verified this across separate processes on one machine:
+Every board's Lua must behave the same in every run. The order of `pairs` follows the layout of the wasm heap, so it takes three pins; the spike and the tests verified this across separate processes on one machine:
 - **The clock:** before wasmoon instantiates, the wasm import `env.emscripten_date_now` is replaced with a constant. That pins Lua's string-hash seed (so `pairs` order) and anything that reads the clock.
+- **The environment strings:** emscripten copies its environment into the wasm heap, among it `_` (the launching script's path) and `LANG` (from the locale), so their lengths shifted the heap and with it the `pairs` order. The runtime passes fixed values for both to `LuaFactory`, so the launching process never reaches the heap.
+- **One fresh Lua runtime per session:** boards' Lua states land at the same addresses only in a runtime of their own. In a runtime shared by live sessions, `pairs` order differed from one session to the next.
 - **Random numbers:** `math.randomseed(seed)` per board (§6.5).
 - **Not yet verified** on x64 or in a browser. Check before relying on replays across machines.
 
@@ -304,8 +321,9 @@ Every board's Lua must behave the same in every run. The spike verified this acr
 
 - **Deploy:** `deploy_firmware` compiles the source first.
   - A syntax error rejects the deploy and returns the message; the old firmware keeps running.
+  - A source with a NUL byte is refused too: the board's Lua state reads the source as a C string, so the code after the NUL would vanish without an error.
   - Otherwise the new code runs from the board's next tick, with a new version number.
-  - **Hot reload:** `mem` survives a deploy, and the firmware's globals start fresh.
+  - **Hot reload:** `mem` survives a deploy; the firmware's globals and its `io` table start fresh (each install gets a new `io`), so only `mem` carries over.
 - **Errors:** a runtime error, a CPU cap hit, or running out of RAM fails that tick only. The tick is logged, and the next tick runs normally. Repeats of one error fold into one line ("same error ×N").
 - **Logs:** 200 lines per board, stamped with game time. They hold `io.log` output, errors, and system events: deploys, power lost and back, sleep, destruction, and rebuilds.
 - **The datasheet** describes a board fully enough to write its firmware without the game's code:
@@ -321,7 +339,7 @@ Three layers keep a firmware bug from freezing the game:
 2. **The sandbox** (§6.5). Covers the single builtins that work long while counting as one instruction: no pattern matching, builtins charged by work, memory caps.
 3. **The watchdog.**
    - The simulation runs in the worker thread, so the main thread (MCP, WebSocket) always answers.
-   - When one step takes longer than 5 seconds of wall time, the main thread terminates the worker, stops the session, and tells the player which board and which firmware version were running.
+   - The main thread times each batch of up to 200 steps that it asks the worker for. When a batch takes longer than 5 seconds of wall time, it terminates the worker, stops the session, and tells the player which board and which firmware version were running.
    - Wall time depends on the machine, so it is never a game rule; it's a crash guard. Recovering by replaying the record with that firmware disabled comes later.
    - If the watchdog ever fires, layer 2 has a hole: close it.
 
@@ -332,10 +350,11 @@ A hostile-firmware test suite (§11) exercises all three layers.
 ### 7.1 Transport and security
 
 - **Transport:** MCP over Streamable HTTP at `http://127.0.0.1:7840/mcp`, bound to loopback only. The port is configurable.
-- **Every request is checked:**
+- **Every request to `/mcp` is checked:**
   - a bearer token must be present;
-  - the `Origin` header is checked, and requests from browser origins are refused;
-  - inputs are size-limited (firmware source to 64 KB).
+  - a request that carries an `Origin` header is refused (a browser always sends one, so web pages can't use the endpoint);
+  - inputs are size-limited: the firmware source to 64 KB, counted in characters (UTF-16 units), and a source with a NUL byte is refused (§6.7).
+- **The other routes have rules of their own.** The viewer's socket, `/ws`, takes no token in its handshake: it checks the `Origin` only (see below), and its first message hands the token to the page. The built viewer is served at `/` as public files.
 - **Nothing a client sends may crash the server**, on any of its routes (MCP, the viewer's WebSocket, the built viewer): any web page the player visits can make the browser send requests to 127.0.0.1. A malformed request gets an error response. The viewer's socket accepts only the commands the viewer can send, with exact fields and values the game can take (a speed of 1, 2, or 3; auto-pause kinds from the alert kinds there are; a board id of bounded length), and answers anything else, non-JSON included, with an `error` message. A message over 64 KiB closes that viewer's connection.
 - **The token** is generated once and stored in the server's local config, which lives in the user's config directory outside the repository. The start screen can reissue it. This differs from the design doc's token-per-launch: with a new token on every launch, the player would re-add the server to their agent every time they open the game.
 - **Who is kept out, and what is accepted.** Web pages are kept out, DNS rebinding included:
@@ -392,11 +411,13 @@ The approved mockups (v1 to v5, in the brainstorming session) shaped this sectio
 
 - The connect command with a copy button, and a token reissue button.
 - The agent's state: "waiting for an agent…" or "connected (client name)".
-- "Start season", enabled only while an agent is connected, and the scenario's name. A seed field appears only in dev.
+- "Start season", enabled only while an agent is connected, and the scenario's name. There is no seed field: a QA agent sets a seed with `dev_new_season` (§7.4).
 
 ### 8.2 Main screen
 
-- **Top bar:** day and time, pause and speed, money, warehouse food, power supply and demand, the fed, hungry, and unpowered population, and the agent's connection with its last response.
+- **Top bar:** day and time, pause and speed, money, warehouse food, power supply and demand, the fed, hungry, and unpowered population, and the agent's connection.
+  - The connection shows the client's name, or that it is lost. A "last response" time is for later: the controller's status carries none in milestone 1.
+  - Milestone 1 has no food or population, and its bar adds the wind and thermal output.
 - **Map:** the grid, drawn with placeholder shapes until the art phase.
   - Every facility with a board shows a status light: green running, yellow asleep, grey unpowered, blinking red error, black destroyed.
   - Datacenters show their temperature.
@@ -417,13 +438,14 @@ The approved mockups (v1 to v5, in the brainstorming session) shaped this sectio
   Threat paths show whatever is selected; routine paths show only with a related block.
 - **Right panel**, for the selected facility:
   - its board's state and parts, live sensor values, the live log, and the deployed firmware (read-only);
-  - the rebuild button with its cost, when the board is destroyed;
+  - the rebuild button with its cost, when the board is destroyed. It is disabled, with the reason under it, while the money can't pay for the rebuild;
   - facility details. The warehouse lists stock, spoilage, trucks with load and arrival time, farm outboxes, and housing food. The power plant lists wind and thermal output, the fuel cost, demand, and the priority list with each consumer on or off.
 - **Alert feed:** events, including the agent's deploys ("firmware v3 deployed to datacenter A").
   - Clicking an alert jumps to its facility.
   - Each alert type has its own auto-pause toggle. Disconnect is always on.
 - **Disconnect overlay:** the game is paused and play is blocked until an agent connects; it shows how to reconnect.
-- **Keys:** space pauses, 1, 2, and 3 set the speed, H toggles the heatmap. Clicking a facility opens its panel.
+- **End and crash overlays:** a season's ending (completed, bankrupt, or fallen) with the final money, or the simulator's crash message, each with a new-season button. As "Start season" is, the button is disabled, with the reason under it, while no agent is connected (§7.2). The wrap-up's breakdown and past seasons are milestone 2 (§8.3).
+- **Keys:** space pauses, 1, 2, and 3 set the speed, H toggles the heatmap, Escape clears the selection. Clicking a facility opens its panel. A held key does not repeat, keys pressed with Cmd, Ctrl, or Alt do nothing in the game, and H is read by its position, so it works under the Korean input source.
 
 ### 8.3 Season wrap-up
 
@@ -463,7 +485,7 @@ The approved mockups (v1 to v5, in the brainstorming session) shaped this sectio
 
 ## 10. Tuning values
 
-The game's values are starting values to tune. They live in the scenario file, so that code reads them from data rather than hard-coding them. The exception is the last three rows (log length and firmware size, the watchdog, and the MCP port, ping interval, and misses): those are limits of the runtime and the transport, not game tuning, and stay named constants where they're enforced (the MCP port is also in the user's config, §7.1).
+The game's values are starting values to tune. They live in the scenario file, so that code reads them from data rather than hard-coding them. The exception is the last three rows (log length and firmware size, the watchdog, and the MCP port, ping interval, and misses): those are limits of the runtime and the transport, not game tuning, and stay constants in the code that enforces them (a named constant or an option's default; the MCP port is also in the user's config, §7.1).
 
 | Value | Start |
 |---|---|
@@ -489,7 +511,7 @@ The game's values are starting values to tune. They live in the scenario file, s
 | Rebuild cost / time | 500 / half a day |
 | Bankruptcy | 3 days below zero |
 | Log length / firmware size | 200 lines / 64 KB |
-| Watchdog | 5 s per step |
+| Watchdog | 5 s per batch of up to 200 steps |
 | MCP port / ping interval / misses to disconnect | 7840 / 5 s / 2 |
 
 ## 11. Verification
@@ -516,7 +538,10 @@ The game's values are starting values to tune. They live in the scenario file, s
   - string, table, and memory bombs;
   - a pattern-function call (gone from the sandbox, so it errors);
   - builtins fed empty strings, negative or NaN ranges, overflowing counts, or a lying `__len`.
-- **Season checks** with `pnpm sim`: reference firmware sets we write, one careless and one careful, each run a full season. The season must finish, the careful set must score clearly higher, and a second run must give the same result.
+- **Season checks** (`packages/server/test/seasons.test.ts`, part of `pnpm check`) play seasons the way `pnpm sim --rebuild` does, with reference firmware sets we write in `scenarios/firmware/m1/`: one careless and one careful.
+  - The careless set falls at its first raid (day 3, on every seed from 1 to 10), so only the careful set plays out the season.
+  - The checks: the careful set beats the careless one by more than 1,000 on seeds 1 to 3, and a second run of the careful set gives the same state hash and money.
+  - The gap is not that wide everywhere: on seeds 6, 7, 9, and 10 the job price is at or above the careful set's lowest threshold (50) for 0 to 22 of the season's 1,200 seconds, so both datacenters sleep through 99 to 100% of it, and the careful set ends within 650 of the careless one.
 - **MCP tests:**
   - a missing or wrong token is refused, and so is a browser origin;
   - size limits hold;

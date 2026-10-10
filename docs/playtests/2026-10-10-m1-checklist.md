@@ -16,7 +16,7 @@ You play in the browser with your own Claude Code. Milestone 1 is the power plan
 - [ ] Can you read what's happening on screen: board lights (the panel names the state: "펌웨어 없음", "동작", "휴면", "정전", "에러", "파괴"), temperatures, Luddite paths, the plant's links when it's selected?
 - [ ] How often and how hard do Luddites raid: too often, too rarely?
 - [ ] Does the game pause when the agent disconnects (the "⏸ 에이전트 연결이 끊겼어요" box), and can you play again once it reconnects?
-- [ ] Is there more to careful play than sleeping until the job price pays? In the headless runs (`pnpm sim --rebuild`, seeds 1 to 10) the careful firmware beat the careless one by more than 1,000 on six seeds; on the other four the job price rarely reached its threshold, so its datacenters slept through most of the season, and it ended within 650 of the careless set.
+- [ ] Is there more to careful play than sleeping until the job price pays? In the headless runs (`pnpm sim --rebuild`, seeds 1 to 10) the careful firmware beat the careless one by more than 1,000 on six seeds; on the other four the job price rarely reached its threshold, so its datacenters slept through 99 to 100% of the season, and it ended within 650 of the careless set.
 
 ## Out of scope for now
 The food chain (farms, the warehouse, trucks, housing), the season wrap-up's breakdown and past seasons ("시즌 결산 화면(내역과 지난 시즌 목록)은 마일스톤 2에서 붙어요."), and sprites come in milestone 2 or later.
