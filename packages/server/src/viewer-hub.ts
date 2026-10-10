@@ -1,6 +1,16 @@
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
-import { ALERT_KINDS, type ControllerEvent, type ServerToViewer, ToolError, type ViewerToServer } from '@turing-city/core';
+import {
+  ALERT_KINDS,
+  type CommandResult,
+  type ControllerEvent,
+  FACILITY_ACTION,
+  FIRMWARE_SOURCE,
+  INSTALL_PART,
+  type ServerToViewer,
+  ToolError,
+  type ViewerToServer,
+} from '@turing-city/core';
 import { type WebSocket, WebSocketServer } from 'ws';
 import { z } from 'zod';
 import type { GameController } from './game-controller.ts';
@@ -27,12 +37,16 @@ function toMessage(event: ControllerEvent): ServerToViewer {
     case 'alerts':
       return { type: 'alerts', alerts: event.alerts };
     case 'deploy':
-      return { type: 'deploy', board: event.board, version: event.version, time: event.time };
+      return { type: 'deploy', board: event.board, version: event.version, time: event.time, by: event.by };
   }
 }
 
-/** The most a viewer's message may weigh. A command is a few dozen bytes; a bigger message closes its connection. */
-const MAX_MESSAGE_BYTES = 64 * 1024;
+/**
+ * The most a viewer's message may weigh. A command is a few dozen bytes, but the editor's deploy carries a firmware source of up to
+ * 65,536 characters, which JSON can spend 6 bytes on each (a control character's \u escape): 384 KiB. A bigger message closes its
+ * connection.
+ */
+const MAX_MESSAGE_BYTES = 512 * 1024;
 
 const boardId = z.string().min(1).max(32);
 
@@ -42,6 +56,10 @@ const viewerCommand: z.ZodType<ViewerToServer> = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('play') }),
   z.strictObject({ type: z.literal('pause') }),
   z.strictObject({ type: z.literal('speed'), speed: z.literal([1, 2, 3]) }),
+  z.strictObject({ type: z.literal('deploy'), board: boardId, code: FIRMWARE_SOURCE }),
+  z.strictObject({ type: z.literal('hand'), facility: boardId, action: FACILITY_ACTION }),
+  z.strictObject({ type: z.literal('install'), facility: boardId, part: INSTALL_PART }),
+  z.strictObject({ type: z.literal('repair'), facility: boardId }),
   z.strictObject({ type: z.literal('rebuild'), board: boardId }),
   z.strictObject({ type: z.literal('autoPause'), kinds: z.array(z.enum(ALERT_KINDS)).max(ALERT_KINDS.length) }),
   z.strictObject({ type: z.literal('reissueToken') }),
@@ -92,6 +110,10 @@ export function createViewerHub(options: ViewerHubOptions): {
   const broadcast = (message: ServerToViewer): void => {
     for (const ws of clients) send(ws, message);
   };
+  /** A command the game refused is told to the viewer that sent it, with its code; a done one says nothing (the snapshot shows it). */
+  const tell = (ws: WebSocket, result: CommandResult): void => {
+    if (!result.ok) send(ws, { type: 'error', message: result.reason, refusal: result.refusal });
+  };
   const unsubscribe = controller.onEvent((event) => broadcast(toMessage(event)));
 
   async function handle(ws: WebSocket, message: ViewerToServer): Promise<void> {
@@ -108,11 +130,25 @@ export function createViewerHub(options: ViewerHubOptions): {
       case 'speed':
         controller.setSpeed(message.speed);
         return;
-      case 'rebuild': {
-        const result = await controller.rebuild(message.board);
-        if (!result.ok) send(ws, { type: 'error', message: result.reason, refusal: result.refusal });
+      case 'deploy': {
+        // The editor's deploy: its answer, a syntax error included, goes to the viewer that sent it. A refusal (a facility with no
+        // board, no season) is told like any other, by the catch around handle().
+        const outcome = await controller.deploy(message.board, message.code, 'player');
+        send(ws, { type: 'deployResult', board: message.board, outcome });
         return;
       }
+      case 'hand':
+        tell(ws, await controller.hand(message.facility, message.action));
+        return;
+      case 'install':
+        tell(ws, await controller.install(message.facility, message.part));
+        return;
+      case 'repair':
+        tell(ws, await controller.repair(message.facility));
+        return;
+      case 'rebuild':
+        tell(ws, await controller.rebuild(message.board));
+        return;
       case 'autoPause':
         controller.setAutoPause(message.kinds);
         return;

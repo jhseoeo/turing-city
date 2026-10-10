@@ -2,6 +2,7 @@ import type { DeployOutcome } from './agent-tools.ts';
 import type { FacilityAction } from './firmware-host.ts';
 import type { AlertView, BoardInspection, Snapshot, TimeView } from './queries.ts';
 import type { Refusal } from './refusal.ts';
+import type { Scenario } from './scenario.ts';
 import type { DeployedBy, InstallPart } from './session.ts';
 import type { AlertKind } from './world.ts';
 
@@ -73,11 +74,14 @@ export type ControllerEvent =
 
 /** Server to viewer, over the WebSocket. */
 export type ServerToViewer =
-  | { readonly type: 'hello'; readonly connect: string; readonly port: number }
+  /** The connect command, the port, and the game's scenario: the viewer renders the boards' manuals from it. */
+  | { readonly type: 'hello'; readonly connect: string; readonly port: number; readonly scenario: Scenario }
   | { readonly type: 'status'; readonly status: ControllerStatus }
   | { readonly type: 'snapshot'; readonly snapshot: Snapshot }
   | { readonly type: 'alerts'; readonly alerts: readonly AlertView[] }
-  | { readonly type: 'deploy'; readonly board: string; readonly version: number; readonly time: TimeView }
+  | { readonly type: 'deploy'; readonly board: string; readonly version: number; readonly time: TimeView; readonly by: DeployedBy }
+  /** The answer to this viewer's deploy: accepted, with when it installs, or the syntax error with its line. */
+  | { readonly type: 'deployResult'; readonly board: string; readonly outcome: DeployOutcome }
   | { readonly type: 'inspection'; readonly board: string; readonly inspection: BoardInspection | null }
   /** The English message is for agents and logs; the viewer says the refusal in Korean from its code, when it has one. */
   | { readonly type: 'error'; readonly message: string; readonly refusal?: Refusal };
@@ -91,6 +95,10 @@ export type ViewerToServer =
   | { readonly type: 'play' }
   | { readonly type: 'pause' }
   | { readonly type: 'speed'; readonly speed: 1 | 2 | 3 }
+  | { readonly type: 'deploy'; readonly board: string; readonly code: string }
+  | { readonly type: 'hand'; readonly facility: string; readonly action: FacilityAction }
+  | { readonly type: 'install'; readonly facility: string; readonly part: InstallPart }
+  | { readonly type: 'repair'; readonly facility: string }
   | { readonly type: 'rebuild'; readonly board: string }
   | { readonly type: 'autoPause'; readonly kinds: readonly AlertKind[] }
   | { readonly type: 'reissueToken' }
