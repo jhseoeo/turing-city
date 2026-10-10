@@ -2,7 +2,20 @@ import { parseArgs } from 'node:util';
 import { startGameServer } from './game-server.ts';
 
 const { values } = parseArgs({ options: { dev: { type: 'boolean', default: false }, port: { type: 'string' } } });
-const server = await startGameServer({ dev: values.dev, ...(values.port === undefined ? {} : { port: Number(values.port) }) });
+// Only the agent's comings and goings are logged: the controller announces every status change (speed, auto-pause, ...).
+const DISCONNECTED = 'agent disconnected';
+let lastAgent = DISCONNECTED;
+const server = await startGameServer({
+  dev: values.dev,
+  ...(values.port === undefined ? {} : { port: Number(values.port) }),
+  onStatus: (status) => {
+    const agent = status.agent.connected ? `agent connected: ${status.agent.clientName}` : DISCONNECTED;
+    if (agent !== lastAgent) {
+      lastAgent = agent;
+      process.stdout.write(`[${new Date().toISOString()}] ${agent}\n`);
+    }
+  },
+});
 process.stdout.write(`turing-city is running: open ${server.url} in a browser.\n`);
 process.stdout.write(`Connect your agent (Claude Code):\n  ${server.connect}\n`);
 if (values.dev)

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
-import { parseScenario, type ServerToViewer } from '@turing-city/core';
+import { type ControllerStatus, parseScenario, type ServerToViewer } from '@turing-city/core';
 import { configDir, connectCommand, loadConfig, reissueToken } from './config.ts';
 import { GameController, gameApi } from './game-controller.ts';
 import { createMcpEndpoint, type DevTools } from './mcp.ts';
@@ -16,6 +16,8 @@ export interface GameServerOptions {
   readonly scenarioPath?: string;
   /** The built viewer to serve at /; null serves none (tests). */
   readonly viewerDist?: string | null;
+  /** Called whenever the controller's status changes (main.ts logs the agent's connection). */
+  readonly onStatus?: (status: ControllerStatus) => void;
 }
 
 /** The request's path, or null when its target isn't a URL at all (a raw client can send anything). */
@@ -43,6 +45,12 @@ export async function startGameServer(
   let config = loadConfig(dir);
   const scenario = parseScenario(JSON.parse(readFileSync(options.scenarioPath ?? DEFAULT_SCENARIO, 'utf8')));
   const controller = new GameController({ scenario });
+  if (options.onStatus) {
+    const notify = options.onStatus;
+    controller.onEvent((event) => {
+      if (event.kind === 'status') notify(event.status);
+    });
+  }
   const dev: DevTools | undefined = options.dev
     ? {
         play: () => controller.play(),

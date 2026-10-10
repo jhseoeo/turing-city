@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import type { AlertKind, ServerToViewer, ViewerToServer } from '@turing-city/core';
+import type { AlertKind, ControllerStatus, ServerToViewer, ViewerToServer } from '@turing-city/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import { loadConfig } from '../src/config.ts';
@@ -30,7 +30,9 @@ afterEach(async () => {
 type GameServer = Awaited<ReturnType<typeof startGameServer>>;
 
 /** A game server on a free port with a config directory of its own, closed when the test ends. */
-async function start(options: { dev?: boolean; viewerDist?: string | null } = {}): Promise<{ server: GameServer; configDir: string }> {
+async function start(
+  options: { dev?: boolean; viewerDist?: string | null; onStatus?: (status: ControllerStatus) => void } = {},
+): Promise<{ server: GameServer; configDir: string }> {
   const configDir = mkdtempSync(join(tmpdir(), 'tc-server-'));
   const server = await startGameServer({ port: 0, configDir, viewerDist: null, ...options });
   closers.push(() => server.close());
@@ -598,4 +600,21 @@ describe('game server', () => {
     });
     expect(v.seen.filter((m) => m.type === 'error')).toHaveLength(1);
   });
+
+  it("hands every status change to onStatus, the agent's comings and goings among them, and nothing else", async () => {
+    const heard: ControllerStatus[] = [];
+    const { server, configDir } = await start({ onStatus: (status) => heard.push(status) });
+    const v = await viewer(server.port);
+    const agent = await connectAgent(server, configDir);
+    await until(() => heard.at(-1)?.agent.connected === true);
+    expect(heard.at(-1)!.agent).toEqual({ connected: true, clientName: 'test-agent' });
+
+    // Starting a season sends a snapshot before the status that says it is paused: only the status may reach the callback.
+    v.send({ type: 'startSeason' });
+    await until(() => heard.at(-1)?.state === 'paused');
+    await agent.close();
+    await until(() => heard.at(-1)?.agent.connected === false);
+    expect(heard.at(-1)).toMatchObject({ state: 'paused', agent: { connected: false, clientName: null }, blockedByAgent: true });
+    for (const status of heard) expect(status).toMatchObject({ agent: expect.any(Object), state: expect.any(String) });
+  }, 30_000);
 });
