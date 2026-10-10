@@ -426,8 +426,8 @@ export function applyActions(ctx: SimContext, step: number, ticked: readonly Tic
 
 | Action | Facility kind | What it does |
 |---|---|---|
-| `process` | datacenter | `dc.busyFrom = (busyFrom <= startStep && startStep < busyUntil) ? busyFrom : startStep; dc.busyUntil = max(busyUntil, startStep + jobSteps)`, where `jobSteps = jobMs * sps / 1000`. |
-| `cool` | datacenter | If no cycle covers `startStep`, set `coolFrom = startStep` and `coolUntil = startStep + coolSteps`; otherwise nothing. |
+| `process` | datacenter | A press continues a window that covered the step before `startStep` (ruling of Task 4): `running = busyFrom < startStep && startStep <= busyUntil`; `dc.busyFrom = running ? busyFrom : startStep; dc.busyUntil = max(busyUntil, startStep + jobSteps)`, where `jobSteps = jobMs * sps / 1000`. |
+| `cool` | datacenter | If a cycle covers `startStep`, nothing. Else if one covered `startStep - 1` (`coolFrom < startStep && startStep <= coolUntil`), it goes on: `coolUntil = startStep + coolSteps`, `coolFrom` kept, so a window may hold back-to-back cycles, each `coolSteps` long from `coolFrom`. Else a new one: `coolFrom = startStep`, `coolUntil = startStep + coolSteps`. |
 | `setThermal`, `setPriority` | power | As in milestone 1. |
 | `harvest` | farm | See §8. |
 | `dispatch` | warehouse | See §9. |
@@ -5873,8 +5873,13 @@ git commit -m "Work every facility by hand or by firmware through one path: hand
 >   - Remove all four milestone-1 cooling keys (`passiveCoolingPctPerSecond`, `coolingMilliPerLevelPerSecond`, `coolingPowerPerLevel`, `maxCoolingLevel`) from the schema and from both scenarios.
 > - **Hand actions apply at once (decision D1, Task 4).** There is no queue: `Session.hand` applies the action with `startStep = world.step`, so the hand-action tests below change their steps.
 >   - A press at world step 0 runs steps 0 to 9 (`busyFrom` 0, `busyUntil` 10). A second press at step 5 ends the job at 15.
->   - A cool press at step 0 covers steps 0 to 79. A press at step 10 changes nothing. A press at step 80 starts a new cycle, 80 to 159.
+>   - A cool press at step 0 covers steps 0 to 79. A press at step 10 changes nothing. A press at step 80 continues the cycle: the window becomes `[0, 160)`, and steps 80 to 159 cool.
 >   - Firmware's actions keep `startStep = s + 1`.
+> - **Task 4's ruling: a press continues a window that covered the step before `startStep`** (contract §4's rows as amended). A cooling window can therefore hold back-to-back cycles, each `coolSteps` long from `coolFrom`.
+>   - `coolingDrop` must not read the window's length as one cycle's. Use `n = coolSteps(ctx)` and `k = (step - dc.coolFrom) % n`, inside the coverage check; the exact spreading `idiv(total * (k + 1), n) - idiv(total * k, n)` stays. A window's length is always a multiple of `n`, because a continuation starts at `coolUntil` and adds `coolSteps`.
+>   - Add a guard test that fails under the window-length version. With passive cooling off and the temperature raised, the temperature once both cycles are done is the same after cool presses at steps 0 and 80 (continued) as after presses at 0 and 81 (a fresh one).
+>   - In `packages/core/test/hand.test.ts`, add `expect(windows(s, 'DA').cool).toEqual([0, 160])` to the test "goes on with a new one from its end" (around line 86). Also add a test at the first value that does not continue: a window `[a, s)` with `startStep = s + 1` starts afresh and leaves step s idle, for `process` and for `cool` (one direct `applyFacilityAction` call each).
+>   - Update the comment on `DatacenterState`'s cool window in `packages/core/src/world.ts` (about line 98) to say that a window may hold back-to-back cycles.
 > - **The milestone-1 season checks.** `m1-power.json` keeps passive cooling at 20 per mille per second (Task 1), so they should not move. If they do, retune only the careful m1 firmware, as Task 2 did, and say so in the report.
 
 
@@ -6483,13 +6488,15 @@ export function datacenterDraw(ctx: SimContext, facility: FacilityState, step: n
 
 /**
  * The milli-degrees a cooling cycle takes off at this step. coolingDropMilli is split over the cycle's steps, and the remainders are
- * spread so that the whole cycle takes off exactly coolingDropMilli: 15,000 over 80 steps is 187 and 188 by turns.
+ * spread so that the whole cycle takes off exactly coolingDropMilli: 15,000 over 80 steps is 187 and 188 by turns. A window may hold
+ * back-to-back cycles (a press continues one that has just ended), each coolSteps long from coolFrom, so the position is taken in the
+ * cycle, not in the window.
  */
 export function coolingDrop(ctx: SimContext, dc: DatacenterState, step: number): number {
+  if (step < dc.coolFrom || step >= dc.coolUntil) return 0;
   const total = ctx.scenario.tuning.datacenter.coolingDropMilli;
-  const n = dc.coolUntil - dc.coolFrom;
-  const k = step - dc.coolFrom;
-  if (n <= 0 || k < 0 || k >= n) return 0;
+  const n = coolSteps(ctx);
+  const k = (step - dc.coolFrom) % n;
   return idiv(total * (k + 1), n) - idiv(total * k, n);
 }
 
