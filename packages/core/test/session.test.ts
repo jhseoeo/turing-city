@@ -100,15 +100,15 @@ describe('Session', () => {
         { kind: 'setPriority', order: ['DB', 'DA'] },
       ],
     }));
-    const dc = host.program('dc', () => ({ actions: [{ kind: 'cool', level: 7 }, { kind: 'process' }, { kind: 'process' }] }));
+    const dc = host.program('dc', () => ({ actions: [{ kind: 'cool' }, { kind: 'process' }, { kind: 'process' }] }));
     const s = new Session(m1Scenario(), SEED, host);
     s.deploy('P', plant);
     s.deploy('DA', dc);
     run(s, 4); // P beats at 0, DA at 3
     expect(s.world.plant.thermalSetting).toBe(300);
     expect(s.world.plant.priority).toEqual(['DB', 'DA']);
-    // The job runs until DA's next beat (step 7); a cooling level above 0 starts one cycle of 4 s, 80 steps.
-    expect(s.world.datacenters.DA).toMatchObject({ busyFrom: 4, busyUntil: 8, coolFrom: 4, coolUntil: 84 });
+    // From the step after DA's beat at 3: a job of 0.5 s (steps 4 to 13; the second call changes nothing) and a cycle of 4 s.
+    expect(s.world.datacenters.DA).toMatchObject({ busyFrom: 4, busyUntil: 14, coolFrom: 4, coolUntil: 84 });
   });
 
   it('sleeps a board, wipes its VM, and reboots it with the same firmware', () => {
@@ -152,7 +152,7 @@ describe('Session', () => {
     const makeHost = (): FakeHost => {
       const h = new FakeHost();
       h.program('a', () => ({ actions: [{ kind: 'process' }], logs: ['a'] }));
-      h.program('b', () => ({ actions: [{ kind: 'cool', level: 2 }] }));
+      h.program('b', () => ({ actions: [{ kind: 'cool' }] }));
       return h;
     };
     const live = new Session(m1Scenario(), SEED, makeHost());

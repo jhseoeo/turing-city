@@ -158,7 +158,7 @@ describe('Luddites', () => {
   it('lets a board that sleeps escape', () => {
     const host = new FakeHost();
     const hider = host.program('hide', (sensors) => {
-      const d = sensors.luddite_dist;
+      const d = sensors.luddite_dist as number | undefined;
       return d !== undefined && d < 9
         ? { actions: [{ kind: 'sleep', seconds: 40 }] }
         : { instructions: 1500, actions: [{ kind: 'process' }] };

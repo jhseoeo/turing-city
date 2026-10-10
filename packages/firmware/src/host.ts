@@ -11,8 +11,10 @@ export function decodeActions(queue: readonly number[], facilityIds: readonly st
   while (i < queue.length) {
     const code = next();
     if (code === ACTION_CODES.process) out.push({ kind: 'process' });
-    else if (code === ACTION_CODES.cool) out.push({ kind: 'cool', level: next() });
-    else if (code === ACTION_CODES.setThermal) out.push({ kind: 'setThermal', output: next() });
+    else if (code === ACTION_CODES.cool) {
+      next(); // the level milestone 1's io.cool(level) still pushes: a cycle has none
+      out.push({ kind: 'cool' });
+    } else if (code === ACTION_CODES.setThermal) out.push({ kind: 'setThermal', output: next() });
     else if (code === ACTION_CODES.setPriority) {
       const n = next();
       const order: string[] = [];

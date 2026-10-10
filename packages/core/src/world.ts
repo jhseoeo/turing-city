@@ -175,6 +175,8 @@ export interface Stats {
   wrecks: number;
   instructions: number;
   deploys: number;
+  /** Actions the player took by hand. */
+  handActions: number;
 }
 
 /** How a season ends. There is no fall: a wrecked town can be repaired as long as the money lasts. */
@@ -345,7 +347,7 @@ export function createWorld(scenario: Scenario): WorldState {
     luddites: [],
     nextLudditeId: 1,
     ledger: { datacenterIncome: 0, tax: 0, fuel: 0, truckFuel: 0, upkeep: 0, installs: 0, repairs: 0, rebuild: 0 },
-    stats: { raids: 0, wrecks: 0, instructions: 0, deploys: 0 },
+    stats: { raids: 0, wrecks: 0, instructions: 0, deploys: 0, handActions: 0 },
     alerts: [],
     nextAlertId: 1,
     flags: {},

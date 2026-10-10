@@ -234,7 +234,7 @@ describe('datacenters', () => {
     expect(at()).toEqual([571, true, true]);
   });
 
-  it('charges and pays the job of one process() call on the same steps: one tick period, no more', () => {
+  it('charges and pays the job of one process() call on the same steps: half a second, longer than the tick period', () => {
     const host = new FakeHost();
     let calls = 0;
     const once = host.program('once', () => ({ actions: calls++ === 0 ? [{ kind: 'process' }] : [] }));
@@ -251,8 +251,9 @@ describe('datacenters', () => {
       if (s.world.ledger.datacenterIncome > earned) paid.push(step);
       earned = s.world.ledger.datacenterIncome;
     }
-    expect(charged).toEqual([4, 5, 6, 7]); // DA's first beat is step 3, and its next is step 7
-    expect(paid).toEqual([4, 5, 6, 7]);
+    const job = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13]; // DA's first beat is step 3: the job is the next 10 steps, 0.5 s
+    expect(charged).toEqual(job);
+    expect(paid).toEqual(job);
   });
 
   it('charges and pays a process()-every-beat firmware on exactly the same steps, period after period', () => {
@@ -286,13 +287,13 @@ describe('datacenters', () => {
   it('leaves a real gap where a beat skips process(): nothing in it is charged or paid, and the next job starts after its call', () => {
     const host = new FakeHost();
     let beats = 0;
-    // calls process() on beats 1, 3 and 4 (steps 3, 11 and 15), skipping beat 2 (step 7) and every beat after the fourth
-    const patchy = host.program('patchy', () => ({ actions: ++beats === 2 || beats > 4 ? [] : [{ kind: 'process' }] }));
+    // calls process() on beats 1 and 5 (steps 3 and 19), skipping the three beats between them and every beat after the fifth
+    const patchy = host.program('patchy', () => ({ actions: ++beats === 1 || beats === 5 ? [{ kind: 'process' }] : [] }));
     const s = holding(host);
     s.deploy('DA', patchy);
-    const { charged, paid } = chargedAndPaid(s, 24);
-    // the first job ends at 7 and the skipped beat leaves 8 to 11 idle; the call at 11 starts at 12, and the one at 15 goes on to 19
-    const expected = [4, 5, 6, 7, 12, 13, 14, 15, 16, 17, 18, 19];
+    const { charged, paid } = chargedAndPaid(s, 32);
+    // the first job is 4 to 13, and the beats at 7, 11, and 15 call nothing, so 14 to 19 are idle; the call at 19 runs 20 to 29
+    const expected = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29];
     expect(charged).toEqual(expected);
     expect(paid).toEqual(expected);
   });
@@ -344,38 +345,36 @@ describe('datacenters', () => {
     expect(tempAfter(true, shed)).toBe(tempAfter(false, shed));
   });
 
-  it('starts a cooling cycle for a level above 0 only, and lets a call during a cycle change nothing', () => {
+  it('starts a cooling cycle for a call, and lets a call during a cycle change nothing', () => {
     const host = new FakeHost();
-    let beats = 0;
-    const levels = [0, 2, 1]; // the beats at steps 3, 7 and 11
-    const cool = host.program('cool', () => ({ actions: [{ kind: 'cool', level: levels[beats++]! }] }));
+    const cool = host.program('cool', () => ({ actions: [{ kind: 'cool' }] })); // a call at every beat: steps 3, 7 and 11
     const s = holding(host);
     s.world.plant.thermalSetting = 1_000; // plenty of power: the cycle would shed DA on the helper's 520
     s.deploy('DA', cool);
     const dc = s.world.datacenters.DA!;
     steps(s, 4);
-    expect(dc).toMatchObject({ coolFrom: -1, coolUntil: -1 }); // level 0
+    expect(dc).toMatchObject({ coolFrom: 4, coolUntil: 84 }); // the call at step 3: one cycle of 80 steps from the next step
     steps(s, 4);
-    expect(dc).toMatchObject({ coolFrom: 8, coolUntil: 88 }); // level 2: one cycle of 80 steps from the next step
+    expect(dc).toMatchObject({ coolFrom: 4, coolUntil: 84 }); // a call at step 7, inside it
     steps(s, 4);
-    expect(dc).toMatchObject({ coolFrom: 8, coolUntil: 88 }); // a call at step 11, inside it
+    expect(dc).toMatchObject({ coolFrom: 4, coolUntil: 84 }); // and one at step 11
   });
 
   it('keeps its job and its cooling cycle when its board goes to sleep: a sleep stops only the board', () => {
     const host = new FakeHost();
     let beats = 0;
     const work = host.program('work then nap', () => ({
-      actions: ++beats === 1 ? [{ kind: 'process' }, { kind: 'cool', level: 1 }] : [{ kind: 'sleep', seconds: 5 }],
+      actions: ++beats === 1 ? [{ kind: 'process' }, { kind: 'cool' }] : [{ kind: 'sleep', seconds: 5 }],
     }));
     const s = holding(host);
     s.world.plant.thermalSetting = 1_000; // plenty of power: the job and the cycle together would shed DA on the helper's 520
     s.deploy('DA', work);
-    steps(s, 4); // DA's first beat is step 3: a job and a cooling cycle from step 4
+    steps(s, 4); // DA's first beat is step 3: a job (0.5 s) and a cooling cycle from step 4
     const dc = s.world.datacenters.DA!;
-    expect(dc).toMatchObject({ busyFrom: 4, busyUntil: 8, coolFrom: 4, coolUntil: 84 });
-    steps(s, 4); // its second beat, at step 7, puts the board to sleep
+    expect(dc).toMatchObject({ busyFrom: 4, busyUntil: 14, coolFrom: 4, coolUntil: 84 });
+    steps(s, 4); // its second beat, at step 7, puts the board to sleep, with the job still running
     expect(s.world.boards[1]!.status).toBe('asleep');
-    expect(dc).toMatchObject({ busyFrom: 4, busyUntil: 8, coolFrom: 4, coolUntil: 84 }); // the windows the firmware opened are as they were
+    expect(dc).toMatchObject({ busyFrom: 4, busyUntil: 14, coolFrom: 4, coolUntil: 84 }); // the windows the firmware opened are as they were
   });
 
   it("takes the cycle's drop out spread over the cycle's steps while its window is open", () => {

@@ -1,4 +1,4 @@
-import type { FacilityKind, TickError } from '@turing-city/core';
+import type { FacilityKind, SensorValue, TickError } from '@turing-city/core';
 import { LuaEngine, LuaLibraries, type LuaWasm } from 'wasmoon';
 import { PRELUDE } from './prelude.ts';
 
@@ -105,7 +105,7 @@ export class BoardVm {
   }
 
   /** Installs newSource (if given), writes the sensors into io, and runs one tick under the caps. */
-  tick(sensors: Readonly<Record<string, number | undefined>>, newSource: string | null): VmTickResult {
+  tick(sensors: Readonly<Record<string, SensorValue>>, newSource: string | null): VmTickResult {
     const { lua, L } = this;
     if (!this.baselined) this.baseline(sensors);
     if (newSource !== null) {
@@ -144,7 +144,7 @@ export class BoardVm {
   }
 
   /** Takes the baseline: the first sensor frame goes into io, then everything the board holds is measured, collected. */
-  private baseline(sensors: Readonly<Record<string, number | undefined>>): void {
+  private baseline(sensors: Readonly<Record<string, SensorValue>>): void {
     this.writeSensors(sensors);
     this.collect();
     this.bootBytes = this.engine.global.getMemoryUsed() - this.codeBytes;
@@ -227,12 +227,13 @@ export class BoardVm {
     return `(error object: ${this.lua.lua_typename(this.L, type)})`;
   }
 
-  private writeSensors(sensors: Readonly<Record<string, number | undefined>>): void {
+  private writeSensors(sensors: Readonly<Record<string, SensorValue>>): void {
     const { lua, L } = this;
     this.pushRef('io');
     for (const [key, value] of Object.entries(sensors)) {
       lua.lua_pushstring(L, key);
-      if (value === undefined) lua.lua_pushnil(L);
+      // Only numbers so far: Task 12 writes strings, lists, and records too, which read as nil until then.
+      if (typeof value !== 'number') lua.lua_pushnil(L);
       else if (Number.isInteger(value)) lua.lua_pushinteger(L, BigInt(value));
       else lua.lua_pushnumber(L, value);
       lua.lua_rawset(L, -3);

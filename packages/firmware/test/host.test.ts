@@ -8,7 +8,7 @@ describe('decodeActions', () => {
   it('turns the queue into actions, with facility ids', () => {
     expect(decodeActions([1, 2, 3, 3, 250, 4, 2, 3, 2, 5, 20], ['P', 'DA', 'DB'])).toEqual([
       { kind: 'process' },
-      { kind: 'cool', level: 3 },
+      { kind: 'cool' }, // a cycle has no level: the 3 that io.cool(3) pushed is read and dropped
       { kind: 'setThermal', output: 250 },
       { kind: 'setPriority', order: ['DB', 'DA'] },
       { kind: 'sleep', seconds: 20 },
@@ -36,7 +36,7 @@ describe('WasmoonHost in a session', () => {
     );
     for (let i = 0; i < 4; i++) session.step(); // DA's first beat is step 3
     const dc = session.world.datacenters.DA!;
-    expect(dc).toMatchObject({ busyFrom: 4, busyUntil: 8, coolFrom: 4, coolUntil: 84 }); // one cooling cycle: 4 s, 80 steps
+    expect(dc).toMatchObject({ busyFrom: 4, busyUntil: 14, coolFrom: 4, coolUntil: 84 }); // a job of 0.5 s and a cycle of 4 s
     for (let i = 0; i < 4; i++) session.step(); // second beat at 7: sleep 1 s
     const da = session.world.boards[1]!;
     expect(da.status).toBe('asleep');
