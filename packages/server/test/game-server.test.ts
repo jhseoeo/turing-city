@@ -14,6 +14,9 @@ import { GameController } from '../src/game-controller.ts';
 import { startGameServer } from '../src/game-server.ts';
 import { removeTempDirs, tempDir } from './helpers/temp-dirs.ts';
 
+/** The tests that name P, DA, and DB play this scenario explicitly: the server's default is the whole town. */
+const M1 = 'scenarios/m1-power.json';
+
 let stop: (() => Promise<void>) | null = null;
 /** What a test opened, undone last in, first out: viewers go before the server they are connected to. */
 const closers: Array<() => unknown> = [];
@@ -35,10 +38,10 @@ type GameServer = Awaited<ReturnType<typeof startGameServer>>;
 
 /** A game server on a free port with a config directory of its own, closed when the test ends. */
 async function start(
-  options: { dev?: boolean; viewerDist?: string | null; onStatus?: (status: ControllerStatus) => void } = {},
+  options: { dev?: boolean; viewerDist?: string | null; scenarioPath?: string; onStatus?: (status: ControllerStatus) => void } = {},
 ): Promise<{ server: GameServer; configDir: string }> {
   const configDir = tempDir('tc-server-');
-  const server = await startGameServer({ port: 0, configDir, viewerDist: null, ...options });
+  const server = await startGameServer({ port: 0, configDir, viewerDist: null, scenarioPath: M1, ...options });
   closers.push(() => server.close());
   return { server, configDir };
 }
@@ -147,19 +150,17 @@ function last<T extends ServerToViewer['type']>(seen: ServerToViewer[], type: T)
 }
 
 describe('game server', () => {
-  it('runs a season end to end: viewer, agent, deploy, and the connection rule', async () => {
+  it('runs a season end to end: a viewer starts it without an agent, the agent connects, and its drop is told and paused for', async () => {
     const configDir = tempDir('tc-server-');
-    const server = await startGameServer({ port: 0, configDir, dev: true, viewerDist: null });
+    const server = await startGameServer({ port: 0, configDir, dev: true, viewerDist: null, scenarioPath: M1 });
     stop = server.close;
     const v = await viewer(server.port);
     await until(() => last(v.seen, 'hello') !== undefined && last(v.seen, 'status') !== undefined);
     expect(last(v.seen, 'hello')!.connect).toContain(loadConfig(configDir).token);
     expect(last(v.seen, 'status')!.status).toMatchObject({ state: 'idle', agent: { connected: false } });
 
-    v.send({ type: 'startSeason' });
-    await until(() => last(v.seen, 'error') !== undefined);
-    expect(last(v.seen, 'error')!.message).toContain('connect an agent first');
-    expect(last(v.seen, 'error')!.refusal).toEqual({ code: 'noAgent' }); // with the code the viewer says in Korean
+    v.send({ type: 'startSeason' }); // no agent is needed to play
+    await until(() => last(v.seen, 'status')?.status.state === 'paused');
 
     const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${server.port}/mcp`), {
       requestInit: { headers: { Authorization: `Bearer ${loadConfig(configDir).token}` } },
@@ -167,28 +168,21 @@ describe('game server', () => {
     const agent = new Client({ name: 'e2e-agent', version: '0.0.1' });
     await agent.connect(transport as Transport);
     await until(() => last(v.seen, 'status')?.status.agent.connected === true);
-
-    v.send({ type: 'startSeason' });
-    await until(() => last(v.seen, 'status')?.status.state === 'paused');
-    const deployed = await agent.callTool({
+    // DA has a board (T1) and no comm module: the agent cannot reach it, and is told how the player opens it.
+    const refused = await agent.callTool({
       name: 'deploy_firmware',
       arguments: { board: 'DA', code: 'function tick(io) io.log("on") end' },
     });
-    expect(deployed.isError).toBeFalsy();
-    await until(() => last(v.seen, 'deploy') !== undefined);
-    await agent.callTool({ name: 'dev_run_until', arguments: { seconds: 1 } });
-    await until(() => last(v.seen, 'snapshot')!.snapshot.facilities[1]!.board!.hasFirmware);
-
-    v.send({ type: 'inspect', board: 'DA' });
-    await until(() => last(v.seen, 'inspection') !== undefined);
-    expect(last(v.seen, 'inspection')!.inspection!.logs.some((l) => l.text === 'on')).toBe(true);
+    expect(refused.isError).toBe(true);
+    expect(textOf(refused)).toBe("DA has no comm module: the player installs one from the board's panel");
 
     v.send({ type: 'play' });
     await until(() => last(v.seen, 'status')?.status.state === 'running');
     await transport.terminateSession();
     await agent.close();
+    // The drop is told to the viewer, and the game pauses for it: agentLost auto-pauses by default.
     await until(() => last(v.seen, 'status')?.status.state === 'paused');
-    expect(last(v.seen, 'status')!.status.blockedByAgent).toBe(true);
+    expect(v.seen.flatMap((m) => (m.type === 'alerts' ? m.alerts : [])).map((a) => a.kind)).toContain('agentLost');
     v.ws.close();
   }, 30_000);
 
@@ -524,8 +518,8 @@ describe('game server', () => {
     v.ws.send(Buffer.from([0xff, 0x00, 0x01]));
     const errors = (): string[] => v.seen.flatMap((m) => (m.type === 'error' ? [m.message] : []));
     await until(() => errors().length === notCommands.length + 1);
-    // Each is refused by the hub itself, not by the controller (which would also answer a play with no agent, or a rebuild
-    // with no season, with an error), with something to read, and short, whatever the message was.
+    // Each is refused by the hub itself, not by the controller (which would also answer a play, or a rebuild, with no season
+    // with an error), with something to read, and short, whatever the message was.
     expect(errors().every((message) => message.startsWith('bad command: ') && message.length <= 200)).toBe(true);
     // Each carries its code, with what is wrong as the detail, for the viewer to say in Korean.
     const badCommands = v.seen.flatMap((m) => (m.type === 'error' ? [m] : []));
@@ -619,7 +613,7 @@ describe('game server', () => {
     expect(other.seen.filter((m) => m.type === 'status')).toHaveLength(1);
     const late = await viewer(server.port);
     await until(() => last(late.seen, 'status') !== undefined);
-    expect(last(late.seen, 'status')!.status.autoPause).toEqual(['raid', 'wrecked', 'fire', 'firmwareError']);
+    expect(last(late.seen, 'status')!.status.autoPause).toEqual(['raid', 'wrecked', 'fire', 'firmwareError', 'agentLost']);
   });
 
   it("streams the season to every viewer and carries the player's commands", async () => {
@@ -655,7 +649,7 @@ describe('game server', () => {
     // A rebuild the game refuses is told to the viewer that asked and to nobody else. Messages to a viewer arrive in order, so
     // an answer to the other viewer's own question shows that nothing was sent to it before.
     v.send({ type: 'rebuild', board: 'DA' });
-    await until(() => last(v.seen, 'error')?.message === 'DA is not destroyed');
+    await until(() => last(v.seen, 'error')?.refusal?.code === 'notDestroyed');
     expect(last(v.seen, 'error')!.refusal).toEqual({ code: 'notDestroyed', board: 'DA' });
     late.send({ type: 'inspect', board: 'DA' });
     await until(() => last(late.seen, 'inspection') !== undefined);
@@ -671,8 +665,7 @@ describe('game server', () => {
     const wrecked = (x: typeof v) => x.seen.flatMap((m) => (m.type === 'alerts' ? m.alerts : [])).find((a) => a.kind === 'wrecked');
     await until(() => wrecked(v) !== undefined && wrecked(late) !== undefined);
     const lost = wrecked(v)!.facility!;
-
-    // The lost facility's board is rebuilt only once the facility is repaired, and the viewer that asked is told so.
+    // Its board cannot come back before the facility is repaired, and the viewer that asked is told why.
     v.send({ type: 'rebuild', board: lost });
     await until(() => last(v.seen, 'error')?.refusal?.code === 'repairFirst');
     expect(last(v.seen, 'error')!.refusal).toEqual({ code: 'repairFirst', facility: lost });
@@ -692,7 +685,7 @@ describe('game server', () => {
     await until(() => heard.at(-1)?.state === 'paused');
     await agent.close();
     await until(() => heard.at(-1)?.agent.connected === false);
-    expect(heard.at(-1)).toMatchObject({ state: 'paused', agent: { connected: false, clientName: null }, blockedByAgent: true });
+    expect(heard.at(-1)).toMatchObject({ state: 'paused', agent: { connected: false, clientName: null } });
     for (const status of heard) expect(status).toMatchObject({ agent: expect.any(Object), state: expect.any(String) });
   }, 30_000);
 });

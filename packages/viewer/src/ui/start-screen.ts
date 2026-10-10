@@ -3,7 +3,7 @@ import type { Connection } from '../net.ts';
 import type { Store } from '../store.ts';
 import { noticeLines } from './notice.ts';
 
-/** Spec §8.1: connect your agent, then start the season. */
+/** The agent's connect command, and the start button: a season starts without an agent (spec 10-10 §8). */
 export function renderStartScreen(root: HTMLElement, store: Store, net: Connection): void {
   clear(root);
   const agent = store.status?.agent;
@@ -22,7 +22,7 @@ export function renderStartScreen(root: HTMLElement, store: Store, net: Connecti
           connected ? `● 에이전트 연결됨 (${agent?.clientName ?? 'agent'})` : '◌ 에이전트를 기다리는 중…',
         ]),
       ]),
-      el('button', { class: 'start-button', disabled: !connected, onclick: () => net.send({ type: 'startSeason' }) }, ['시즌 시작']),
+      el('button', { class: 'start-button', onclick: () => net.send({ type: 'startSeason' }) }, ['시즌 시작']),
       ...noticeLines(store),
     ]),
   );
