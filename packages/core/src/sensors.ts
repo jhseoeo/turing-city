@@ -3,6 +3,7 @@ import type { SensorValue } from './firmware-host.ts';
 import { MILLI } from './fixed.ts';
 import type { SensorName } from './scenario.ts';
 import { gameTime } from './time.ts';
+import { warehouseReading } from './warehouse.ts';
 import { type BoardState, cellIndex, manhattan, type SimContext } from './world.ts';
 
 /** Each sensor's field name in the firmware's io table. */
@@ -61,7 +62,7 @@ function read(ctx: SimContext, board: BoardState, sensor: SensorName): SensorVal
     case 'farms':
     case 'housing':
     case 'trucks':
-      return undefined; // the warehouse's readings come with its trucks (Task 8)
+      return warehouseReading(ctx, board.id, sensor);
   }
 }
 
