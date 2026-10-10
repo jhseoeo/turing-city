@@ -10,6 +10,7 @@ export * from './farm.ts';
 export * from './firmware-host.ts';
 export * from './fixed.ts';
 export * from './hash.ts';
+export * from './housing.ts';
 export * from './luddites.ts';
 export * from './power.ts';
 export * from './protocol.ts';

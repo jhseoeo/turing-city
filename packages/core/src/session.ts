@@ -5,6 +5,7 @@ import { checkEnd, installPart, refuseNotStanding, runEconomy, startRebuild, sta
 import { runEmf } from './emf.ts';
 import { harvestProblem, runFarms } from './farm.ts';
 import type { FacilityAction, FirmwareHost } from './firmware-host.ts';
+import { runHousing } from './housing.ts';
 import { runLuddites, runRumour } from './luddites.ts';
 import { runPower } from './power.ts';
 import type { Refusal } from './refusal.ts';
@@ -93,6 +94,7 @@ export class Session {
     runDatacenters(this.ctx, s);
     runFarms(this.ctx, s);
     runWarehouses(this.ctx, s);
+    runHousing(this.ctx, s);
     runEmf(this.ctx, ticked);
     runRumour(this.ctx, s);
     runLuddites(this.ctx, s);
