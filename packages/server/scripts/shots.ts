@@ -328,6 +328,58 @@ try {
     `scrollTop ${scrolledTo} after ${snapshotFrames - renders} snapshots`,
   );
 
+  // ---- The keys, the feed's click-to-jump and the auto-pause toggles, with the clock running ----
+  // A key acts on the state the page last showed, so each press waits for the page to show the last one's result.
+  const playButton = (): Promise<string> => textOf('#topbar .speed button');
+  await page.keyboard.press('Space');
+  check('Space pauses a running game', await waitUntil(async () => (await status()).run.paused && (await playButton()) === '▶'));
+  await page.keyboard.press('Space');
+  check('Space plays a paused game', await waitUntil(async () => !(await status()).run.paused && (await playButton()) === '⏸'));
+  for (const speed of [3, 2, 1]) {
+    await page.keyboard.press(String(speed));
+    check(`${speed} sets the speed to ${speed}x`, await waitUntil(async () => (await status()).run.speed === speed));
+  }
+
+  // H toggles the heatmap; with the game paused the map holds still, so equal screenshots mean the same picture.
+  await agent.call('dev_pause');
+  const mapShot = (): Promise<Buffer> => page.screenshot({ clip: { x: map.x, y: map.y, width: map.width, height: map.height } });
+  const plain = await mapShot();
+  await page.keyboard.press('h');
+  await page.waitForTimeout(300);
+  const heated = await mapShot();
+  await page.keyboard.press('h');
+  await page.waitForTimeout(300);
+  check('H shows the heatmap and hides it again', !plain.equals(heated) && plain.equals(await mapShot()));
+  await agent.call('dev_play');
+
+  await page.keyboard.press('Escape');
+  check('Escape clears the selection', await waitUntil(async () => (await textOf('#panel')).includes('시설을 클릭하면')));
+  await clickOn('#feed .item', 'P에 펌웨어');
+  check('clicking a deploy in the feed selects its board', await waitUntil(async () => (await textOf('#panel h2')) === '발전소 P'));
+
+  const toggles = (): Promise<Array<[string, boolean]>> =>
+    page.evaluate(() =>
+      [...document.querySelectorAll<HTMLInputElement>('#feed .toggles input')].map((box): [string, boolean] => [
+        box.parentElement?.textContent?.trim() ?? '',
+        box.checked,
+      ]),
+    );
+  const flipped = (list: Array<[string, boolean]>, label: string): string =>
+    JSON.stringify(list.map(([name, on]) => [name, name === label ? !on : on]));
+  const untouched = await toggles();
+  await clickOn('#feed .toggles label', '러다이트 접근');
+  check(
+    'clicking a toggle turns it, and only it, over',
+    await waitUntil(async () => JSON.stringify(await toggles()) === flipped(untouched, '러다이트 접근')),
+  );
+  await page.waitForTimeout(600);
+  check(
+    "the toggle still holds after the page has redrawn from the server's status",
+    JSON.stringify(await toggles()) === flipped(untouched, '러다이트 접근'),
+  );
+  await clickOn('#feed .toggles label', '러다이트 접근');
+  check('clicking it again puts it back', await waitUntil(async () => JSON.stringify(await toggles()) === JSON.stringify(untouched)));
+
   // ---- States the shots above do not reach, each made on purpose with the dev tools and a fixed seed ----
   // The power plant falls short: no thermal output, and two datacenters cooling at level 3 ask for 168 units, while the wind
   // (120 to start, 8 a second at most) gives 144 or less in the first 3 seconds.
