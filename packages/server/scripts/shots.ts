@@ -17,6 +17,8 @@ import { startGameServer } from '../src/game-server.ts';
 const out = 'scratch/shots';
 /** The seasons the script starts itself, so that its numbers repeat from run to run. */
 const SEED = 3;
+/** The map's cell size in pixels: CELL in the viewer's map-scene.ts, which pulls in Phaser and cannot load here. */
+const CELL = 34;
 mkdirSync(out, { recursive: true });
 const configDir = mkdtempSync(join(tmpdir(), 'tc-shots-'));
 const server = await startGameServer({ port: 0, configDir, dev: true });
@@ -45,7 +47,10 @@ async function waitUntil(condition: () => Promise<boolean>, timeoutMs = 3000): P
   return true;
 }
 
-/** The centre of the first element that matches the selector and holds the text. It is read in one turn of the page, so a re-render cannot make it stale. */
+/**
+ * The centre of the first element that matches the selector and holds the text. It is read in one turn of the page, so a
+ * re-render cannot make it stale, which a Playwright locator can (the page rebuilds its buttons 19 times a second).
+ */
 function centerOf(selector: string, text = ''): Promise<{ x: number; y: number } | null> {
   return page.evaluate(
     ({ selector, text }) => {
@@ -143,6 +148,7 @@ interface Rect {
   readonly width: number;
   readonly height: number;
 }
+/** The map's red: the error light and the Luddites' path (LED_COLORS.error in the viewer's format.ts). */
 const RED: Rgb = [0xff, 0x4d, 0x4d];
 
 /** A second page, in a context of its own, that only decodes PNGs: the browser reads the pixels, so no image library is needed. */
@@ -180,12 +186,13 @@ function countPixels(png: Buffer, rect: Rect, rgb: Rgb, tolerance = 12): Promise
  */
 async function bothPhases(name: string, what: string, rect: Rect, rgb: Rgb, minDifference: number): Promise<void> {
   const frames: Array<{ png: Buffer; count: number }> = [];
-  while (frames.length < 20) {
+  const deadline = Date.now() + 3000; // more than three blink periods, so a blinking part shows both phases
+  do {
     const png = await page.screenshot();
     frames.push({ png, count: await countPixels(png, rect, rgb) });
     const counts = frames.map((f) => f.count);
     if (Math.max(...counts) - Math.min(...counts) >= minDifference) break;
-  }
+  } while (Date.now() < deadline);
   const lit = frames.reduce((a, b) => (b.count > a.count ? b : a));
   const dark = frames.reduce((a, b) => (b.count < a.count ? b : a));
   for (const [phase, frame] of [
@@ -204,8 +211,8 @@ async function bothPhases(name: string, what: string, rect: Rect, rgb: Rgb, minD
 
 /**
  * A rough price of keeping up with the game, for a few seconds of the page as it is: the frame times seen by requestAnimationFrame,
- * and Chrome's own counters for the main thread's work and the JS heap. Headless Chrome draws Phaser's WebGL in software, so the
- * frame times say more about this machine than about the player's; the script's share and the heap are the page's own.
+ * and Chrome's own counters for the main thread's work and the JS heap. Headless Chrome draws Phaser's WebGL in software and
+ * holds its frames to a 60 Hz cadence, so the frame times show dropped frames, not cost; the busy shares and the heap are the cost.
  */
 async function measure(label: string, seconds: number): Promise<void> {
   const cdp = await page.context().newCDPSession(page);
@@ -311,7 +318,7 @@ try {
 
   const map = await page.locator('#map canvas').boundingBox();
   if (!map) throw new Error('the map canvas is missing');
-  const clickCell = (x: number, y: number) => page.mouse.click(map.x + x * 34 + 17, map.y + y * 34 + 17);
+  const clickCell = (x: number, y: number) => page.mouse.click(map.x + x * CELL + CELL / 2, map.y + y * CELL + CELL / 2);
   await clickCell(5, 4); // DA
   await shot('4-datacenter-selected');
   await clickCell(4, 4); // the plant
@@ -510,8 +517,9 @@ try {
     return panel.includes('에러') && panel.includes('[error]') && (await textOf('#feed')).includes('에러');
   };
   check('the panel of the erroring board says so and shows the error in its log, and the feed too', await waitUntil(panelShowsError));
-  const led = { x: Math.round(map.x + 16 * 34 + 29 - 6), y: Math.round(map.y + 8 * 34 + 5 - 6), width: 12, height: 12 };
-  await bothPhases('11-board-error', "DB's light", led, RED, 20);
+  // The light is a dot 5 px in from the top right corner of its cell; the rectangle is a little square around it.
+  const light = { x: Math.round(map.x + 17 * CELL - 5 - 6), y: Math.round(map.y + 8 * CELL + 5 - 6), width: 12, height: 12 };
+  await bothPhases('11-board-error', "DB's light", light, RED, 20);
 
   // A raid, with the clock: the default auto-pause stops the game when the Luddites appear and when a board is smashed.
   await newSeason();
