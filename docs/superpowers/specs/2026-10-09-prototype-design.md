@@ -541,7 +541,7 @@ The game's values are starting values to tune. They live in the scenario file, s
 - **Season checks** (`packages/server/test/seasons.test.ts`, part of `pnpm check`) play seasons the way `pnpm sim --rebuild` does, with reference firmware sets we write in `scenarios/firmware/m1/`: one careless and one careful.
   - The careless set falls at its first raid (day 3, on every seed from 1 to 10), so only the careful set plays out the season.
   - The checks: the careful set beats the careless one by more than 1,000 on seeds 1 to 3, and a second run of the careful set gives the same state hash and money.
-  - The gap is not that wide everywhere: on seeds 6, 7, 9, and 10 the job price is at or above the careful set's lowest threshold (50) for 0 to 22 of the season's 1,200 seconds, so both datacenters sleep through 99 to 100% of it, and the careful set ends within 650 of the careless one.
+  - The gap is not that wide everywhere: on seeds 6, 7, 9, and 10 the job price is at or above the careful set's lowest threshold (50) for 0 to 22 of the season's 1,200 seconds, so both datacenters sleep through 99 to 100% of it, and the careful set ends within 650 of the careless one. A firmware that does nothing but sleep ends every season on 4,100 (the start money less upkeep), and the careful set ends within 560 of that on those four seeds.
 - **MCP tests:**
   - a missing or wrong token is refused, and so is a browser origin;
   - size limits hold;
