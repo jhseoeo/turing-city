@@ -1,11 +1,13 @@
-import { mkdirSync, mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import { parseScenario } from '@turing-city/core';
 import { chromium } from 'playwright-core';
 import { loadConfig } from '../src/config.ts';
+import { loadFirmwareDir } from '../src/firmware-files.ts';
 import { startGameServer } from '../src/game-server.ts';
 
 /**
@@ -42,6 +44,27 @@ async function waitUntil(condition: () => Promise<boolean>, timeoutMs = 3000): P
   }
   return true;
 }
+
+/** The centre of the first element that matches the selector and holds the text. It is read in one turn of the page, so a re-render cannot make it stale. */
+function centerOf(selector: string, text = ''): Promise<{ x: number; y: number } | null> {
+  return page.evaluate(
+    ({ selector, text }) => {
+      const target = [...document.querySelectorAll(selector)].find((e) => (e.textContent ?? '').includes(text));
+      const r = target?.getBoundingClientRect();
+      return r ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null;
+    },
+    { selector, text },
+  );
+}
+
+/** A real mouse click on it, the way a player makes one; fails at once when it is not on the page. */
+async function clickOn(selector: string, text = ''): Promise<void> {
+  const at = await centerOf(selector, text);
+  if (!at) throw new Error(`nothing to click: ${selector} ${text}`);
+  await page.mouse.click(at.x, at.y);
+}
+
+const textOf = (selector: string): Promise<string> => page.evaluate((s) => document.querySelector(s)?.textContent ?? '', selector);
 
 /** How many snapshots the page's socket has received: proof that the page was being re-rendered during a press. */
 let snapshotFrames = 0;
@@ -91,25 +114,141 @@ interface Status {
   readonly run: { readonly paused: boolean; readonly speed: number };
 }
 
+/** What the browser computes for a CSS colour: the cascade has been applied, which a class name does not show. */
+const computedColor = (css: string): Promise<string> =>
+  page.evaluate((value) => {
+    const probe = document.createElement('i');
+    probe.style.color = value;
+    document.body.append(probe);
+    const color = getComputedStyle(probe).color;
+    probe.remove();
+    return color;
+  }, css);
+
+/** The computed colours of the numbers after "자금" and "전력" in the top bar. */
+const topBarColors = (): Promise<{ money: string; power: string }> =>
+  page.evaluate(() => {
+    const numberAfter = (label: string): string => {
+      const span = [...document.querySelectorAll('#topbar > span')].find((s) => s.textContent?.startsWith(label));
+      const number = span?.querySelector('b');
+      return number ? getComputedStyle(number).color : 'missing';
+    };
+    return { money: numberAfter('자금'), power: numberAfter('전력') };
+  });
+
+type Rgb = readonly [number, number, number];
+interface Rect {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+const RED: Rgb = [0xff, 0x4d, 0x4d];
+
+/** A second page, in a context of its own, that only decodes PNGs: the browser reads the pixels, so no image library is needed. */
+const decoder = await (await browser.newContext()).newPage();
+
+/** How many pixels of the PNG inside the rectangle are within the tolerance of the colour. */
+function countPixels(png: Buffer, rect: Rect, rgb: Rgb, tolerance = 12): Promise<number> {
+  return decoder.evaluate(
+    async ({ base64, rect, rgb, tolerance }) => {
+      const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${base64}`)).blob());
+      const canvas = new OffscreenCanvas(rect.width, rect.height);
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('no 2d context');
+      context.drawImage(bitmap, -rect.x, -rect.y);
+      const { data } = context.getImageData(0, 0, rect.width, rect.height);
+      let count = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        if (
+          Math.abs(data[i]! - rgb[0]) <= tolerance &&
+          Math.abs(data[i + 1]! - rgb[1]) <= tolerance &&
+          Math.abs(data[i + 2]! - rgb[2]) <= tolerance
+        )
+          count += 1;
+      }
+      return count;
+    },
+    { base64: png.toString('base64'), rect, rgb, tolerance },
+  );
+}
+
+/**
+ * The map blinks every 450 ms, so one screenshot can catch only one phase. This takes screenshots until the colour's pixel count
+ * inside the rectangle has differed by at least `minDifference` between two of them, and keeps the fullest as `-lit` and the
+ * emptiest as `-dark`. The pixels of the screenshots decide, so the files hold the phases they are named for.
+ */
+async function bothPhases(name: string, what: string, rect: Rect, rgb: Rgb, minDifference: number): Promise<void> {
+  const frames: Array<{ png: Buffer; count: number }> = [];
+  while (frames.length < 20) {
+    const png = await page.screenshot();
+    frames.push({ png, count: await countPixels(png, rect, rgb) });
+    const counts = frames.map((f) => f.count);
+    if (Math.max(...counts) - Math.min(...counts) >= minDifference) break;
+  }
+  const lit = frames.reduce((a, b) => (b.count > a.count ? b : a));
+  const dark = frames.reduce((a, b) => (b.count < a.count ? b : a));
+  for (const [phase, frame] of [
+    ['lit', lit],
+    ['dark', dark],
+  ] as const) {
+    writeFileSync(join(out, `${name}-${phase}.png`), frame.png);
+    process.stdout.write(`${out}/${name}-${phase}.png\n`);
+  }
+  check(
+    `${what} blinks: lit in one screenshot, dark in another`,
+    lit.count - dark.count >= minDifference,
+    `${lit.count} pixels lit, ${dark.count} dark, ${frames.length} screenshots`,
+  );
+}
+
 try {
   await page.goto(server.url);
   await shot('1-start-waiting');
 
-  let agent: Agent = await connectAgent('shots');
-  await shot('2-start-connected');
+  const BAD = await computedColor('var(--bad)');
+  const WHITE = await computedColor('#fff');
 
-  await page.getByText('시즌 시작').click();
-  await page.waitForTimeout(500);
-  await agent.call('dev_new_season', { seed: SEED }); // the button's own season has a random seed
+  let agent: Agent = await connectAgent('shots');
+  const status = async (): Promise<Status> => (await agent.call('get_status')) as Status;
+  const clockLabel = (): Promise<string> => page.evaluate(() => document.querySelector('#topbar b')?.textContent ?? '');
+
+  /** Waits until the top bar shows the server's money and power, then checks the colours of those two numbers. */
+  const expectTopBar = async (what: string, now: Status, money: string, power: string): Promise<void> => {
+    await page.waitForFunction(
+      ({ powerText, moneyText }) => {
+        const text = document.querySelector('#topbar')?.textContent ?? '';
+        return text.includes(powerText) && text.includes(moneyText);
+      },
+      { powerText: `${now.power.generation} / ${now.power.demand}`, moneyText: now.money.toLocaleString('en-US') },
+    );
+    const colors = await topBarColors();
+    check(`${what}: the money is ${money === BAD ? 'red' : 'white'}`, colors.money === money, `computed ${colors.money}`);
+    check(`${what}: the power is ${power === BAD ? 'red' : 'white'}`, colors.power === power, `computed ${colors.power}`);
+  };
+
+  /** A fresh season, nothing selected, and the page showing it. */
+  const newSeason = async (): Promise<void> => {
+    await agent.call('dev_new_season', { seed: SEED });
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => document.querySelector('#topbar b')?.textContent?.startsWith('1일차 00:00') === true);
+  };
   const careful =
     'function tick(io, mem) if io.temp > 70 then io.cool(3) end if io.temp < 82 then io.process() end io.log("t", io.temp) end';
   const deployHealthy = async (): Promise<void> => {
     await agent.call('deploy_firmware', { board: 'P', code: 'function tick(io) io.set_thermal(250) end' });
     await agent.call('deploy_firmware', { board: 'DA', code: careful });
   };
+
+  await shot('2-start-connected');
+
+  await page.getByText('시즌 시작').click();
+  await page.waitForTimeout(500);
+  await agent.call('dev_new_season', { seed: SEED }); // the button's own season has a random seed
   await deployHealthy();
   await agent.call('dev_run_until', { seconds: 30 });
   await shot('3-running');
+  await expectTopBar('a healthy season', await status(), WHITE, WHITE);
 
   const map = await page.locator('#map canvas').boundingBox();
   if (!map) throw new Error('the map canvas is missing');
@@ -128,21 +267,16 @@ try {
   await page.keyboard.press('h'); // the heatmap off again
   agent = await connectAgent('shots-2');
   check('the lost-agent overlay goes away when an agent reconnects', await waitUntil(() => page.locator('#overlay').isHidden()));
-  const status = async (): Promise<Status> => (await agent.call('get_status')) as Status;
-  const clockLabel = (): Promise<string> => page.evaluate(() => document.querySelector('#topbar b')?.textContent ?? '');
 
   await agent.call('dev_new_season', { seed: SEED });
   await deployHealthy();
   await agent.call('dev_run_until', { seconds: 20 });
   await clickCell(5, 4); // DA: its log is long enough to scroll
   await agent.call('dev_play');
-  await page.waitForFunction(() => document.querySelector('#topbar .speed button')?.textContent === '⏸');
+  await waitUntil(async () => (await textOf('#topbar .speed button')) === '⏸');
 
   // A click is a press and a release on the same button; the page used to replace the button between the two.
-  const pauseButton = await page.evaluate(() => {
-    const r = document.querySelector('#topbar .speed button')?.getBoundingClientRect();
-    return r ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null;
-  });
+  const pauseButton = await centerOf('#topbar .speed button');
   if (!pauseButton) throw new Error('the pause button is missing');
   await page.mouse.move(pauseButton.x, pauseButton.y);
   const before = snapshotFrames;
@@ -158,7 +292,7 @@ try {
   );
   check(
     'the screen shows the pause once the pointer is up',
-    await waitUntil(async () => (await page.locator('#topbar .speed button').first().textContent()) === '▶', 1500),
+    await waitUntil(async () => (await textOf('#topbar .speed button')) === '▶', 1500),
   );
   await agent.call('dev_play');
 
@@ -193,6 +327,106 @@ try {
     Math.abs(scrolledTo - 120) <= 1,
     `scrollTop ${scrolledTo} after ${snapshotFrames - renders} snapshots`,
   );
+
+  // ---- States the shots above do not reach, each made on purpose with the dev tools and a fixed seed ----
+  // The power plant falls short: no thermal output, and two datacenters cooling at level 3 ask for 168 units, while the wind
+  // (120 to start, 8 a second at most) gives 144 or less in the first 3 seconds.
+  await newSeason();
+  const cooling = 'function tick(io) io.cool(3) end';
+  await agent.call('deploy_firmware', { board: 'DA', code: cooling });
+  await agent.call('deploy_firmware', { board: 'DB', code: cooling });
+  await agent.call('dev_run_until', { seconds: 3 });
+  const short = await status();
+  check(
+    'the plant is short of power',
+    short.power.generation < short.power.demand,
+    `${short.power.generation} made, ${short.power.demand} asked`,
+  );
+  await clickCell(4, 4);
+  await expectTopBar('power short', short, WHITE, BAD);
+  await shot('8-power-short');
+
+  // Money below zero: the most thermal output burns the money, and nothing earns any. The datacenters sleep and the plant acts
+  // only once, so that the town stays quiet enough for no raid to come before the money runs out (a raid would end the burn).
+  await newSeason();
+  await agent.call('deploy_firmware', {
+    board: 'P',
+    code: 'function tick(io, mem) if not mem.on then io.set_thermal(300) mem.on = true end end',
+  });
+  for (const board of ['DA', 'DB']) await agent.call('deploy_firmware', { board, code: 'function tick(io) io.sleep(40) end' });
+  await agent.call('dev_run_until', { seconds: 150 });
+  const broke = await status();
+  check('the money is below zero and the season goes on', broke.money < 0 && broke.ended === null, `money ${broke.money}`);
+  await expectTopBar('money below zero', broke, BAD, WHITE);
+  await shot('9-money-below-zero');
+
+  // ... and three days below zero end the season.
+  await agent.call('dev_run_until', { alertKinds: ['seasonEnd'] });
+  const over = await status();
+  check('three days below zero end the season in bankruptcy', over.ended?.kind === 'bankrupt', JSON.stringify(over.ended));
+  check('the season-end overlay names the ending', await waitUntil(async () => (await textOf('#overlay')).startsWith('파산')));
+  const overlayText = await textOf('#overlay');
+  check(
+    'the season-end overlay shows the final money',
+    overlayText.includes(`최종 자금 ${over.money.toLocaleString('en-US')}`),
+    overlayText,
+  );
+  await shot('10-season-ended');
+  await clickOn('#overlay button', '새 시즌');
+  check(
+    'the overlay\'s "새 시즌" starts a season',
+    await waitUntil(async () => (await page.locator('#overlay').isHidden()) && (await clockLabel()).startsWith('1일차 00:00')),
+  );
+
+  // A board whose firmware fails every tick: its light blinks red.
+  await newSeason();
+  await deployHealthy();
+  await agent.call('deploy_firmware', { board: 'DB', code: 'function tick(io) local board = nil; return board.id end' });
+  await agent.call('dev_run_until', { seconds: 5 });
+  await clickCell(16, 8);
+  // The page draws the selection a moment after the click, and the panel's log when the board's inspection arrives.
+  const panelShowsError = async (): Promise<boolean> => {
+    const panel = await textOf('#panel');
+    return panel.includes('에러') && panel.includes('[error]') && (await textOf('#feed')).includes('에러');
+  };
+  check('the panel of the erroring board says so and shows the error in its log, and the feed too', await waitUntil(panelShowsError));
+  const led = { x: Math.round(map.x + 16 * 34 + 29 - 6), y: Math.round(map.y + 8 * 34 + 5 - 6), width: 12, height: 12 };
+  await bothPhases('11-board-error', "DB's light", led, RED, 20);
+
+  // A raid, with the clock: the default auto-pause stops the game when the Luddites appear and when a board is smashed.
+  await newSeason();
+  for (const [board, code] of Object.entries(loadFirmwareDir('scenarios/firmware/m1/careless')))
+    await agent.call('deploy_firmware', { board, code });
+  await agent.call('dev_run_until', { seconds: 60 }); // the first raid comes at 68 s
+  await page.keyboard.press('3');
+  await page.keyboard.press('Space');
+  const alertKinds = async (): Promise<string[]> => ((await agent.call('get_alerts')) as Array<{ kind: string }>).map((a) => a.kind);
+  const raided = await waitUntil(async () => (await alertKinds()).includes('raid'), 20_000);
+  check('the raid pauses the game by itself', raided && (await waitUntil(async () => (await status()).run.paused, 2000)));
+  check('the page shows the pause', await waitUntil(async () => (await textOf('#topbar .speed button')) === '▶'));
+  // A group picks its target on its first step, a beat after it appears: the pause comes before that, so there is no path yet.
+  await agent.call('dev_run_until', { seconds: 2 });
+  const mapRect = { x: Math.round(map.x), y: Math.round(map.y), width: Math.round(map.width), height: Math.round(map.height) };
+  await bothPhases('12-raid', "the Luddites' path", mapRect, RED, 300);
+  await page.keyboard.press('Space');
+  const smashed = await waitUntil(async () => (await alertKinds()).includes('boardDestroyed'), 30_000);
+  check('a smashed board pauses the game by itself', smashed && (await waitUntil(async () => (await status()).run.paused, 2000)));
+
+  // The alert names the board; clicking it opens the board's panel, where a destroyed board offers its rebuild.
+  await clickOn('#feed .item', '부서졌어요');
+  const scenario = parseScenario(JSON.parse(readFileSync('scenarios/m1-power.json', 'utf8')));
+  const rebuild = scenario.tuning.rebuild;
+  const label = `재건 (${rebuild.cost.toLocaleString('en-US')} · ${Math.floor((rebuild.seconds * 24) / scenario.time.secondsPerDay)}시간)`;
+  check(
+    'clicking an alert in the feed opens the destroyed board, with its rebuild button',
+    await waitUntil(async () => (await textOf('#panel button')) === label),
+    `wanted "${label}", got "${await textOf('#panel button')}"`,
+  );
+  await shot('13-board-destroyed');
+  await clickOn('#panel button');
+  await agent.call('dev_run_until', { seconds: 1 });
+  check('the rebuild button starts the rebuild', await waitUntil(async () => (await textOf('#panel')).includes('재건 중…')));
+  await shot('14-rebuilding');
 } finally {
   for (const agent of agents) await agent.disconnect().catch(() => undefined);
   await browser.close();
