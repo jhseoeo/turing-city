@@ -5,6 +5,7 @@ import {
   type BootInfo,
   datasheet,
   type FirmwareHost,
+  findBoard,
   firmwareView,
   inspectBoard,
   listBoards,
@@ -128,7 +129,8 @@ async function handle(message: WorkerRequest): Promise<void> {
       reply(message.id, () => {
         const result = s.deploy(message.board, message.code);
         send({ type: 'snapshot', snapshot: snapshot(s.ctx) });
-        return result;
+        // The controller tells the agent when the code installs, which depends on what the board is doing.
+        return { ...result, boardStatus: findBoard(s.world, message.board)!.status };
       });
       return;
     case 'rebuild':

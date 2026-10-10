@@ -90,6 +90,21 @@ describe('agent tools', () => {
     await expect(tool('get_datasheet').run(fakeApi(), { board: 'ZZ' })).rejects.toBeInstanceOf(ToolError);
   });
 
+  it('tells the agent what is true of efficient firmware and of a smashed board', () => {
+    // Quiet firmware draws fewer Luddites, but a datacenter earns by processing: efficiency raises no income.
+    expect(AGENT_INSTRUCTIONS).toContain('quieter firmware draws fewer of them');
+    expect(AGENT_INSTRUCTIONS).not.toMatch(/earns more|earn more/);
+    // Only the player rebuilds a smashed board, for money; the agent has to ask.
+    expect(AGENT_INSTRUCTIONS).toContain('a smashed board stays down until the player rebuilds it');
+    expect(AGENT_INSTRUCTIONS).toContain('You cannot, so tell the player and ask');
+  });
+
+  it("says in deploy_firmware's description that a board that is asleep, smashed, or being rebuilt installs later", () => {
+    const { description } = tool('deploy_firmware');
+    expect(description).toContain("installs at the board's next tick");
+    expect(description).toContain('asleep, smashed, or being rebuilt has no ticks until it wakes or is rebuilt');
+  });
+
   it('limits firmware to 64 KB in its schema', () => {
     const schema = tool('deploy_firmware').inputSchema.code as z.ZodString;
     expect(schema.safeParse('x'.repeat(65_536)).success).toBe(true);

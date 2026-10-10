@@ -101,7 +101,7 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
   {
     name: 'deploy_firmware',
     description:
-      "Deploy Lua firmware to a board. It must define function tick(io, mem). A syntax error is refused with Lua's message and the old firmware keeps running; otherwise the new code installs at the board's next tick, keeping mem.",
+      "Deploy Lua firmware to a board. It must define function tick(io, mem). A syntax error is refused with Lua's message and the old firmware keeps running; otherwise the new code installs at the board's next tick, keeping mem. A board that is asleep, smashed, or being rebuilt has no ticks until it wakes or is rebuilt, and the answer says when the code installs.",
     inputSchema: { board, code },
     run: (api, args) => api.deploy(args.board as string, args.code as string),
   },
@@ -146,6 +146,7 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
 export const AGENT_INSTRUCTIONS = [
   'You are the firmware engineer of a small town in turing-city, a game. The player places the hardware and directs you; you write the Lua firmware that runs on its boards.',
   'Start with list_boards and get_datasheet for each board: a datasheet tells you the io fields, the actions, the caps, and the rules.',
-  'Every board runs tick(io, mem) on its own clock. Work leaks EMF, and Luddites hunt the loudest board: efficient firmware earns more and hides better.',
+  'Every board runs tick(io, mem) on its own clock. Work leaks EMF, and Luddites hunt the loudest board: quieter firmware draws fewer of them. It raises no income, though: a datacenter earns by processing.',
   'Deploy with deploy_firmware; read_logs and get_alerts tell you what happened. Money comes from the datacenters; fuel and rebuilds cost it.',
+  'Luddites smash boards: a smashed board stays down until the player rebuilds it, for money. You cannot, so tell the player and ask.',
 ].join('\n');

@@ -2,6 +2,7 @@ import { idiv, MILLI } from './fixed.ts';
 import { facilityDemand, plantBoard } from './power.ts';
 import type { FacilityKind, SensorName, Tuning } from './scenario.ts';
 import { SENSOR_KEYS } from './sensors.ts';
+import type { TimeConfig } from './time.ts';
 import { findBoard, manhattan, type SimContext } from './world.ts';
 
 /** A milli-unit amount as a short decimal: 2000 is "2", 800 is "0.8", 95050 is "95.05". */
@@ -62,7 +63,7 @@ export function actionDocs(t: Tuning): Record<FacilityKind | 'any', ReadonlyArra
       {
         call: 'io.log(...)',
         meaning:
-          'log a line (print does the same); 20 lines per tick, 200 characters each. It is not an action: it adds no action EMF, and its lines are kept when the tick fails',
+          'log a line (print does the same); 20 lines per tick, each cut at 200 bytes (about 66 Korean characters). It is not an action: it adds no action EMF, and its lines are kept when the tick fails',
       },
       {
         call: 'io.sleep(seconds)',
@@ -73,15 +74,19 @@ export function actionDocs(t: Tuning): Record<FacilityKind | 'any', ReadonlyArra
 }
 
 /** What the firmware runs under. The numbers in the words are the scenario's own. */
-export function firmwareRules(t: Tuning): readonly string[] {
+export function firmwareRules(t: Tuning, time: TimeConfig): readonly string[] {
   return [
     "Define function tick(io, mem). It runs once per beat of the board's clock while the board is powered and awake.",
     'mem persists across ticks and deploys (hot reload); globals reset on every deploy. Deep sleep and destruction wipe both.',
     'Only mem carries over a deploy; each install gets a fresh io.',
     'Actions queue during the tick and apply when it returns. A tick that errors, runs out of RAM, or exceeds the instruction cap is aborted: its actions are dropped, but its log lines and the writes it made to mem stay. A capped tick counts as the whole cap toward EMF.',
     'RAM is firmware data beyond a fixed baseline: mem, globals, and what a tick allocates. Code doesn\'t count. After "out of RAM", mem still holds its data, so deploy firmware that frees what it no longer needs from mem first thing (its first tick gets a little extra room to do that).',
-    `EMF per tick = instructions / ${t.emf.instructionsPerUnit} + ${t.emf.perAction} per action (io.log isn't one); an awake board also emits its base EMF every second. Efficient firmware is quieter.`,
+    'ramUsedBytes counts all of it that the collector has not freed yet, garbage included, so it can still read high just after you free something. Garbage alone never causes "out of RAM": the board collects before it refuses an allocation.',
+    `EMF per tick = instructions / ${t.emf.instructionsPerUnit} + ${t.emf.perAction} per action (io.log isn't one); a board that is awake and powered also emits its base EMF every second. Efficient firmware is quieter.`,
     `A facility's power draw grows ${t.transmissionLossPctPerCell}% for each cell between it and the plant (distanceToPlant); powerDrawNow includes that.`,
+    `A game day is ${time.secondsPerDay} seconds. fuel_price is charged per unit of thermal output per day and price is paid per second of processing, so one unit of thermal output costs fuel_price / ${time.secondsPerDay} per second.`,
+    'io.sleep() puts the board to sleep when the tick returns: the actions queued after the call in the same tick are dropped, and those before it apply.',
+    "A facility's setting (the cooling level, the thermal output, the priority list) keeps its value through a sleep, while mem and globals are wiped. Cooling and the thermal module only work while their board is awake.",
     'Available: the base library (pairs, pcall, setmetatable, ...), string, table, math, coroutine. Missing: os, io (the library), load, require, debug, collectgarbage, utf8.',
     "string.find searches plain text only; string.match, gmatch, and gsub don't exist. math.randomseed doesn't exist; math.random is seeded per board.",
     'tostring of a table or function gives just its type, and setmetatable refuses __gc and __mode.',
@@ -135,6 +140,6 @@ export function datasheet(ctx: SimContext, boardId: string): Datasheet | null {
       lastError: last?.error ? `${last.error.kind}: ${last.error.message}` : null,
       ramUsedBytes: last?.ramUsedBytes ?? null,
     },
-    rules: firmwareRules(tuning),
+    rules: firmwareRules(tuning, ctx.scenario.time),
   };
 }

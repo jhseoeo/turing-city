@@ -11,6 +11,7 @@ import {
   type AlertKind,
   type BoardState,
   type BoardStatus,
+  type EndKind,
   findBoard,
   type LogLine,
   manhattan,
@@ -128,7 +129,8 @@ export interface StatusView {
   /** Whole money units. */
   readonly money: number;
   readonly power: { readonly generation: number; readonly demand: number; readonly shed: readonly string[] };
-  readonly ended: WorldState['ended'];
+  /** How the season ended and when, in game time like `time` (a step means nothing to an agent); null while it goes on. */
+  readonly ended: { readonly kind: EndKind; readonly time: TimeView } | null;
 }
 
 export function statusView(ctx: SimContext): StatusView {
@@ -138,7 +140,7 @@ export function statusView(ctx: SimContext): StatusView {
     seasonDays: ctx.scenario.time.seasonDays,
     money: idiv(w.money, MICRO),
     power: { generation: w.plant.generation, demand: w.plant.demand, shed: [...w.plant.shed] },
-    ended: w.ended,
+    ended: w.ended ? { kind: w.ended.kind, time: timeView(ctx.scenario, w.ended.step) } : null,
   };
 }
 

@@ -787,6 +787,29 @@ describe('GameController: requests', () => {
     expect(errors[1]!.repeat).toBe(9);
   });
 
+  it("says when a deploy installs: at the board's next tick, which comes after a sleep or a rebuild for a board that has none now", async () => {
+    const c = make();
+    c.setAgent(AGENT);
+    await c.startSeason(1);
+    const installsAt = async (board: string): Promise<string> => {
+      const outcome = await c.deploy(board, 'function tick() end');
+      if (!outcome.ok) throw new Error('refused');
+      return outcome.installsAt;
+    };
+    expect(await installsAt('DB')).toBe("the board's next tick");
+    // DA sleeps from its first beat (step 3) for 30 seconds.
+    await c.deploy('DA', 'function tick(io) io.sleep(30) end');
+    await c.runUntil({ seconds: 1 });
+    expect((await c.listBoards()).find((b) => b.id === 'DA')?.status).toBe('asleep');
+    expect(await installsAt('DA')).toBe("the board's next tick, after it wakes");
+    // No firmware elsewhere, so the Luddites smash a board in the fifth game day.
+    await c.runUntil({ alertKinds: ['boardDestroyed'] });
+    const lost = (await c.alerts(undefined)).find((a) => a.kind === 'boardDestroyed')!.facility!;
+    expect(await installsAt(lost)).toBe("the board's next tick, after the player rebuilds it");
+    expect(await c.rebuild(lost)).toEqual({ ok: true });
+    expect(await installsAt(lost)).toBe("the board's next tick, after its rebuild finishes");
+  });
+
   it("hands over the Lua checker's message for a syntax error, and says when a deploy installs", async () => {
     const c = make();
     c.setAgent(AGENT);

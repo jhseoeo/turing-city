@@ -348,6 +348,26 @@ describe('BoardVm', () => {
     // rather than many small ones, because a long table constructor would also grow the call frame, which is RAM.
     const BIG_CODE = `function tick(io, mem) if mem.never then local s = "${'x'.repeat(30_000)}" end end`;
 
+    // What the datasheet tells the agent about the RAM reading and about garbage.
+    it('collects before it refuses an allocation, so that garbage alone never runs a tick out of RAM', () => {
+      const v = vm({ instructionCap: 200_000 }); // 8 KB of RAM
+      // 200 tables of 4 KB, one after the other and none kept: 800 KB of garbage through an 8 KB board.
+      const churn = v.tick(SENSORS, `function tick() for i = 1, 200 do local t = {} for j = 1, 200 do t[j] = j end end end`);
+      expect(churn.error).toBeNull();
+      // Live data that does not fit is still refused.
+      expect(v.tick(SENSORS, `function tick(io, mem) mem.t = {} for j = 1, 600 do mem.t[j] = j end end`).error?.kind).toBe('ram');
+      v.close();
+    });
+
+    it('reads the data that the collector has not freed yet as in use, so that the reading stays high after a free', () => {
+      const v = vm();
+      v.tick(SENSORS, `function tick(io, mem) mem.t = {} for j = 1, 200 do mem.t[j] = j end end`);
+      const freed = v.tick(SENSORS, `function tick(io, mem) mem.t = nil end`);
+      expect(freed.ramUsedBytes).toBeGreaterThan(4000); // the 4 KB table is garbage now, and nothing has collected it
+      expect(v.tick(SENSORS, null).ramUsedBytes).toBeGreaterThan(4000); // and a tick that allocates nothing does not either
+      v.close();
+    });
+
     it('keeps mem inside the RAM cap across a deploy', () => {
       const v = vm({ ramBytes: 6 * 1024 });
       expect(v.tick(SENSORS, holdInMem('a')).ok).toBe(true);

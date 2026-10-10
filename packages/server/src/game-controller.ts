@@ -4,6 +4,7 @@ import {
   type AlertKind,
   type AlertView,
   type BoardInspection,
+  type BoardStatus,
   type BoardSummary,
   type ControllerEvent,
   type ControllerStatus,
@@ -42,6 +43,14 @@ const CLOCK_MS = 50;
  */
 const CATCH_UP_MS = 200;
 const NO_SEASON = "The season hasn't started: ask the player to press Start.";
+
+/** When a deploy installs: at the board's next tick, which a board that sleeps, is smashed, or is being rebuilt reaches only later. */
+const INSTALLS_AT: Record<BoardStatus, string> = {
+  running: "the board's next tick",
+  asleep: "the board's next tick, after it wakes",
+  destroyed: "the board's next tick, after the player rebuilds it",
+  rebuilding: "the board's next tick, after its rebuild finishes",
+};
 
 type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => void };
 
@@ -194,10 +203,10 @@ export class GameController {
         ? this.noSeason()
         : new ToolError('A new season started while the code was being checked; deploy it again.');
     }
-    const result = (await this.request({ type: 'deploy', id: 0, board, code })) as { version: number };
+    const result = (await this.request({ type: 'deploy', id: 0, board, code })) as { version: number; boardStatus: BoardStatus };
     const time = timeView(this.scenario, this.snapshotNow?.step ?? 0);
     this.emit({ kind: 'deploy', board, version: result.version, time });
-    return { ok: true, version: result.version, installsAt: "the board's next tick" };
+    return { ok: true, version: result.version, installsAt: INSTALLS_AT[result.boardStatus] };
   }
 
   async rebuild(board: string): Promise<{ ok: true } | { ok: false; reason: string }> {

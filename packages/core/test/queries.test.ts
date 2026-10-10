@@ -94,6 +94,60 @@ describe('views', () => {
     expect(missing).toEqual([]);
   });
 
+  it('states the length of a game day, so that a price per second can be set against a price per day', () => {
+    const { s } = session();
+    const rules = datasheet(s.ctx, 'DA')!.rules.join('\n');
+    expect(rules).toContain('A game day is 40 seconds');
+    expect(rules).toContain('fuel_price is charged per unit of thermal output per day');
+    expect(rules).toContain('price is paid per second of processing');
+    expect(rules).toContain('one unit of thermal output costs fuel_price / 40 per second');
+    const retuned = session((j) => {
+      j.time.secondsPerDay = 60;
+    }).s;
+    const text = datasheet(retuned.ctx, 'P')!.rules.join('\n');
+    expect(text).toContain('A game day is 60 seconds');
+    expect(text).toContain('fuel_price / 60 per second');
+    expect(text).not.toContain('40 seconds');
+  });
+
+  it('tells the agent what a sleep drops and keeps, and what the RAM reading counts', () => {
+    const { s } = session();
+    const sheet = datasheet(s.ctx, 'DA')!;
+    const rules = sheet.rules.join('\n');
+    const log = sheet.io.actions.find((a) => a.call === 'io.log(...)')!.meaning;
+    const points: Array<[string, string, string]> = [
+      [
+        'the actions queued after io.sleep() in the same tick are dropped',
+        rules,
+        'the actions queued after the call in the same tick are dropped',
+      ],
+      ['the ones before it still apply', rules, 'those before it apply'],
+      [
+        'a facility setting stays set through a sleep, and mem does not',
+        rules,
+        'keeps its value through a sleep, while mem and globals are wiped',
+      ],
+      ['the settings named', rules, 'the cooling level, the thermal output, the priority list'],
+      ['cooling and the thermal module work only while awake', rules, 'only work while their board is awake'],
+      ['a board that is awake and powered emits base EMF', rules, 'a board that is awake and powered also emits its base EMF every second'],
+      ['log lines are cut at 200 bytes, which is about 66 Korean characters', log, 'cut at 200 bytes (about 66 Korean characters)'],
+      [
+        'the RAM reading counts garbage not yet collected',
+        rules,
+        'counts all of it that the collector has not freed yet, garbage included',
+      ],
+      ['it can read high just after memory is freed', rules, 'can still read high just after you free something'],
+      [
+        'garbage alone never causes "out of RAM"',
+        rules,
+        'Garbage alone never causes "out of RAM": the board collects before it refuses an allocation',
+      ],
+    ];
+    const missing = points.filter(([, text, phrase]) => !text.includes(phrase)).map(([point]) => point);
+    expect(missing).toEqual([]);
+    expect(log).not.toContain('200 characters');
+  });
+
   it('reads logs with game time, and filters by time', () => {
     const { s } = session();
     s.deploy('DA', 'hello');
@@ -270,8 +324,13 @@ describe('views in detail', () => {
       power: { generation: 20, demand: 28, shed: ['DB'] },
       ended: null,
     });
-    s.world.ended = { kind: 'bankrupt', step: 20 };
-    expect(statusView(s.ctx).ended).toEqual({ kind: 'bankrupt', step: 20 });
+    // The end is told in game time, as the time is: a step means nothing to an agent (1,400 of them were read as 70 seconds).
+    s.world.ended = { kind: 'bankrupt', step: 1_400 };
+    expect(statusView(s.ctx).ended).toEqual({ kind: 'bankrupt', time: { day: 2, clock: '18:00', seconds: 70 } }); // a day is 800 steps
+    s.world.ended = { kind: 'completed', step: 800 * 30 - 1 };
+    expect(statusView(s.ctx).ended).toEqual({ kind: 'completed', time: { day: 30, clock: '23:58', seconds: 1199.95 } });
+    // The viewer's snapshot keeps the step.
+    expect(snapshot(s.ctx).ended).toEqual({ kind: 'completed', step: 800 * 30 - 1 });
   });
 
   it('lists an alert with its facility, message, and game time, and keeps only the alerts after "since"', () => {
