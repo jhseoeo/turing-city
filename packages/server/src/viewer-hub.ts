@@ -121,9 +121,14 @@ export function createViewerHub(options: ViewerHubOptions): {
         broadcast(options.hello());
         return;
       case 'inspect': {
-        // The panel asks twice a second while a board is selected. With no season to read (before the first, or after a
-        // crash) it gets an empty inspection: a refusal would sit in the screen's notice, over the overlay.
-        const inspection = await controller.inspect(message.board).catch(() => null);
+        // The panel asks twice a second while a board is selected. With no season to read (before the first, after a crash,
+        // or one replaced while the question was out, which the controller fails with a plain Error) it gets an empty
+        // inspection: a refusal would sit in the screen's notice, over the overlay. A failure of the season's own is still told.
+        const inspection = await controller.inspect(message.board).catch((error: unknown) => {
+          const code = error instanceof ToolError ? error.refusal?.code : undefined;
+          if (!(error instanceof ToolError) || code === 'noSeason' || code === 'crashed') return null;
+          throw error;
+        });
         send(ws, { type: 'inspection', board: message.board, inspection });
         return;
       }

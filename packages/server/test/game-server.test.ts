@@ -6,10 +6,11 @@ import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import type { AlertKind, ControllerStatus, ServerToViewer, ViewerToServer } from '@turing-city/core';
+import { type AlertKind, type ControllerStatus, type ServerToViewer, ToolError, type ViewerToServer } from '@turing-city/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import { loadConfig } from '../src/config.ts';
+import { GameController } from '../src/game-controller.ts';
 import { startGameServer } from '../src/game-server.ts';
 import { removeTempDirs, tempDir } from './helpers/temp-dirs.ts';
 
@@ -405,6 +406,23 @@ describe('game server', () => {
     await until(() => last(v.seen, 'inspection') !== undefined || last(v.seen, 'error') !== undefined);
     expect(last(v.seen, 'error')).toBeUndefined();
     expect(last(v.seen, 'inspection')).toEqual({ type: 'inspection', board: 'DA', inspection: null });
+  });
+
+  it('still tells the viewer when the season itself fails an inspection, and empties one that a new season cut off', async () => {
+    const { server } = await start();
+    const v = await viewer(server.port);
+    const inspect = vi.spyOn(GameController.prototype, 'inspect');
+    // A failure inside the season's own reading of the board: the panel can't show it, so the notice must.
+    inspect.mockRejectedValueOnce(new ToolError('inspectBoard failed'));
+    v.send({ type: 'inspect', board: 'DA' });
+    await until(() => last(v.seen, 'error') !== undefined || last(v.seen, 'inspection') !== undefined);
+    expect(last(v.seen, 'inspection')).toBeUndefined();
+    expect(last(v.seen, 'error')!.message).toBe('inspectBoard failed');
+    // A question still out when the season was replaced (the controller fails it with a plain Error) is not the player's to hear.
+    inspect.mockRejectedValueOnce(new Error('a new season started'));
+    v.send({ type: 'inspect', board: 'DB' });
+    await until(() => v.seen.some((m) => m.type === 'inspection' && m.board === 'DB'));
+    expect(v.seen.filter((m) => m.type === 'error')).toHaveLength(1);
   });
 
   it('answers a dev_play with no season with an error, as the other tools do', async () => {
