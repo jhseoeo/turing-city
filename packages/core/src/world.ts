@@ -152,10 +152,10 @@ export interface LudditeGroup {
   y: number;
   readonly size: number;
   targetId: string | null;
-  /** Step since when no board has carried detectable EMF. */
+  /** Step since when no machine has carried detectable EMF. */
   quietSince: number | null;
   leaving: boolean;
-  /** Boards this group has already raised an approach alert for. */
+  /** Machines (by facility id) this group has already raised an approach alert for. */
   warned: string[];
 }
 

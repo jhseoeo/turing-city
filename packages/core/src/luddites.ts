@@ -2,9 +2,24 @@ import { raiseAlert } from './alerts.ts';
 import { wreckFacility } from './boards.ts';
 import { fieldTotal } from './emf.ts';
 import { idiv, MILLI } from './fixed.ts';
-import { type BoardState, cellIndex, findFacility, type LudditeGroup, manhattan, type SimContext } from './world.ts';
+import type { FacilityKind } from './scenario.ts';
+import { cellIndex, type FacilityState, findBoard, type LudditeGroup, manhattan, type SimContext, type WorldState } from './world.ts';
 
 const SIDES = ['북쪽', '남쪽', '서쪽', '동쪽'] as const;
+
+/** Kinds whose own work is a machine's, because they process: such a facility is a target with or without a board. */
+const MACHINE_KINDS: ReadonlySet<FacilityKind> = new Set<FacilityKind>(['datacenter']);
+
+/**
+ * What Luddites hunt: a standing facility that has a board that runs or sleeps, or whose own work is a machine's. A facility
+ * worked only by hand, one whose board is destroyed or being rebuilt, and anything wrecked or being repaired are no machines.
+ */
+export function isMachine(world: WorldState, facility: FacilityState): boolean {
+  if (facility.condition !== 'ok') return false;
+  if (MACHINE_KINDS.has(facility.kind)) return true;
+  const board = findBoard(world, facility.id);
+  return board !== undefined && (board.status === 'running' || board.status === 'asleep');
+}
 
 /** The cells from one point to another, along the row first, then the column. */
 export function pathTo(fromX: number, fromY: number, toX: number, toY: number): Array<[number, number]> {
@@ -47,16 +62,16 @@ export function runRumour(ctx: SimContext, step: number): void {
   }
 }
 
-/** The intact board whose cell carries the strongest EMF at or above the detection threshold. */
-export function strongestTarget(ctx: SimContext): BoardState | null {
+/** The machine whose cell carries the strongest EMF at or above the detection threshold. */
+export function strongestTarget(ctx: SimContext): FacilityState | null {
   const threshold = ctx.scenario.tuning.emf.detectionThreshold * MILLI;
-  let best: BoardState | null = null;
+  let best: FacilityState | null = null;
   let bestValue = -1;
-  for (const b of ctx.world.boards) {
-    if (b.status === 'destroyed' || b.status === 'rebuilding') continue;
-    const v = ctx.world.emf[cellIndex(ctx.scenario, b.x, b.y)]!;
+  for (const f of ctx.world.facilities) {
+    if (!isMachine(ctx.world, f)) continue;
+    const v = ctx.world.emf[cellIndex(ctx.scenario, f.x, f.y)]!;
     if (v >= threshold && v > bestValue) {
-      best = b;
+      best = f;
       bestValue = v;
     }
   }
@@ -76,19 +91,20 @@ function nearestEdgeStep(ctx: SimContext, g: LudditeGroup): [number, number] | n
   return best[0] === 0 ? null : [best[1], best[2]];
 }
 
+/** One approach alert per machine for each group, the first time the group comes within reach of it. */
 function warnNearby(ctx: SimContext, g: LudditeGroup, step: number): void {
   const reach = ctx.scenario.tuning.luddites.approachCells;
-  for (const b of ctx.world.boards) {
-    if (b.status === 'destroyed' || b.status === 'rebuilding' || g.warned.includes(b.id)) continue;
-    const d = manhattan(g.x, g.y, b.x, b.y);
+  for (const f of ctx.world.facilities) {
+    if (!isMachine(ctx.world, f) || g.warned.includes(f.id)) continue;
+    const d = manhattan(g.x, g.y, f.x, f.y);
     if (d <= reach) {
-      g.warned.push(b.id);
-      raiseAlert(ctx.world, step, 'ludditesNear', b.id, `러다이트가 ${b.id}에 다가오고 있어요 (${d}칸)`);
+      g.warned.push(f.id);
+      raiseAlert(ctx.world, step, 'ludditesNear', f.id, `러다이트가 ${f.id}에 다가오고 있어요 (${d}칸)`);
     }
   }
 }
 
-/** Phase 8: every group moves one cell on its beat, smashes what it reaches, or gives up and leaves. */
+/** Phase 8: every group moves one cell on its beat, wrecks the facility it reaches, or gives up and leaves. */
 export function runLuddites(ctx: SimContext, step: number): void {
   const t = ctx.scenario.tuning.luddites;
   const sps = ctx.scenario.time.stepsPerSecond;
@@ -118,6 +134,6 @@ export function runLuddites(ctx: SimContext, step: number): void {
       g.y = next[1];
     }
     warnNearby(ctx, g, step);
-    if (g.x === target.x && g.y === target.y) wreckFacility(ctx, findFacility(ctx.world, target.id)!, step, 'luddites');
+    if (g.x === target.x && g.y === target.y) wreckFacility(ctx, target, step, 'luddites');
   }
 }

@@ -1,12 +1,29 @@
-import type { TickOutcome } from './firmware-host.ts';
+import { isProcessing } from './datacenter.ts';
+import { countsAsAction, type TickOutcome } from './firmware-host.ts';
 import { idiv, MILLI, mulDiv } from './fixed.ts';
 import type { Ticked } from './ticks.ts';
-import { cellIndex, type SimContext, type WorldState } from './world.ts';
+import { type BoardState, cellIndex, type SimContext, type WorldState } from './world.ts';
 
-/** Milli-EMF that one tick emits: instructions / instructionsPerUnit, plus perAction for each action. */
+/**
+ * Milli-EMF that one tick emits: instructions / instructionsPerUnit, plus perAction for each action that is machine labor.
+ * A process() call is counted as the datacenter's running time instead (processingEmission), whoever starts the job, and sleep()
+ * is no labor.
+ */
 export function tickEmission(ctx: SimContext, outcome: TickOutcome): number {
   const e = ctx.scenario.tuning.emf;
-  return mulDiv(outcome.instructions, MILLI, e.instructionsPerUnit) + outcome.actions.length * e.perAction * MILLI;
+  const labor = outcome.actions.filter((a) => countsAsAction(a.kind)).length;
+  return mulDiv(outcome.instructions, MILLI, e.instructionsPerUnit) + labor * e.perAction * MILLI;
+}
+
+/** Milli-EMF a running, powered board gives off each step: its base EMF, and a comm module's on top, spread over the second. */
+export function baseEmission(ctx: SimContext, board: BoardState): number {
+  const perSecond = board.spec.baseEmfPerSecond + (board.comm ? ctx.scenario.tuning.install.commBaseEmfPerSecond : 0);
+  return mulDiv(perSecond, MILLI, ctx.scenario.time.stepsPerSecond);
+}
+
+/** Milli-EMF a datacenter's servers give off on each step they work, whoever started the job: a press of [처리] or process(). */
+export function processingEmission(ctx: SimContext): number {
+  return mulDiv(ctx.scenario.tuning.emf.processingPerSecond, MILLI, ctx.scenario.time.stepsPerSecond);
 }
 
 /**
@@ -44,21 +61,26 @@ export function diffuse(
   }
 }
 
-/** Phase 7: emissions from this step's ticks and from every awake, powered board; then diffusion and decay. */
+/**
+ * Phase 7: this step's ticks, every running and powered board's base EMF, and every working datacenter's processing EMF, each
+ * into its own cell; then diffusion and decay. The player's hands give off nothing. The step is the world's own: phase 7 of step s
+ * runs with world.step === s.
+ */
 export function runEmf(ctx: SimContext, ticked: readonly Ticked[]): void {
   const { scenario, world } = ctx;
-  const sps = scenario.time.stepsPerSecond;
-  for (const { board, outcome } of ticked) {
-    const i = cellIndex(scenario, board.x, board.y);
-    world.emf[i] = world.emf[i]! + tickEmission(ctx, outcome);
-  }
+  const add = (x: number, y: number, milli: number): void => {
+    const i = cellIndex(scenario, x, y);
+    world.emf[i] = world.emf[i]! + milli;
+  };
+  for (const { board, outcome } of ticked) add(board.x, board.y, tickEmission(ctx, outcome));
   for (const board of world.boards) {
-    if (board.status !== 'running' || !board.powered) continue;
-    const i = cellIndex(scenario, board.x, board.y);
-    world.emf[i] = world.emf[i]! + mulDiv(board.spec.baseEmfPerSecond, MILLI, sps);
+    if (board.status === 'running' && board.powered) add(board.x, board.y, baseEmission(ctx, board));
+  }
+  for (const f of world.facilities) {
+    if (isProcessing(ctx, f.id, world.step)) add(f.x, f.y, processingEmission(ctx));
   }
   const e = scenario.tuning.emf;
-  diffuse(world.emf, scenario.grid.width, scenario.grid.height, e.diffusionPctPerSecond, e.decayPctPerSecond, sps);
+  diffuse(world.emf, scenario.grid.width, scenario.grid.height, e.diffusionPctPerSecond, e.decayPctPerSecond, scenario.time.stepsPerSecond);
 }
 
 /** The field's total in whole EMF units. */

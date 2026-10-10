@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { diffuse, fieldTotal, runEmf, tickEmission } from '../src/emf.ts';
-import type { TickError, TickOutcome } from '../src/firmware-host.ts';
+import { baseEmission, diffuse, fieldTotal, processingEmission, runEmf, tickEmission } from '../src/emf.ts';
+import { type Action, countsAsAction, type TickError, type TickOutcome } from '../src/firmware-host.ts';
 import type { Rng } from '../src/rng.ts';
 import { Session } from '../src/session.ts';
 import { isBeat } from '../src/time.ts';
-import { cellIndex } from '../src/world.ts';
+import { cellIndex, findFacility } from '../src/world.ts';
 import { FakeHost } from './helpers/fake-host.ts';
-import { m1Scenario } from './helpers/scenarios.ts';
+import { m1Scenario, m2Scenario } from './helpers/scenarios.ts';
 
 function powered(host = new FakeHost()): Session {
   const s = new Session(
@@ -39,10 +39,29 @@ function dry(host = new FakeHost(), change?: Parameters<typeof m1Scenario>[0]): 
   return s;
 }
 
-/** The milli-EMF in the cell under a board; the field is row-major, y * width + x. */
+/** The milli-EMF in the cell under a facility; the field is row-major, y * width + x. */
 function cellOf(s: Session, id: string): number {
-  const b = s.world.boards.find((x) => x.id === id)!;
-  return s.world.emf[b.y * s.scenario.grid.width + b.x]!;
+  const f = findFacility(s.world, id)!;
+  return s.world.emf[f.y * s.scenario.grid.width + f.x]!;
+}
+
+/** The milestone-2 town, which starts with no board, on steady free power; its field neither spreads nor fades, and no raid comes. */
+function town(): Session {
+  const s = new Session(
+    m2Scenario((j) => {
+      j.tuning.wind.start = 220;
+      j.tuning.wind.maxChangePerSecond = 0;
+      j.tuning.thermal.max = 2_000;
+      j.tuning.fuelPrice = { start: 0, min: 0, max: 0 };
+      j.tuning.emf.diffusionPctPerSecond = 0;
+      j.tuning.emf.decayPctPerSecond = 0;
+      j.tuning.emf.rumourThreshold = 1_000_000_000;
+    }),
+    1,
+    new FakeHost(),
+  );
+  s.world.plant.thermalSetting = 2_000;
+  return s;
 }
 
 function outcomeOf(instructions: number, actions: TickOutcome['actions'] = [], error: TickError | null = null): TickOutcome {
@@ -79,17 +98,10 @@ function gatherStep(
 }
 
 describe('EMF', () => {
-  it('turns instructions and actions into emission', () => {
+  it('turns instructions and machine labor into emission', () => {
     const s = powered();
-    const outcome = {
-      ok: true,
-      instructions: 500,
-      actions: [{ kind: 'process' as const }, { kind: 'cool' as const, level: 1 }],
-      logs: [],
-      error: null,
-      ramUsedBytes: 0,
-    };
-    expect(tickEmission(s.ctx, outcome)).toBe(5_000 + 20_000);
+    const outcome = outcomeOf(500, [{ kind: 'process' }, { kind: 'cool' }, { kind: 'sleep', seconds: 5 }]);
+    expect(tickEmission(s.ctx, outcome)).toBe(5_000 + 10_000); // 5 EMF of instructions, 10 for cool(); process() and sleep() count none
   });
 
   it('counts no emission for log lines: io.log is not an action', () => {
@@ -178,7 +190,7 @@ describe('EMF', () => {
     );
     expect(tickEmission(s.ctx, outcomeOf(10))).toBe(1_428); // 10,000 / 7 = 1,428.6
     expect(tickEmission(s.ctx, outcomeOf(3))).toBe(428); // 3,000 / 7 = 428.6
-    expect(tickEmission(s.ctx, outcomeOf(1, [{ kind: 'process' }]))).toBe(142 + 10_000); // 142.9, and an action is a whole 10 EMF
+    expect(tickEmission(s.ctx, outcomeOf(1, [{ kind: 'cool' }]))).toBe(142 + 10_000); // 142.9, and an action is a whole 10 EMF
   });
 
   it('adds each awake board its datasheet base EMF over a second, split over the steps and rounded down', () => {
@@ -212,10 +224,10 @@ describe('EMF', () => {
     const da = s.world.boards[1]!;
     const db = s.world.boards[2]!;
     runEmf(s.ctx, [
-      { board: da, outcome: outcomeOf(1_800, [{ kind: 'process' }]) },
+      { board: da, outcome: outcomeOf(1_800, [{ kind: 'process' }, { kind: 'cool' }]) },
       { board: db, outcome: outcomeOf(250) },
     ]);
-    // base EMF for the step is 1,000, 1,250 and 1,250; DA's tick adds 18 + 10 EMF and DB's adds 2.5
+    // base EMF for the step is 1,000, 1,250 and 1,250; DA's tick adds 18 + 10 EMF (for cool(), not process()), and DB's adds 2.5
     expect([cellOf(s, 'P'), cellOf(s, 'DA'), cellOf(s, 'DB')]).toEqual([1_000, 1_250 + 28_000, 1_250 + 2_500]);
     expect(s.world.emf.reduce((a, b) => a + b, 0)).toBe(1_000 + 29_250 + 3_750); // nothing in any other cell
   });
@@ -312,7 +324,7 @@ describe('EMF', () => {
     expect(fieldTotal(s.world)).toBe(5); // 5,600 milli-EMF
   });
 
-  it('counts the tick of a board that goes to sleep, but not its base EMF, in that step', () => {
+  it('counts the tick of a board that goes to sleep, but neither its sleep() nor its base EMF, in that step', () => {
     const host = new FakeHost();
     const nap = host.program('nap', () => ({ instructions: 1_800, actions: [{ kind: 'sleep', seconds: 5 }] }));
     const s = dry(host);
@@ -324,7 +336,7 @@ describe('EMF', () => {
       s.step();
     }
     expect(da.status).toBe('asleep');
-    expect(cellOf(s, 'DA') - before).toBe(28_000); // 18 EMF of instructions and 10 for the sleep() call, and no base EMF
+    expect(cellOf(s, 'DA') - before).toBe(18_000); // 18 EMF of instructions; sleep() is no labor, and an asleep board has no base EMF
   });
 
   it('counts the base EMF of a datacenter that burns down in this step, since the fires come after the field', () => {
@@ -356,5 +368,59 @@ describe('EMF', () => {
     s.world.emf[at + s.scenario.grid.width] = 5_000;
     s.step();
     expect(seen).toEqual([7.5]);
+  });
+
+  it('counts machine labor as actions, and neither process() nor sleep()', () => {
+    const kinds: Array<Action['kind']> = ['harvest', 'dispatch', 'setThermal', 'setPriority', 'cool', 'process', 'sleep'];
+    expect(kinds.map((kind) => countsAsAction(kind))).toEqual([true, true, true, true, true, false, false]);
+  });
+
+  it("adds a comm module's base EMF to its board's, every second it runs", () => {
+    const s = dry();
+    s.world.boards[1]!.comm = true;
+    for (let i = 0; i < 20; i++) runEmf(s.ctx, []);
+    expect([cellOf(s, 'P'), cellOf(s, 'DA'), cellOf(s, 'DB')]).toEqual([20_000, 30_000, 25_000]); // DA: 25, and the module's 5
+    expect(baseEmission(s.ctx, s.world.boards[1]!)).toBe(1_500);
+  });
+
+  it('gives off processing EMF on every step a datacenter works, and none while it is shed or wrecked', () => {
+    const working = dry();
+    working.world.datacenters.DA!.busyFrom = 0;
+    working.world.datacenters.DA!.busyUntil = 1_000; // these direct calls stay at the world's step 0, inside the job
+    for (let i = 0; i < 20; i++) runEmf(working.ctx, []);
+    expect(processingEmission(working.ctx)).toBe(2_500); // 50 a second at 20 steps a second
+    expect(cellOf(working, 'DA')).toBe(25_000 + 50_000); // a second of base EMF and a second of processing
+
+    const shed = dry();
+    shed.world.datacenters.DA!.busyFrom = 0;
+    shed.world.datacenters.DA!.busyUntil = 1_000;
+    findFacility(shed.world, 'DA')!.powered = false;
+    shed.world.boards[1]!.powered = false;
+    runEmf(shed.ctx, []);
+    expect(cellOf(shed, 'DA'), 'shed').toBe(0);
+
+    const wrecked = dry();
+    wrecked.world.datacenters.DA!.busyFrom = 0;
+    wrecked.world.datacenters.DA!.busyUntil = 1_000;
+    findFacility(wrecked.world, 'DA')!.condition = 'wrecked';
+    wrecked.world.boards[1]!.status = 'destroyed';
+    runEmf(wrecked.ctx, []);
+    expect(cellOf(wrecked, 'DA'), 'wrecked').toBe(0);
+  });
+
+  it('makes noise at a datacenter worked by hand, with no board anywhere in town', () => {
+    const s = town();
+    expect(s.hand('DA', { kind: 'process' })).toEqual({ ok: true });
+    s.step(); // the press applies at once, from step 0: the job covers steps 0 to 9
+    for (let i = 0; i < 10; i++) s.step(); // the last of these, step 10, is past the job and adds nothing
+    expect(cellOf(s, 'DA')).toBe(10 * 2_500); // half a second of processing EMF
+    expect(s.world.emf.reduce((a, b) => a + b, 0)).toBe(25_000); // and nothing anywhere else
+  });
+
+  it('stays silent with no board in town and the datacenters idle', () => {
+    const s = town();
+    for (let i = 0; i < 400; i++) s.step();
+    expect(fieldTotal(s.world)).toBe(0);
+    expect(s.world.rumour).toBe(0);
   });
 });
