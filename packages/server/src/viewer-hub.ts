@@ -1,7 +1,8 @@
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
-import type { ControllerEvent, ServerToViewer, ViewerToServer } from '@turing-city/core';
+import type { AlertKind, ControllerEvent, ServerToViewer, ViewerToServer } from '@turing-city/core';
 import { type WebSocket, WebSocketServer } from 'ws';
+import { z } from 'zod';
 import type { GameController } from './game-controller.ts';
 
 export interface ViewerHubOptions {
@@ -29,12 +30,57 @@ function toMessage(event: ControllerEvent): ServerToViewer {
   }
 }
 
+/** The most a viewer's message may weigh. A command is a few dozen bytes; a bigger message closes its connection. */
+const MAX_MESSAGE_BYTES = 64 * 1024;
+
+/** Every alert kind. A Record, so the compiler fails when core gets a kind that is not listed here. */
+const ALERT_KINDS: Record<AlertKind, true> = {
+  raid: true,
+  ludditesNear: true,
+  boardDestroyed: true,
+  fire: true,
+  overheat: true,
+  powerShortage: true,
+  firmwareError: true,
+  moneyBelowZero: true,
+  seasonEnd: true,
+};
+const KIND_NAMES = Object.keys(ALERT_KINDS) as [AlertKind, ...AlertKind[]];
+
+const boardId = z.string().min(1).max(32);
+
+/** What a viewer may send: the commands of ViewerToServer, exactly. Nothing else reaches the controller. */
+const viewerCommand: z.ZodType<ViewerToServer> = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.literal('startSeason') }),
+  z.strictObject({ type: z.literal('play') }),
+  z.strictObject({ type: z.literal('pause') }),
+  z.strictObject({ type: z.literal('speed'), speed: z.literal([1, 2, 3]) }),
+  z.strictObject({ type: z.literal('rebuild'), board: boardId }),
+  z.strictObject({ type: z.literal('autoPause'), kinds: z.array(z.enum(KIND_NAMES)).max(KIND_NAMES.length) }),
+  z.strictObject({ type: z.literal('reissueToken') }),
+  z.strictObject({ type: z.literal('inspect'), board: boardId }),
+]);
+
+/** A viewer's message as a command, or why it is none (short, because it goes back to the viewer). */
+function parseCommand(text: string): { ok: true; command: ViewerToServer } | { ok: false; reason: string } {
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return { ok: false, reason: 'bad command: not JSON' };
+  }
+  const parsed = viewerCommand.safeParse(json);
+  if (parsed.success) return { ok: true, command: parsed.data };
+  const issues = parsed.error.issues.map((i) => (i.path.length > 0 ? `${i.path.map(String).join('.')}: ${i.message}` : i.message));
+  return { ok: false, reason: `bad command: ${issues.join('; ')}`.slice(0, 200) };
+}
+
 export function createViewerHub(options: ViewerHubOptions): {
   upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void;
   close(): void;
 } {
   const { controller } = options;
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES });
   const clients = new Set<WebSocket>();
   /**
    * Never throws. It runs inside the controller's events, which come from timers and from the agent's connection, where a
@@ -92,13 +138,12 @@ export function createViewerHub(options: ViewerHubOptions): {
     const snap = controller.latestSnapshot();
     if (snap) send(ws, { type: 'snapshot', snapshot: snap });
     ws.on('message', (data) => {
-      let message: ViewerToServer;
-      try {
-        message = JSON.parse(String(data)) as ViewerToServer;
-      } catch {
+      const parsed = parseCommand(String(data));
+      if (!parsed.ok) {
+        send(ws, { type: 'error', message: parsed.reason });
         return;
       }
-      handle(ws, message).catch((error: unknown) =>
+      handle(ws, parsed.command).catch((error: unknown) =>
         send(ws, { type: 'error', message: error instanceof Error ? error.message : String(error) }),
       );
     });

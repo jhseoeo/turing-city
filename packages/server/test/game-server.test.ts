@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import type { ServerToViewer, ViewerToServer } from '@turing-city/core';
+import type { AlertKind, ServerToViewer, ViewerToServer } from '@turing-city/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import { loadConfig } from '../src/config.ts';
@@ -403,17 +403,141 @@ describe('game server', () => {
     await until(() => last(v.seen, 'status')?.status.agent.connected === true);
   });
 
-  it('ignores what a viewer sends that is not a command, and keeps serving', async () => {
+  it('answers what a viewer sends that is not a command with an error, and nothing else happens', async () => {
     const { server } = await start();
     const v = await viewer(server.port);
-    await until(() => last(v.seen, 'status') !== undefined);
-    // Text that is not JSON, JSON that is not an object, objects that name no command, and bytes.
-    for (const text of ['', 'not json', '{"type":', 'null', '[]', '"play"', '7', '{}', '{"type":"nope"}', '{"__proto__":{"type":"play"}}'])
-      v.ws.send(text);
+    const other = await viewer(server.port);
+    await until(() => last(v.seen, 'status') !== undefined && last(other.seen, 'status') !== undefined);
+    const before = last(v.seen, 'status')!.status;
+    // Every command with a field it does not have (a viewer cannot pick a season's seed, say), the commands the game
+    // understands being these eight.
+    const commands = [
+      { type: 'startSeason' },
+      { type: 'play' },
+      { type: 'pause' },
+      { type: 'speed', speed: 2 },
+      { type: 'rebuild', board: 'DA' },
+      { type: 'autoPause', kinds: [] },
+      { type: 'reissueToken' },
+      { type: 'inspect', board: 'DA' },
+    ];
+    // Text that is not JSON, JSON that is not an object, objects that name no command, a field no command has, a field
+    // that is missing, values the game cannot take, and bytes.
+    const notCommands = [
+      '',
+      'not json',
+      '{"type":',
+      'null',
+      '[]',
+      '"play"',
+      '7',
+      '{}',
+      '{"type":"nope"}',
+      '{"type":null}',
+      '{"__proto__":{"type":"play"}}',
+      ...commands.map((command) => JSON.stringify({ ...command, seed: 1 })),
+      `{"type":"play","${'k'.repeat(300)}":1}`, // the answer names the key, so it is cut short
+      '{"type":"speed"}',
+      '{"type":"rebuild"}',
+      '{"type":"rebuild","board":""}',
+      '{"type":"rebuild","board":7}',
+      `{"type":"inspect","board":"${'X'.repeat(100)}"}`,
+      '{"type":"autoPause"}',
+    ];
+    for (const text of notCommands) v.ws.send(text);
     v.ws.send(Buffer.from([0xff, 0x00, 0x01]));
-    // The same connection still gets its commands answered.
-    v.send({ type: 'inspect', board: 'DA' });
-    await until(() => v.seen.some((m) => m.type === 'error' && m.message.includes("hasn't started")));
+    const errors = (): string[] => v.seen.flatMap((m) => (m.type === 'error' ? [m.message] : []));
+    await until(() => errors().length === notCommands.length + 1);
+    // Each is refused by the hub itself, not by the controller (which would also answer a play with no agent, or a rebuild
+    // with no season, with an error), with something to read, and short, whatever the message was.
+    expect(errors().every((message) => message.startsWith('bad command: ') && message.length <= 200)).toBe(true);
+    // None of them reached the controller, and the same connection still takes a command.
+    v.send({ type: 'speed', speed: 2 });
+    await until(() => last(v.seen, 'status')?.status.speed === 2);
+    expect(last(v.seen, 'status')!.status).toEqual({ ...before, speed: 2 });
+    expect(errors()).toHaveLength(notCommands.length + 1);
+    // The answers went to the viewer that sent the messages: the other one has heard the new speed, and nothing else.
+    await until(() => last(other.seen, 'status')?.status.speed === 2);
+    expect(other.seen.filter((m) => m.type === 'error')).toEqual([]);
+  });
+
+  it('refuses a speed or an auto-pause setting the controller cannot take, and the season goes on', async () => {
+    const { server, configDir } = await start({ dev: true });
+    const v = await viewer(server.port);
+    const agent = await connectAgent(server, configDir);
+    await until(() => last(v.seen, 'status')?.status.agent.connected === true);
+    await agent.callTool({ name: 'dev_new_season', arguments: { seed: 1 } });
+    await until(() => last(v.seen, 'status')?.status.state === 'paused');
+    // The nine alert kinds there are: all of them, and no more, are a valid setting.
+    const everyKind: AlertKind[] = [
+      'raid',
+      'ludditesNear',
+      'boardDestroyed',
+      'fire',
+      'overheat',
+      'powerShortage',
+      'firmwareError',
+      'moneyBelowZero',
+      'seasonEnd',
+    ];
+    v.send({ type: 'autoPause', kinds: everyKind });
+    await until(() => last(v.seen, 'status')?.status.autoPause.length === 9);
+    expect(last(v.seen, 'status')!.status.autoPause).toEqual(everyKind);
+    v.send({ type: 'speed', speed: 3 });
+    v.send({ type: 'autoPause', kinds: ['fire'] });
+    await until(() => last(v.seen, 'status')?.status.speed === 3 && last(v.seen, 'status')?.status.autoPause.join() === 'fire');
+    v.send({ type: 'play' });
+    await until(() => last(v.seen, 'status')?.status.state === 'running');
+
+    const settings = [
+      '{"type":"speed","speed":"x"}', // the clock's arithmetic turns NaN and every batch has no steps: the season freezes
+      '{"type":"speed","speed":1e999}', // Infinity: every beat runs a full batch
+      '{"type":"speed","speed":0}',
+      '{"type":"speed","speed":4}',
+      '{"type":"speed","speed":-1}',
+      '{"type":"speed","speed":2.5}',
+      '{"type":"speed","speed":"2"}',
+      '{"type":"speed","speed":null}',
+      '{"type":"autoPause","kinds":"fire"}', // a string would be spread into its letters
+      '{"type":"autoPause","kinds":null}',
+      '{"type":"autoPause","kinds":5}',
+      '{"type":"autoPause","kinds":[1]}',
+      '{"type":"autoPause","kinds":["nope"]}',
+      `{"type":"autoPause","kinds":[${'"fire",'.repeat(9)}"fire"]}`, // ten entries, one more than there are kinds
+    ];
+    const errors = (): number => v.seen.filter((m) => m.type === 'error').length;
+    const answered = errors();
+    for (const text of settings) v.ws.send(text);
+    await until(() => errors() === answered + settings.length);
+    // None took effect: the season runs at the speed and with the auto-pause it had, the agent sees the same, and it advances.
+    expect(last(v.seen, 'status')!.status).toMatchObject({ state: 'running', speed: 3, autoPause: ['fire'] });
+    const status = JSON.parse(textOf(await agent.callTool({ name: 'get_status', arguments: {} }))) as { run: unknown };
+    expect(status.run).toEqual({ paused: false, speed: 3 });
+    const at = last(v.seen, 'snapshot')!.snapshot.step;
+    await until(() => last(v.seen, 'snapshot')!.snapshot.step >= at + 30);
+  });
+
+  it('closes the connection of a viewer that sends more than a command can be, and the others go on', async () => {
+    const { server } = await start();
+    const other = await viewer(server.port);
+    await until(() => last(other.seen, 'status') !== undefined);
+    // Under the limit a message is read and answered, however useless it is.
+    const reader = await viewer(server.port);
+    reader.ws.send('x'.repeat(60 * 1024));
+    await until(() => reader.seen.some((m) => m.type === 'error'));
+    // Over it the connection is closed (1009, message too big): a little over, and a flood of auto-pause kinds.
+    const tooBig = ['x'.repeat(66 * 1024), JSON.stringify({ type: 'autoPause', kinds: Array.from({ length: 1_000_000 }, () => 'fire') })];
+    for (const text of tooBig) {
+      const v = await viewer(server.port);
+      const closed = new Promise<number>((resolve) => v.ws.once('close', resolve));
+      v.ws.send(text);
+      expect(await closed).toBe(1009);
+    }
+    // None of it reached the controller, so no viewer was told anything new.
+    expect(other.seen.filter((m) => m.type === 'status')).toHaveLength(1);
+    const late = await viewer(server.port);
+    await until(() => last(late.seen, 'status') !== undefined);
+    expect(last(late.seen, 'status')!.status.autoPause).toEqual(['raid', 'boardDestroyed', 'fire', 'firmwareError']);
   });
 
   it("streams the season to every viewer and carries the player's commands", async () => {

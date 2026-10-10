@@ -336,7 +336,7 @@ A hostile-firmware test suite (§11) exercises all three layers.
   - a bearer token must be present;
   - the `Origin` header is checked, and requests from browser origins are refused;
   - inputs are size-limited (firmware source to 64 KB).
-- **Nothing a client sends may crash the server**, on any of its routes (MCP, the viewer's WebSocket, the built viewer): any web page the player visits can make the browser send requests to 127.0.0.1. A malformed request gets an error response.
+- **Nothing a client sends may crash the server**, on any of its routes (MCP, the viewer's WebSocket, the built viewer): any web page the player visits can make the browser send requests to 127.0.0.1. A malformed request gets an error response. The viewer's socket accepts only the commands the viewer can send, with exact fields and values the game can take (a speed of 1, 2, or 3; auto-pause kinds from the alert kinds there are; a board id of bounded length), and answers anything else, non-JSON included, with an `error` message. A message over 64 KiB closes that viewer's connection.
 - **The token** is generated once and stored in the server's local config, which lives in the user's config directory outside the repository. The start screen can reissue it. This differs from the design doc's token-per-launch: with a new token on every launch, the player would re-add the server to their agent every time they open the game.
 - **Who is kept out, and who is trusted.** Web pages are kept out, DNS rebinding included:
   - `/mcp` needs the token and refuses any request that carries an `Origin`;

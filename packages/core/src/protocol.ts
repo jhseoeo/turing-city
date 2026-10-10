@@ -64,7 +64,10 @@ export type ServerToViewer =
   | { readonly type: 'inspection'; readonly board: string; readonly inspection: BoardInspection | null }
   | { readonly type: 'error'; readonly message: string };
 
-/** Viewer to server: the player's commands. */
+/**
+ * Viewer to server: the player's commands. The server's viewer hub accepts exactly these and refuses anything else, so a
+ * new command also goes into its schema (viewer-hub.ts).
+ */
 export type ViewerToServer =
   | { readonly type: 'startSeason' }
   | { readonly type: 'play' }
