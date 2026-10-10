@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { AGENT_INSTRUCTIONS, AGENT_TOOLS, ALERTS_SHOWN, type GameApi, type StatusWithRun, ToolError } from '../src/agent-tools.ts';
 import { LOG_LIMIT } from '../src/boards.ts';
 import type { AlertView } from '../src/queries.ts';
+import { ALERT_KINDS, type AlertKind, type BoardStatus, type FacilityCondition } from '../src/world.ts';
 
 // The session does not know the clock; the game API adds `run` from the server's controller.
 const STATUS: StatusWithRun = {
@@ -16,12 +17,14 @@ const STATUS: StatusWithRun = {
   run: { paused: true, speed: 2 },
 };
 
+const MANUAL = '# DA 보드 매뉴얼: 데이터센터\n\n...';
+
 function fakeApi(): GameApi & { deployed: Array<[string, string]> } {
   const deployed: Array<[string, string]> = [];
   return {
     deployed,
     listBoards: async () => [],
-    datasheet: async (board) => (board === 'DA' ? ({ board: 'DA' } as never) : null),
+    manual: async (board) => (board === 'DA' ? MANUAL : null),
     firmware: async () => null,
     deploy: async (board, code) => {
       deployed.push([board, code]);
@@ -45,7 +48,7 @@ function recordingApi(): { api: GameApi; calls: unknown[][] } {
     };
   const api: GameApi = {
     listBoards: method('listBoards'),
-    datasheet: method('datasheet'),
+    manual: method('manual'),
     firmware: method('firmware'),
     deploy: method('deploy'),
     logs: method('logs'),
@@ -61,6 +64,10 @@ function recordingApi(): { api: GameApi; calls: unknown[][] } {
 }
 
 const tool = (name: string) => AGENT_TOOLS.find((t) => t.name === name)!;
+/** What an argument says of itself to the agent: zod keeps a description in its global registry. */
+const describedAs = (name: string, argument: string): string | undefined =>
+  z.globalRegistry.get(tool(name).inputSchema[argument]!)?.description;
+const BOARD_TOOLS = ['get_datasheet', 'get_firmware', 'deploy_firmware', 'read_logs'];
 
 describe('agent tools', () => {
   it('are exactly the tools of spec 7.3, each described', () => {
@@ -78,6 +85,35 @@ describe('agent tools', () => {
     expect(AGENT_INSTRUCTIONS).toContain('get_datasheet');
   });
 
+  it("hands over a board's manual as the game gives it, and refuses an unknown board", async () => {
+    await expect(tool('get_datasheet').run(fakeApi(), { board: 'DA' })).resolves.toBe(MANUAL);
+    await expect(tool('get_datasheet').run(fakeApi(), { board: 'ZZ' })).rejects.toBeInstanceOf(ToolError);
+  });
+
+  it('says what the manual holds, in get_datasheet', () => {
+    const { description } = tool('get_datasheet');
+    expect(description).toContain("A board's manual, as markdown in Korean");
+    expect(description).toContain("with the town's own numbers");
+  });
+
+  it('says in each board tool that it reaches only a board with a comm module, and how to get one', () => {
+    for (const name of BOARD_TOOLS) {
+      expect(tool(name).description, name).toContain('It reaches only a board with a comm module (tier 2)');
+      expect(tool(name).description, name).toContain('ask the player to install one');
+    }
+    for (const name of ['list_boards', 'get_map', 'get_status', 'get_alerts']) {
+      expect(tool(name).description, name).not.toContain('It reaches only');
+    }
+  });
+
+  it('explains the tiers in list_boards', () => {
+    const { description } = tool('list_boards');
+    expect(description).toContain('0: no board, the player works it by hand');
+    expect(description).toContain('1: a board the player programs in the game');
+    expect(description).toContain('2: a board with a comm module, which you can program');
+    expect(description).toContain('ok, wrecked, or being repaired');
+  });
+
   it('deploys through the game API', async () => {
     const api = fakeApi();
     await expect(tool('deploy_firmware').run(api, { board: 'DA', code: 'function tick() end' })).resolves.toEqual({
@@ -90,21 +126,38 @@ describe('agent tools', () => {
 
   it('lets a ToolError carry the refusal that the viewer says in Korean', () => {
     expect(new ToolError('x').refusal).toBeUndefined();
-    expect(new ToolError('connect an agent first', { code: 'noAgent' }).refusal).toEqual({ code: 'noAgent' });
+    expect(new ToolError('x', { code: 'noComm', board: 'DA' }).refusal).toEqual({ code: 'noComm', board: 'DA' });
     expect(new ToolError('x', { code: 'noSeason' })).toBeInstanceOf(Error);
   });
 
-  it('turns an unknown board into a ToolError', async () => {
-    await expect(tool('get_datasheet').run(fakeApi(), { board: 'ZZ' })).rejects.toBeInstanceOf(ToolError);
+  it('tells the agent where it stands: the player runs the town and hands it boards with a comm module', () => {
+    expect(AGENT_INSTRUCTIONS).toContain('The player runs the town: they work its facilities by hand, buy and install boards');
+    expect(AGENT_INSTRUCTIONS).toContain('the ones with a comm module; for any other, ask the player to install one');
+    expect(AGENT_INSTRUCTIONS).toContain("get_datasheet gives a board's manual, in Korean");
+    expect(AGENT_INSTRUCTIONS).toContain('read get_firmware before you edit it');
   });
 
-  it('tells the agent what is true of efficient firmware and of a smashed board', () => {
+  it('tells the agent what is true of quiet firmware and of a wrecked facility', () => {
     // Quiet firmware draws fewer Luddites, but a datacenter earns by processing: efficiency raises no income.
     expect(AGENT_INSTRUCTIONS).toContain('quieter firmware draws fewer of them');
     expect(AGENT_INSTRUCTIONS).not.toMatch(/earns more|earn more/);
-    // Only the player rebuilds a smashed board, for money; the agent has to ask.
-    expect(AGENT_INSTRUCTIONS).toContain('a smashed board stays down until the player rebuilds it');
+    // Only the player repairs a wrecked facility and rebuilds its board, for money; the agent has to ask.
+    expect(AGENT_INSTRUCTIONS).toContain('Luddites and fire wreck a whole facility, board and all');
+    expect(AGENT_INSTRUCTIONS).toContain('Only the player can repair a facility and rebuild its board');
     expect(AGENT_INSTRUCTIONS).toContain('You cannot, so tell the player and ask');
+  });
+
+  it('tells the agent how the town earns, what leaks EMF, and where to start', () => {
+    expect(AGENT_INSTRUCTIONS).toContain(
+      'You help the player of turing-city, a game, by writing the Lua firmware of the boards in their small town',
+    );
+    expect(AGENT_INSTRUCTIONS).toContain('Start with list_boards');
+    expect(AGENT_INSTRUCTIONS).toContain('A board with a comm module is one they have handed to you');
+    expect(AGENT_INSTRUCTIONS).toContain('Every board runs tick(io, mem) on its own clock');
+    expect(AGENT_INSTRUCTIONS).toContain('Boards and busy datacenters leak EMF, and Luddites come for the loudest machines');
+    expect(AGENT_INSTRUCTIONS).toContain('a datacenter earns by processing, and housing pays tax when its residents are fed and powered');
+    expect(AGENT_INSTRUCTIONS).toContain('Deploy with deploy_firmware; read_logs and get_alerts tell you what happened');
+    expect(AGENT_INSTRUCTIONS).toContain('its io fields, its actions, its caps, and the rules, with the town');
   });
 
   it("says in deploy_firmware's description that a board that is asleep, smashed, being rebuilt, or without power installs later", () => {
@@ -133,7 +186,6 @@ describe('agent tools', () => {
       expect(parsed.success, JSON.stringify(source)).toBe(false);
       expect(parsed.error?.issues[0]?.message ?? '(no issue)').toMatch(/NUL byte/);
     }
-    // Only the NUL itself is refused: other control characters, non-ASCII text, and a backslash-zero escape inside a Lua string are fine.
     expect(schema.safeParse('-- 한글, é, 😀\t\r\n\u0001\u007f print("a\\0b")').success).toBe(true);
   });
 
@@ -141,7 +193,7 @@ describe('agent tools', () => {
     const { api, calls } = recordingApi();
     const cases: Array<[string, Record<string, unknown>, unknown[]]> = [
       ['list_boards', {}, ['listBoards']],
-      ['get_datasheet', { board: 'DB' }, ['datasheet', 'DB']],
+      ['get_datasheet', { board: 'DB' }, ['manual', 'DB']],
       ['get_firmware', { board: 'DB' }, ['firmware', 'DB']],
       ['deploy_firmware', { board: 'DB', code: 'x = 1' }, ['deploy', 'DB', 'x = 1']],
       ['read_logs', { board: 'DB', since: 3 }, ['logs', 'DB', 3]],
@@ -160,12 +212,22 @@ describe('agent tools', () => {
   });
 
   it('refuses an unknown board in every tool that reads one, naming it and pointing to list_boards', async () => {
-    const api: GameApi = { ...recordingApi().api, datasheet: async () => null, firmware: async () => null, logs: async () => null };
+    const api: GameApi = { ...recordingApi().api, manual: async () => null, firmware: async () => null, logs: async () => null };
     for (const name of ['get_datasheet', 'get_firmware', 'read_logs']) {
       const refused = tool(name).run(api, { board: 'ZZ' });
       await expect(refused, name).rejects.toBeInstanceOf(ToolError);
       await expect(refused, name).rejects.toThrow(/unknown board ZZ.*list_boards/);
     }
+  });
+
+  it('describes its arguments to the agent: the board ids, the time to read from, and the size of the source', () => {
+    for (const name of ['get_datasheet', 'get_firmware', 'deploy_firmware', 'read_logs']) {
+      expect(describedAs(name, 'board'), name).toBe('A board id, such as "DA". list_boards lists them.');
+    }
+    for (const name of ['read_logs', 'get_alerts']) {
+      expect(describedAs(name, 'since'), name).toBe('Only entries after this many game seconds into the season.');
+    }
+    expect(describedAs('deploy_firmware', 'code')).toBe('The Lua source, up to 64 KB.');
   });
 
   it('asks for a board id where a tool needs one, and takes the time to read from as an optional number', () => {
@@ -187,22 +249,102 @@ describe('agent tools', () => {
     expect(accepts('get_alerts', { since: '4' })).toBe(false);
   });
 
-  it("returns the season's state with how the player has set the clock, and says so", async () => {
+  it("returns the season's state with the food, the residents, and how the player has set the clock, and says so", async () => {
     await expect(tool('get_status').run(fakeApi(), {})).resolves.toEqual(STATUS);
     const { description } = tool('get_status');
+    expect(description).toContain('the food in the warehouse and in the housing');
+    expect(description).toContain('the residents who are fed, hungry, or without power');
     expect(description).toContain('run.paused');
     expect(description).toContain('run.speed');
     expect(description).toContain("the player's to set, not yours");
   });
 
-  it('puts no tuning number in a description: the datasheet carries them, from the scenario', () => {
-    // The numbers are the length of a board's log, which is the board's own limit, and how many alerts get_alerts shows.
-    for (const t of AGENT_TOOLS) {
-      const named = t.name === 'read_logs' ? [String(LOG_LIMIT)] : t.name === 'get_alerts' ? [String(ALERTS_SHOWN)] : [];
-      expect(t.description.match(/\d+/g) ?? [], t.name).toEqual(named);
+  it('names every kind of alert the game raises, in get_alerts', () => {
+    // The server's controller raises agentLost for the viewer alone: it is never in the log that get_alerts reads.
+    const named: Record<Exclude<AlertKind, 'agentLost'>, string> = {
+      raid: 'raids',
+      ludditesNear: 'Luddites approaching',
+      wrecked: 'wrecked facilities',
+      fire: 'fires',
+      overheat: 'overheating',
+      powerShortage: 'power shortages',
+      hunger: 'hunger',
+      firmwareError: 'firmware errors',
+      moneyBelowZero: 'money below zero',
+      seasonEnd: "the season's end",
+    };
+    const { description } = tool('get_alerts');
+    for (const kind of ALERT_KINDS) {
+      if (kind !== 'agentLost') expect(description, kind).toContain(named[kind]);
     }
+  });
+
+  it('names the states of a facility and of its board that list_boards reports', () => {
+    const boards: Record<BoardStatus, string> = { running: 'running', asleep: 'asleep', destroyed: 'destroyed', rebuilding: 'rebuilding' };
+    const facilities: Record<FacilityCondition, string> = { ok: 'ok', wrecked: 'wrecked', repairing: 'being repaired' };
+    const { description } = tool('list_boards');
+    for (const phrase of [...Object.values(boards), ...Object.values(facilities)]) expect(description, phrase).toContain(phrase);
+  });
+
+  it('says what each tool returns or does, clause by clause', () => {
+    const says: Record<string, string[]> = {
+      list_boards: [
+        'Every facility of the town that can take a board',
+        'its kind, its position, and its tier',
+        "its board's state",
+        'power, firmware version, and latest error',
+      ],
+      get_datasheet: [
+        'what the board is for, its parts, every io field it reads and every action it can take',
+        "its facility's rules, and the rules every board runs under",
+        'Everything needed to write its firmware',
+      ],
+      get_firmware: [
+        'The Lua source deployed on a board',
+        'the one waiting to install at its next tick',
+        "The player can change a board's firmware too, so read it before you edit it",
+      ],
+      deploy_firmware: [
+        'It must define function tick(io, mem)',
+        "A syntax error is refused with Lua's message and the old firmware keeps running",
+        'keeping mem',
+        'the answer says when the code installs',
+      ],
+      read_logs: [
+        'what its firmware logged',
+        'its errors (runtime, CPU limit, out of RAM)',
+        'system events such as deploys, power loss, sleep, and destruction',
+      ],
+      get_map: [
+        'each facility, its kind, its position on the grid, its tier, whether it stands and has power, and its distance to the power plant',
+        'EMF and Luddites are not on it',
+      ],
+      get_status: ['day and time, money, power generation and demand, which facilities are shed', 'whether the season has ended'],
+      get_alerts: [
+        'oldest first, and how many older ones the log holds',
+        'every alert after that time',
+        'The game does not push alerts to you; poll this',
+      ],
+    };
+    expect(Object.keys(says).sort()).toEqual(AGENT_TOOLS.map((t) => t.name).sort());
+    for (const [name, phrases] of Object.entries(says)) {
+      for (const phrase of phrases) expect(tool(name).description, `${name}: ${phrase}`).toContain(phrase);
+    }
+  });
+
+  it('puts no tuning number in a description: the manual carries them, from the scenario', () => {
+    // The numbers are the tiers, the length of a board's log, which is the board's own limit, and how many alerts get_alerts shows.
+    const named: Record<string, string[]> = {
+      list_boards: ['0', '1', '2'],
+      get_datasheet: ['2'],
+      get_firmware: ['2'],
+      deploy_firmware: ['2'],
+      read_logs: [String(LOG_LIMIT), '2'],
+      get_alerts: [String(ALERTS_SHOWN)],
+    };
+    for (const t of AGENT_TOOLS) expect(t.description.match(/\d+/g) ?? [], t.name).toEqual(named[t.name] ?? []);
     expect(AGENT_INSTRUCTIONS).not.toMatch(/\d/);
-    expect(tool('get_map').description).toContain('datasheet');
+    expect(tool('get_map').description).toContain('the manual gives the rate');
   });
 
   describe('get_alerts', () => {

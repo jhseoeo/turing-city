@@ -114,8 +114,8 @@ describe('GameController', () => {
     await expect(c.listBoards()).rejects.toThrow('season');
     await c.startSeason(1);
     expect((await c.listBoards()).map((b) => b.id)).toEqual(['P', 'DA', 'DB']);
-    expect((await c.datasheet('DA'))?.parts.clockHz).toBe(5);
-    expect(await c.datasheet('ZZ')).toBeNull();
+    expect(await c.manual('DA')).toContain('| 클럭 | 5 Hz: 1초에 5번 틱 |');
+    expect(await c.manual('ZZ')).toBeNull();
     expect((await c.statusOf()).money).toBe(5000);
   });
 
@@ -712,7 +712,7 @@ describe('GameController: requests', () => {
     await expect(c.runUntil({ seconds: 600 })).rejects.toThrow('stopped');
     const calls = [
       () => c.listBoards(),
-      () => c.datasheet('DA'),
+      () => c.manual('DA'),
       () => c.firmware('DA'),
       () => c.logs('DA', undefined),
       () => c.map(),
@@ -789,11 +789,11 @@ describe('GameController: requests', () => {
     const c = make();
     c.setAgent(AGENT);
     await c.startSeason(1);
-    const [boards, map, status, sheet] = await Promise.all([c.listBoards(), c.map(), c.statusOf(), c.datasheet('DB')]);
+    const [boards, map, status, manual] = await Promise.all([c.listBoards(), c.map(), c.statusOf(), c.manual('DB')]);
     expect(boards).toHaveLength(3);
     expect(map.width).toBe(20);
     expect(status.time.seconds).toBe(0);
-    expect(sheet?.parts.clockHz).toBe(5);
+    expect(manual).toContain('# DB 보드 매뉴얼');
   });
 
   it('answers each read of the agent tools and of the viewer from the season', async () => {
@@ -806,6 +806,9 @@ describe('GameController: requests', () => {
     const api = gameApi(c);
     expect(await api.firmware('DA')).toEqual({ version: 1, source: FAILING, pending: null });
     expect(await api.firmware('ZZ')).toBeNull();
+    expect(await api.manual('DA')).toContain('# DA 보드 매뉴얼: 데이터센터');
+    expect(await api.manual('DB')).toContain('# DB 보드 매뉴얼: 데이터센터');
+    expect(await api.manual('ZZ')).toBeNull();
     expect((await api.logs('DA', undefined))?.map((l) => l.kind)).toEqual(['system', 'error']);
     expect((await api.logs('DA', 1))?.map((l) => l.kind)).toEqual(['error']);
     expect(await api.logs('DA', 1000)).toEqual([]);

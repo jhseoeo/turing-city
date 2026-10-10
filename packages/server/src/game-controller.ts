@@ -9,7 +9,6 @@ import {
   type CommandResult,
   type ControllerEvent,
   type ControllerStatus,
-  type Datasheet,
   type DeployOutcome,
   type FirmwareView,
   type GameApi,
@@ -247,8 +246,9 @@ export class GameController {
   listBoards(): Promise<BoardSummary[]> {
     return this.query({ kind: 'listBoards' }) as Promise<BoardSummary[]>;
   }
-  datasheet(board: string): Promise<Datasheet | null> {
-    return this.query({ kind: 'datasheet', board }) as Promise<Datasheet | null>;
+  /** A board's manual, as markdown; null for an id that names no board slot. */
+  manual(board: string): Promise<string | null> {
+    return this.query({ kind: 'manual', board }) as Promise<string | null>;
   }
   firmware(board: string): Promise<FirmwareView | null> {
     return this.query({ kind: 'firmware', board }) as Promise<FirmwareView | null>;
@@ -457,7 +457,7 @@ export class GameController {
 export function gameApi(c: GameController): GameApi {
   return {
     listBoards: () => c.listBoards(),
-    datasheet: (board) => c.datasheet(board),
+    manual: (board) => c.manual(board),
     firmware: (board) => c.firmware(board),
     deploy: (board, code) => c.deploy(board, code),
     logs: (board, since) => c.logs(board, since),

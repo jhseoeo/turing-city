@@ -6,7 +6,7 @@ import type { AlertKind } from './world.ts';
 /** A read the main thread asks the worker for. */
 export type Query =
   | { readonly kind: 'listBoards' }
-  | { readonly kind: 'datasheet'; readonly board: string }
+  | { readonly kind: 'manual'; readonly board: string }
   | { readonly kind: 'firmware'; readonly board: string }
   | { readonly kind: 'logs'; readonly board: string; readonly since: number | null }
   | { readonly kind: 'map' }
