@@ -842,14 +842,87 @@ describe('BoardVm', () => {
     it('writes the readings again every tick, whatever the firmware did to them, and clears what a shorter list no longer holds', () => {
       const v = warehouse();
       const tamper = `function tick(io, mem)
-        if mem.seen then io.log(#io.farms, io.farms[1].outbox, type(io.trucks), io.farms[3] == nil) return end
+        if mem.seen then io.log(#io.farms, io.farms[1].outbox, type(io.trucks), io.farms[2] == nil) return end
         mem.seen = true
-        io.farms[1].outbox = 99 io.farms[3] = { id = "ZZ" } io.trucks = nil
+        io.farms[1].outbox = 99 io.farms[2] = nil io.trucks = nil
       end`;
       expect(v.tick(WAREHOUSE, tamper).error).toBeNull();
-      expect(v.tick(WAREHOUSE, null).logs).toEqual(['2\t11\ttable\ttrue']);
+      // The host writes every reading again: the field that changed, the item that went, and the list that was replaced.
+      expect(v.tick(WAREHOUSE, null).logs).toEqual(['2\t11\ttable\tfalse']);
       // A list that comes shorter loses its last items.
       expect(v.tick({ ...WAREHOUSE, farms: [WAREHOUSE.farms[0]!] }, null).logs).toEqual(['1\t11\ttable\ttrue']);
+      v.close();
+    });
+
+    it('clears the items that a shorter list no longer holds also where the firmware has made holes that # stops short of', () => {
+      const v = warehouse();
+      // Five items, of which the firmware takes the 2nd, 4th, and 5th. What is left has a border at 1 as well as at 3, and # may say 1,
+      // with the host's 3rd item above it.
+      const punch = `function tick(io, mem)
+        if mem.done then io.log(#io.rows, io.rows[1], io.rows[2], io.rows[3], io.rows[4], io.rows[5]) return end
+        mem.done = true
+        io.rows[2] = nil io.rows[4] = nil io.rows[5] = nil
+      end`;
+      expect(v.tick({ rows: [10, 20, 30, 40, 50] }, punch).error).toBeNull();
+      // The list comes shorter. The host remembers how many items it wrote, and clears all that it wrote past the new end.
+      expect(v.tick({ rows: [10] }, null).logs).toEqual(['1\t10\tnil\tnil\tnil\tnil']);
+      v.close();
+    });
+
+    it('leaves a key that the firmware added itself where it is until the next deploy, next to the items or far from them', () => {
+      const v = warehouse();
+      const plant = `function tick(io, mem)
+        if mem.planted then io.log(io.farms[3] and io.farms[3].id, io.farms[1000], io.farms[1].id, io.farms[1].mine, type(io.farms[2])) return end
+        mem.planted = true
+        io.farms[3] = { id = "ZZ" } io.farms[1000] = 1 io.farms[1].mine = "here"
+      end`;
+      expect(v.tick(WAREHOUSE, plant).error).toBeNull();
+      expect(v.tick(WAREHOUSE, null).logs).toEqual(['ZZ\t1\tF1\there\ttable']);
+      // The list comes shorter: the host clears the item it wrote, and nothing it did not write.
+      expect(v.tick({ ...WAREHOUSE, farms: [WAREHOUSE.farms[0]!] }, null).logs).toEqual(['ZZ\t1\tF1\there\tnil']);
+      // A new firmware gets tables of its own, and none of this reaches it.
+      expect(v.tick(WAREHOUSE, `function tick(io) io.log(io.farms[3], io.farms[1000], io.farms[1].mine) end`).logs).toEqual([
+        'nil\tnil\tnil',
+      ]);
+      v.close();
+    });
+
+    it('counts the items it wrote anew with every frame, so that a key planted in the room of a cleared item stays', () => {
+      const v = warehouse();
+      const firmware = `function tick(io, mem)
+        mem.n = (mem.n or 0) + 1
+        if mem.n == 2 then io.rows[3] = "mine" end
+        io.log(mem.n, io.rows[2], io.rows[3], io.rows[5])
+      end`;
+      expect(v.tick({ rows: [10, 20, 30, 40, 50] }, firmware).logs).toEqual(['1\t20\t30\t50']);
+      // The list comes shorter and the host clears the items it wrote, the 3rd too. Then the firmware plants a key in the room of that one.
+      expect(v.tick({ rows: [10] }, null).logs).toEqual(['2\tnil\tmine\tnil']);
+      // The list stays as short as it is: the host wrote nothing past its end, so it clears nothing there.
+      expect(v.tick({ rows: [10] }, null).logs).toEqual(['3\tnil\tmine\tnil']);
+      v.close();
+    });
+
+    it('remembers the length of each list on its own, so that a list that comes shorter clears its items whatever the others hold', () => {
+      const v = warehouse();
+      const look = `function tick(io) io.log(#io.long, io.long[2], io.long[3], #io.short, io.short[1]) end`;
+      expect(v.tick({ long: [1, 2, 3], short: [9] }, look).logs).toEqual(['3\t2\t3\t1\t9']);
+      // The long list is written first and the short one last: the length of the last list written is not the long list's.
+      expect(v.tick({ long: [1], short: [9] }, null).logs).toEqual(['1\tnil\tnil\t1\t9']);
+      v.close();
+    });
+
+    it('clears the items that a shorter list no longer holds with raw access, so that a trap the firmware set does not run outside a tick', () => {
+      const v = warehouse();
+      // The firmware takes the host's 4th item and traps writes to the list. The next frame clears the 4th and the 3rd: a write that is
+      // not raw would run the trap at the absent 4th, before the firmware runs. The trap only marks that it ran.
+      const trap = `function tick(io, mem)
+        if mem.set then io.log(trapped) return end
+        mem.set = true
+        io.rows[4] = nil
+        setmetatable(io.rows, { __newindex = function() trapped = "ran outside a tick" end })
+      end`;
+      expect(v.tick({ rows: [10, 20, 30, 40] }, trap).error).toBeNull();
+      expect(v.tick({ rows: [10, 20] }, null).logs).toEqual(['nil']);
       v.close();
     });
 

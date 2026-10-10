@@ -67,6 +67,8 @@ export class BoardVm {
   private installError: string | null = null;
   /** The VM's own tables for the lists and records among the readings, by path, as registry references (see writeSensors). */
   private readonly tables = new Map<string, number>();
+  /** How many items the host wrote into each list among the readings the last time, by path: what a shorter list must clear. */
+  private readonly listLengths = new Map<string, number>();
 
   private readonly lua: LuaWasm;
   private readonly options: BoardVmOptions;
@@ -233,9 +235,12 @@ export class BoardVm {
 
   /**
    * Writes a frame of readings into io, with raw access only, so that no firmware metamethod runs outside a tick. A list or a
-   * record goes into a table the VM keeps for its path (`farms`, `farms/1`, ...) and fills again every tick. After the first
-   * frame, writing the readings allocates nothing, so a tick leaves no garbage for the RAM reading to count: the host writes
-   * outside the RAM cap. A list that comes shorter loses its last items. A deploy drops the tables, so each firmware gets its own.
+   * record goes into a table the VM keeps for its path (`farms`, `farms/1`, ...). Every reading the host writes is written again
+   * every tick, whatever the firmware did to it; a key the firmware adds itself stays until the next deploy, which drops the tables
+   * so that each firmware gets its own. After the first frame, writing the readings allocates nothing, so a tick leaves no garbage
+   * for the RAM reading to count: the host writes outside the RAM cap. A list that comes shorter loses the items the host wrote
+   * past its new end, found by the length the host remembers for its path: `#` is any border of a table the firmware has put
+   * holes in, and can stop short of an item the host wrote.
    */
   private writeSensors(sensors: Readonly<Record<string, SensorValue>>): void {
     const { lua, L } = this;
@@ -263,10 +268,11 @@ export class BoardVm {
         this.pushValue(item, `${path}/${i + 1}`);
         lua.lua_rawseti(L, -2, BigInt(i + 1));
       });
-      for (let i = lua.lua_rawlen(L, -1); i > list.length; i--) {
+      for (let i = this.listLengths.get(path) ?? 0; i > list.length; i--) {
         lua.lua_pushnil(L);
         lua.lua_rawseti(L, -2, BigInt(i));
       }
+      this.listLengths.set(path, list.length);
     } else {
       const fields = Object.entries(value as { readonly [key: string]: SensorValue });
       this.pushTable(path, 0, fields.length);
@@ -291,10 +297,11 @@ export class BoardVm {
     this.tables.set(path, lua.luaL_ref(L, REGISTRY));
   }
 
-  /** Lets go of the tables of the firmware that goes: the next frame makes new ones. */
+  /** Lets go of the tables of the firmware that goes, and of what the host wrote in them: the next frame makes new ones. */
   private dropSensorTables(): void {
     for (const ref of this.tables.values()) this.lua.luaL_unref(this.L, REGISTRY, ref);
     this.tables.clear();
+    this.listLengths.clear();
   }
 
   /** Reads and empties one of the prelude's lists, with raw access only. */
