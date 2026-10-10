@@ -71,6 +71,7 @@ export function wreckFacility(ctx: SimContext, facility: FacilityState, step: nu
   const board = findBoard(ctx.world, facility.id);
   if (board) destroyBoard(ctx, board, step, cause);
   stopDatacenter(ctx, facility.id);
+  // A warehouse is left alone: its stock and its idle trucks stay, as a farm's outbox does, and trucks on the road finish their trips.
   ctx.world.stats.wrecks += 1;
   raiseAlert(ctx.world, step, 'wrecked', facility.id, `${facility.id} 시설이 부서졌어요 (${cause === 'fire' ? '화재' : '러다이트'})`);
 }

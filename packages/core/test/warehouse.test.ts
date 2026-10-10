@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { wreckFacility } from '../src/boards.ts';
 import type { FacilityAction } from '../src/firmware-host.ts';
 import { MICRO } from '../src/fixed.ts';
 import { stateHash } from '../src/hash.ts';
@@ -347,6 +348,25 @@ describe('the warehouse', () => {
     expect(wh.stockMilli).toBe(30_000);
     dispatch(s.ctx, 'W', d({ truck: 2 }), 241);
     expect(wh.trucks[1]!.status).toBe('idle');
+  });
+
+  it('keeps its stock and its idle trucks through a wreck and a repair, and the stock goes on spoiling', () => {
+    const s = town();
+    const wh = s.world.warehouses.W!;
+    const home = findFacility(s.world, 'W')!;
+    wh.stockMilli = 100_000;
+    const trucks = JSON.parse(JSON.stringify(wh.trucks));
+    const wrecked = s.world.step;
+    wreckFacility(s.ctx, home, wrecked, 'luddites');
+    expect(wh.stockMilli).toBe(100_000); // Luddites wreck machines, not food
+    expect(wh.trucks).toEqual(trucks);
+    expect(s.repair('W')).toEqual({ ok: true });
+    const ready = home.repairReadyAt!;
+    while (s.world.step <= ready) s.step();
+    expect(home.condition).toBe('ok');
+    expect(wh.trucks).toEqual(trucks);
+    // Only spoilage took from the stock, wrecked and under repair too: 2 milli-units a step while it holds 80 units or more.
+    expect(wh.stockMilli).toBe(100_000 - 2 * (s.world.step - wrecked));
   });
 
   it('replays a session of hand harvests and dispatches into the same state', () => {
