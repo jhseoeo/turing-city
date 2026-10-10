@@ -223,7 +223,7 @@ describe('game server', () => {
     const server = await startGameServer({ port: 0, configDir: mkdtempSync(join(tmpdir(), 'tc-server-')), viewerDist: null });
     stop = server.close;
     // A browser always sends an Origin, so a handshake without one is no web page: a client that does not set the header.
-    // (A program that sets it itself gets in; it runs as the player and could read the token file anyway, spec section 7.1.)
+    // (A process that sets it itself gets in, even one that cannot read config.json; the prototype accepts that, spec section 7.1.)
     await expect(viewer(server.port, null)).rejects.toThrow('403');
     const handshake = `GET /ws HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n`;
     expect(await raw(server.port, handshake)).toBe('HTTP/1.1 403 Forbidden');

@@ -11,8 +11,9 @@ export interface ViewerHubOptions {
   readonly reissueToken: () => void;
   /**
    * Origins allowed to open the viewer socket. A handshake with no Origin is refused too, because a browser always sends
-   * one. That keeps out web pages and clients that don't set the header. It does not keep out a program that sets the
-   * header itself: such a program runs as the player and could read the token file anyway (spec section 7.1).
+   * one. That keeps out web pages and clients that don't set the header. It does not keep out a process that sets the header
+   * itself: any process that can reach 127.0.0.1 gets the token from hello and the player's controls, even one that cannot
+   * read config.json. The prototype accepts that; a viewer secret passed out of band would close it (spec section 7.1).
    */
   readonly allowedOrigins: readonly string[];
 }
