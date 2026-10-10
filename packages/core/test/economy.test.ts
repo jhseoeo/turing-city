@@ -136,7 +136,7 @@ describe('economy', () => {
     s.deploy('DA', src);
     steps(s, 12); // n = 3
     const da = s.world.boards[1]!;
-    expect(s.rebuild('DA')).toEqual({ ok: false, reason: 'DA is not destroyed' });
+    expect(s.rebuild('DA')).toEqual({ ok: false, reason: 'DA is not destroyed', refusal: { code: 'notDestroyed', board: 'DA' } });
     da.status = 'destroyed';
     da.vmBooted = false;
     const before = s.world.money;
@@ -188,7 +188,7 @@ describe('economy', () => {
     const s = calm();
     s.world.boards[2]!.status = 'destroyed';
     s.world.money = 100 * MICRO;
-    expect(s.rebuild('DB')).toEqual({ ok: false, reason: 'not enough money' });
+    expect(s.rebuild('DB')).toEqual({ ok: false, reason: 'not enough money', refusal: { code: 'tooPoor' } });
   });
 
   it('goes bankrupt after 3 days below zero, and recovering resets the clock', () => {
@@ -379,11 +379,12 @@ describe('economy', () => {
     const s = calm();
     s.world.boards[1]!.status = 'rebuilding';
     s.world.boards[2]!.status = 'asleep';
-    for (const id of ['P', 'DA', 'DB']) expect(s.rebuild(id), id).toEqual({ ok: false, reason: `${id} is not destroyed` });
-    expect(s.rebuild('ZZ')).toEqual({ ok: false, reason: 'unknown board ZZ' });
+    for (const id of ['P', 'DA', 'DB'])
+      expect(s.rebuild(id), id).toEqual({ ok: false, reason: `${id} is not destroyed`, refusal: { code: 'notDestroyed', board: id } });
+    expect(s.rebuild('ZZ')).toEqual({ ok: false, reason: 'unknown board ZZ', refusal: { code: 'unknownBoard', board: 'ZZ' } });
     s.world.boards[0]!.status = 'destroyed';
     s.world.money = 100 * MICRO;
-    expect(s.rebuild('P')).toEqual({ ok: false, reason: 'not enough money' });
+    expect(s.rebuild('P')).toEqual({ ok: false, reason: 'not enough money', refusal: { code: 'tooPoor' } });
     expect(s.world.money).toBe(100 * MICRO);
     expect(s.world.ledger.rebuild).toBe(0);
     expect(s.world.boards[0]!.status).toBe('destroyed');
@@ -413,7 +414,7 @@ describe('economy', () => {
       end(s);
       expect(s.world.ended?.kind, kind).toBe(kind);
       const money = s.world.money;
-      expect(s.rebuild('DB'), kind).toEqual({ ok: false, reason: 'the season has ended' });
+      expect(s.rebuild('DB'), kind).toEqual({ ok: false, reason: 'the season has ended', refusal: { code: 'seasonEnded' } });
       expect(s.world.money, kind).toBe(money);
       expect(s.world.ledger.rebuild, kind).toBe(0);
       expect(s.world.boards[2]!.status, kind).toBe('destroyed');
@@ -427,7 +428,7 @@ describe('economy', () => {
     });
     s.world.boards[2]!.status = 'destroyed';
     s.world.money = 200 * MICRO - 1;
-    expect(s.rebuild('DB')).toEqual({ ok: false, reason: 'not enough money' });
+    expect(s.rebuild('DB')).toEqual({ ok: false, reason: 'not enough money', refusal: { code: 'tooPoor' } });
     s.world.money = 200 * MICRO;
     expect(s.rebuild('DB')).toEqual({ ok: true });
     expect(s.world.money).toBe(0);

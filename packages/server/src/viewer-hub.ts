@@ -1,6 +1,6 @@
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
-import { ALERT_KINDS, type ControllerEvent, type ServerToViewer, type ViewerToServer } from '@turing-city/core';
+import { ALERT_KINDS, type ControllerEvent, type ServerToViewer, ToolError, type ViewerToServer } from '@turing-city/core';
 import { type WebSocket, WebSocketServer } from 'ws';
 import { z } from 'zod';
 import type { GameController } from './game-controller.ts';
@@ -48,18 +48,26 @@ const viewerCommand: z.ZodType<ViewerToServer> = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('inspect'), board: boardId }),
 ]);
 
+const BAD_COMMAND = 'bad command: ';
+
 /** A viewer's message as a command, or why it is none (short, because it goes back to the viewer). */
 function parseCommand(text: string): { ok: true; command: ViewerToServer } | { ok: false; reason: string } {
   let json: unknown;
   try {
     json = JSON.parse(text);
   } catch {
-    return { ok: false, reason: 'bad command: not JSON' };
+    return { ok: false, reason: `${BAD_COMMAND}not JSON` };
   }
   const parsed = viewerCommand.safeParse(json);
   if (parsed.success) return { ok: true, command: parsed.data };
   const issues = parsed.error.issues.map((i) => (i.path.length > 0 ? `${i.path.map(String).join('.')}: ${i.message}` : i.message));
-  return { ok: false, reason: `bad command: ${issues.join('; ')}`.slice(0, 200) };
+  return { ok: false, reason: `${BAD_COMMAND}${issues.join('; ')}`.slice(0, 200) };
+}
+
+/** What the viewer is told when a command fails: the English message, and the code of the refusal when it is one the viewer knows. */
+function refused(error: unknown): ServerToViewer {
+  const message = error instanceof Error ? error.message : String(error);
+  return error instanceof ToolError && error.refusal ? { type: 'error', message, refusal: error.refusal } : { type: 'error', message };
 }
 
 export function createViewerHub(options: ViewerHubOptions): {
@@ -102,7 +110,7 @@ export function createViewerHub(options: ViewerHubOptions): {
         return;
       case 'rebuild': {
         const result = await controller.rebuild(message.board);
-        if (!result.ok) send(ws, { type: 'error', message: result.reason });
+        if (!result.ok) send(ws, { type: 'error', message: result.reason, refusal: result.refusal });
         return;
       }
       case 'autoPause':
@@ -127,12 +135,14 @@ export function createViewerHub(options: ViewerHubOptions): {
     ws.on('message', (data) => {
       const parsed = parseCommand(String(data));
       if (!parsed.ok) {
-        send(ws, { type: 'error', message: parsed.reason });
+        send(ws, {
+          type: 'error',
+          message: parsed.reason,
+          refusal: { code: 'badCommand', detail: parsed.reason.slice(BAD_COMMAND.length) },
+        });
         return;
       }
-      handle(ws, parsed.command).catch((error: unknown) =>
-        send(ws, { type: 'error', message: error instanceof Error ? error.message : String(error) }),
-      );
+      handle(ws, parsed.command).catch((error: unknown) => send(ws, refused(error)));
     });
     ws.on('close', () => clients.delete(ws));
     // After a protocol error, ws closes the connection itself; without a listener the error would crash the server.

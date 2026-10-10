@@ -1,5 +1,6 @@
 import type { DeployOutcome } from './agent-tools.ts';
 import type { AlertView, BoardInspection, Snapshot, TimeView } from './queries.ts';
+import type { Refusal } from './refusal.ts';
 import type { AlertKind } from './world.ts';
 
 /** A read the main thread asks the worker for. */
@@ -67,7 +68,8 @@ export type ServerToViewer =
   | { readonly type: 'alerts'; readonly alerts: readonly AlertView[] }
   | { readonly type: 'deploy'; readonly board: string; readonly version: number; readonly time: TimeView }
   | { readonly type: 'inspection'; readonly board: string; readonly inspection: BoardInspection | null }
-  | { readonly type: 'error'; readonly message: string };
+  /** The English message is for agents and logs; the viewer says the refusal in Korean from its code, when it has one. */
+  | { readonly type: 'error'; readonly message: string; readonly refusal?: Refusal };
 
 /**
  * Viewer to server: the player's commands. The server's viewer hub accepts exactly these and refuses anything else, so a

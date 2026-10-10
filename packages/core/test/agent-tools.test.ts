@@ -86,6 +86,12 @@ describe('agent tools', () => {
     expect(api.deployed).toEqual([['DA', 'function tick() end']]);
   });
 
+  it('lets a ToolError carry the refusal that the viewer says in Korean', () => {
+    expect(new ToolError('x').refusal).toBeUndefined();
+    expect(new ToolError('connect an agent first', { code: 'noAgent' }).refusal).toEqual({ code: 'noAgent' });
+    expect(new ToolError('x', { code: 'noSeason' })).toBeInstanceOf(Error);
+  });
+
   it('turns an unknown board into a ToolError', async () => {
     await expect(tool('get_datasheet').run(fakeApi(), { board: 'ZZ' })).rejects.toBeInstanceOf(ToolError);
   });

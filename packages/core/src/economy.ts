@@ -1,6 +1,7 @@
 import { clearFlag, raiseAlert, raiseOnce } from './alerts.ts';
 import { appendLog } from './boards.ts';
 import { MICRO, mulDiv } from './fixed.ts';
+import type { Refusal } from './refusal.ts';
 import { seasonSteps, stepsForSeconds, stepsPerDay } from './time.ts';
 import type { BoardState, EndKind, SimContext } from './world.ts';
 
@@ -45,12 +46,16 @@ export function checkEnd(ctx: SimContext, step: number): void {
   }
 }
 
+/** What a rebuild answers: it started, or why not, in words for agents and logs and as a code for the viewer to say in Korean. */
+export type RebuildResult = { ok: true } | { ok: false; reason: string; refusal: Refusal };
+
 /** The human's rebuild of a destroyed board: it pays now and comes back after the rebuild time. */
-export function startRebuild(ctx: SimContext, board: BoardState, step: number): { ok: true } | { ok: false; reason: string } {
+export function startRebuild(ctx: SimContext, board: BoardState, step: number): RebuildResult {
   const t = ctx.scenario.tuning.rebuild;
-  if (board.status !== 'destroyed') return { ok: false, reason: `${board.id} is not destroyed` };
+  if (board.status !== 'destroyed')
+    return { ok: false, reason: `${board.id} is not destroyed`, refusal: { code: 'notDestroyed', board: board.id } };
   const cost = t.cost * MICRO;
-  if (ctx.world.money < cost) return { ok: false, reason: 'not enough money' };
+  if (ctx.world.money < cost) return { ok: false, reason: 'not enough money', refusal: { code: 'tooPoor' } };
   ctx.world.money -= cost;
   ctx.world.ledger.rebuild += cost;
   board.status = 'rebuilding';

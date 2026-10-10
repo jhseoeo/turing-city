@@ -724,6 +724,43 @@ describe('GameController: requests', () => {
     await expect(fresh.deploy('DA', 'function tick() end')).rejects.toThrow("The season hasn't started: ask the player to press Start.");
   });
 
+  it('gives each refusal the code that the viewer says in Korean: no agent, no season, and a crashed season with its reason', async () => {
+    const c = make({ watchdogMs: 1 });
+    const refusalOf = (error: unknown) => (error instanceof ToolError ? error.refusal : 'not a ToolError');
+    // No agent: the player cannot start or play.
+    expect(refusalOf(await c.startSeason(1).catch((e: unknown) => e))).toEqual({ code: 'noAgent' });
+    expect(
+      refusalOf(
+        await Promise.resolve()
+          .then(() => c.play())
+          .catch((e: unknown) => e),
+      ),
+    ).toEqual({ code: 'noAgent' });
+    // An agent, but no season yet.
+    c.setAgent(AGENT);
+    expect(
+      refusalOf(
+        await Promise.resolve()
+          .then(() => c.play())
+          .catch((e: unknown) => e),
+      ),
+    ).toEqual({ code: 'noSeason' });
+    expect(refusalOf(await c.listBoards().catch((e: unknown) => e))).toEqual({ code: 'noSeason' });
+    expect(refusalOf(await c.rebuild('DA').catch((e: unknown) => e))).toEqual({ code: 'noSeason' });
+    // A crashed one.
+    await c.startSeason(1);
+    await expect(c.runUntil({ seconds: 600 })).rejects.toThrow('stopped');
+    const crashed = { code: 'crashed', reason: 'the simulator stopped responding; the session stopped' };
+    expect(refusalOf(await c.inspect('DA').catch((e: unknown) => e))).toEqual(crashed);
+    expect(
+      refusalOf(
+        await Promise.resolve()
+          .then(() => c.play())
+          .catch((e: unknown) => e),
+      ),
+    ).toEqual(crashed);
+  });
+
   it('refuses everything after the session failed, until the next season starts', async () => {
     const c = make({ watchdogMs: 1 });
     c.setAgent(AGENT);
@@ -854,14 +891,18 @@ describe('GameController: requests', () => {
     const c = make();
     c.setAgent(AGENT);
     await c.startSeason(1);
-    expect(await c.rebuild('DA')).toEqual({ ok: false, reason: 'DA is not destroyed' });
-    expect(await c.rebuild('ZZ')).toEqual({ ok: false, reason: 'unknown board ZZ' });
+    expect(await c.rebuild('DA')).toEqual({ ok: false, reason: 'DA is not destroyed', refusal: { code: 'notDestroyed', board: 'DA' } });
+    expect(await c.rebuild('ZZ')).toEqual({ ok: false, reason: 'unknown board ZZ', refusal: { code: 'unknownBoard', board: 'ZZ' } });
     await c.runUntil({ alertKinds: ['boardDestroyed'] }); // no firmware: the Luddites smash a board in the fifth game day
     const lost = (await c.alerts(undefined)).find((a) => a.kind === 'boardDestroyed')!.facility!;
     expect((await c.listBoards()).find((b) => b.id === lost)?.status).toBe('destroyed');
     expect(await c.rebuild(lost)).toEqual({ ok: true });
     expect((await c.listBoards()).find((b) => b.id === lost)?.status).toBe('rebuilding');
-    expect(await c.rebuild(lost)).toEqual({ ok: false, reason: `${lost} is not destroyed` });
+    expect(await c.rebuild(lost)).toEqual({
+      ok: false,
+      reason: `${lost} is not destroyed`,
+      refusal: { code: 'notDestroyed', board: lost },
+    });
   });
 
   it('runs for the game seconds it is given from where it is, and until an alert of a picked kind', async () => {

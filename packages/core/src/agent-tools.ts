@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { LOG_LIMIT } from './boards.ts';
 import type { Datasheet } from './datasheet.ts';
 import type { AlertView, BoardSummary, FirmwareView, LogView, MapView, StatusView } from './queries.ts';
+import type { Refusal } from './refusal.ts';
 
 export type DeployOutcome =
   | { readonly ok: true; readonly version: number; readonly installsAt: string }
@@ -48,8 +49,18 @@ export interface AlertsReply {
   readonly note?: string;
 }
 
-/** A tool call the game refuses (an unknown board, for instance); the server reports it as a tool error. */
-export class ToolError extends Error {}
+/**
+ * A tool call the game refuses (an unknown board, for instance); the server reports it as a tool error. A refusal the viewer can say
+ * in Korean carries its code (see refusal.ts).
+ */
+export class ToolError extends Error {
+  readonly refusal: Refusal | undefined;
+
+  constructor(message: string, refusal?: Refusal) {
+    super(message);
+    this.refusal = refusal;
+  }
+}
 
 export interface AgentTool {
   readonly name: string;

@@ -1,4 +1,5 @@
 import type { AlertView, BoardInspection, ControllerStatus, ServerToViewer, Snapshot, TimeView } from '@turing-city/core';
+import { refusalText } from './refusals.ts';
 
 export type FeedItem =
   | { readonly kind: 'alert'; readonly alert: AlertView }
@@ -51,7 +52,7 @@ export class Store {
         this.inspection = { board: message.board, inspection: message.inspection };
         break;
       case 'error':
-        this.showError(message.message);
+        this.showError(refusalText(message.message, message.refusal));
         break;
     }
     this.notify();

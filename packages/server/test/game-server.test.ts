@@ -167,6 +167,7 @@ describe('game server', () => {
     v.send({ type: 'startSeason' });
     await until(() => last(v.seen, 'error') !== undefined);
     expect(last(v.seen, 'error')!.message).toContain('connect an agent first');
+    expect(last(v.seen, 'error')!.refusal).toEqual({ code: 'noAgent' }); // with the code the viewer says in Korean
 
     const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${server.port}/mcp`), {
       requestInit: { headers: { Authorization: `Bearer ${loadConfig(configDir).token}` } },
@@ -508,6 +509,10 @@ describe('game server', () => {
     // Each is refused by the hub itself, not by the controller (which would also answer a play with no agent, or a rebuild
     // with no season, with an error), with something to read, and short, whatever the message was.
     expect(errors().every((message) => message.startsWith('bad command: ') && message.length <= 200)).toBe(true);
+    // Each carries its code, with what is wrong as the detail, for the viewer to say in Korean.
+    const badCommands = v.seen.flatMap((m) => (m.type === 'error' ? [m] : []));
+    for (const m of badCommands)
+      expect(m.refusal, m.message).toEqual({ code: 'badCommand', detail: m.message.slice('bad command: '.length) });
     // None of them reached the controller, and the same connection still takes a command.
     v.send({ type: 'speed', speed: 2 });
     await until(() => last(v.seen, 'status')?.status.speed === 2);
@@ -631,6 +636,7 @@ describe('game server', () => {
     // an answer to the other viewer's own question shows that nothing was sent to it before.
     v.send({ type: 'rebuild', board: 'DA' });
     await until(() => last(v.seen, 'error')?.message === 'DA is not destroyed');
+    expect(last(v.seen, 'error')!.refusal).toEqual({ code: 'notDestroyed', board: 'DA' });
     late.send({ type: 'inspect', board: 'DA' });
     await until(() => last(late.seen, 'inspection') !== undefined);
     expect(last(late.seen, 'error')).toBeUndefined();

@@ -350,10 +350,17 @@ try {
   await agent.disconnect();
   await shot('7-agent-lost');
 
-  // The server refuses to play without an agent. The game screen must tell the player so: it used to show a refusal on the start screen only.
+  // The server refuses to play without an agent. The game screen must tell the player so: it used to show a refusal on the start screen
+  // only. The server's own words are English (agents and logs read them); the player reads Korean.
   await page.keyboard.press('Space');
-  const refusal = await waitUntil(async () => (await textOf('#notice')).includes('connect an agent first'));
-  check('a command the server refuses is told on the game screen', refusal, `the notice says "${await textOf('#notice')}"`);
+  const refusal = await waitUntil(async () => (await textOf('#notice')).trim() !== '');
+  const said = await textOf('#notice');
+  check('a command the server refuses is told on the game screen', refusal, `the notice says "${said}"`);
+  check(
+    "the refusal is said in Korean, with none of the server's English words",
+    /[가-힣]/.test(said) && !/[A-Za-z]{3,}/.test(said) && said.includes('에이전트가 연결돼 있지 않아요'),
+    `the notice says "${said}"`,
+  );
   await shot('7-agent-lost-refused');
   check('and the notice goes away by itself', refusal && (await waitUntil(() => page.locator('#notice').isHidden(), 8000)));
 

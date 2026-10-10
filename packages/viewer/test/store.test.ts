@@ -15,12 +15,12 @@ describe('Store: a command the server refused', () => {
     store.subscribe(() => {
       draws += 1;
     });
-    store.apply({ type: 'error', message: 'DA is not destroyed' });
-    expect(store.error).toBe('DA is not destroyed');
+    store.apply({ type: 'error', message: 'DA is not destroyed', refusal: { code: 'notDestroyed', board: 'DA' } });
+    expect(store.error).toBe("'DA' 보드는 부서진 상태가 아니라서 재건할 수 없어요.");
     expect(draws).toBe(1);
 
     vi.advanceTimersByTime(ERROR_SHOWN_MS - 1);
-    expect(store.error).toBe('DA is not destroyed');
+    expect(store.error).toBe("'DA' 보드는 부서진 상태가 아니라서 재건할 수 없어요.");
     vi.advanceTimersByTime(1);
     expect(store.error).toBeNull();
     expect(draws).toBe(2); // the screen is told it is gone
@@ -32,14 +32,22 @@ describe('Store: a command the server refused', () => {
     vi.advanceTimersByTime(ERROR_SHOWN_MS - 1000);
     store.apply({ type: 'error', message: 'second' });
     vi.advanceTimersByTime(ERROR_SHOWN_MS - 1000); // the first one's time is up, the second one's is not
-    expect(store.error).toBe('second');
+    expect(store.error).toContain('second');
     vi.advanceTimersByTime(1000);
     expect(store.error).toBeNull();
   });
 
+  it("shows a refusal in Korean: by its code when it has one, and in a Korean sentence that carries the server's text when it has none", () => {
+    const store = new Store();
+    store.apply({ type: 'error', message: 'connect an agent first', refusal: { code: 'noAgent' } });
+    expect(store.error).toBe('에이전트가 연결돼 있지 않아요. 에이전트를 연결한 뒤에 다시 해보세요.');
+    store.apply({ type: 'error', message: 'a new season started' });
+    expect(store.error).toBe('서버가 명령을 받아들이지 않았어요: a new season started');
+  });
+
   it('goes away at once when a season is up and running, as before', () => {
     const store = new Store();
-    store.apply({ type: 'error', message: 'connect an agent first' });
+    store.apply({ type: 'error', message: 'connect an agent first', refusal: { code: 'noAgent' } });
     store.apply({
       type: 'status',
       status: {

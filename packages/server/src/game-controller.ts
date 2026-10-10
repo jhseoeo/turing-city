@@ -16,6 +16,7 @@ import {
   type LogView,
   type MapView,
   type Query,
+  type RebuildResult,
   type Scenario,
   type Snapshot,
   type StatusView,
@@ -48,6 +49,9 @@ const CATCH_UP_MS = 200;
  */
 const STALL_MS = 1000;
 const NO_SEASON = "The season hasn't started: ask the player to press Start.";
+
+/** The player cannot start or play without the agent that their game is for (spec 7.2). */
+const noAgent = (): ToolError => new ToolError('connect an agent first', { code: 'noAgent' });
 
 /**
  * When a deploy installs: at the board's next tick, which a board that sleeps, is smashed, or is being rebuilt reaches only later, and
@@ -142,7 +146,7 @@ export class GameController {
 
   /** A new season in a fresh worker (a fresh Lua runtime). It starts paused. */
   async startSeason(seed = Math.floor(Math.random() * 2 ** 31)): Promise<void> {
-    if (!this.agent.connected) throw new Error('connect an agent first');
+    if (!this.agent.connected) throw noAgent();
     this.stopClock();
     this.terminate('a new season started');
     // Until the new worker answers 'started', reads and deploys get "the season hasn't started".
@@ -175,7 +179,7 @@ export class GameController {
   }
 
   play(): void {
-    if (!this.agent.connected) throw new Error('connect an agent first');
+    if (!this.agent.connected) throw noAgent();
     if (this.state === 'idle' || this.state === 'crashed') throw this.noSeason(); // nothing to play, and the caller is to hear it
     if (this.state !== 'paused') return;
     this.state = 'running';
@@ -229,9 +233,9 @@ export class GameController {
     return { ok: true, version: result.version, installsAt: installsAt(result.boardStatus, result.powered) };
   }
 
-  async rebuild(board: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+  async rebuild(board: string): Promise<RebuildResult> {
     this.requireSeason();
-    return (await this.request({ type: 'rebuild', id: 0, board })) as { ok: true } | { ok: false; reason: string };
+    return (await this.request({ type: 'rebuild', id: 0, board })) as RebuildResult;
   }
 
   listBoards(): Promise<BoardSummary[]> {
@@ -401,7 +405,9 @@ export class GameController {
 
   /** Why there is no season to work on: none has started, or the one that did crashed, and the player can start another. */
   private noSeason(): ToolError {
-    return new ToolError(this.state === 'crashed' ? `The season crashed (${this.crash}). The player can start a new season.` : NO_SEASON);
+    if (this.state !== 'crashed') return new ToolError(NO_SEASON, { code: 'noSeason' });
+    const reason = this.crash ?? 'unknown';
+    return new ToolError(`The season crashed (${reason}). The player can start a new season.`, { code: 'crashed', reason });
   }
 
   private post(message: WorkerRequest): void {

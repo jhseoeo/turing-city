@@ -1,7 +1,7 @@
 import { applyActions } from './actions.ts';
 import { deployFirmware, runTransitions } from './boards.ts';
 import { runDatacenters, runFires } from './datacenter.ts';
-import { checkEnd, runEconomy, startRebuild } from './economy.ts';
+import { checkEnd, type RebuildResult, runEconomy, startRebuild } from './economy.ts';
 import { runEmf } from './emf.ts';
 import type { FirmwareHost } from './firmware-host.ts';
 import { runLuddites, runRumour } from './luddites.ts';
@@ -84,10 +84,10 @@ export class Session {
   }
 
   /** The human's rebuild of a destroyed board. Refused once the season has ended: money is the score, and a replay stops there. */
-  rebuild(boardId: string): { ok: true } | { ok: false; reason: string } {
-    if (this.world.ended) return { ok: false, reason: 'the season has ended' };
+  rebuild(boardId: string): RebuildResult {
+    if (this.world.ended) return { ok: false, reason: 'the season has ended', refusal: { code: 'seasonEnded' } };
     const board = findBoard(this.world, boardId);
-    if (!board) return { ok: false, reason: `unknown board ${boardId}` };
+    if (!board) return { ok: false, reason: `unknown board ${boardId}`, refusal: { code: 'unknownBoard', board: boardId } };
     const result = startRebuild(this.ctx, board, this.world.step);
     if (result.ok) this.record.inputs.push({ step: this.world.step, kind: 'rebuild', boardId });
     return result;
