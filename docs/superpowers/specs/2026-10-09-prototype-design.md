@@ -351,7 +351,10 @@ A hostile-firmware test suite (§11) exercises all three layers.
 - **"Start season" stays disabled until an agent is connected.**
 - **Connected** means an initialized MCP session whose server-to-client stream is open. Claude Code holds that stream open (code.claude.com/docs/en/mcp: it receives `list_changed` over a stream it keeps open, and reopens it). On top of the stream, the server sends MCP `ping` requests every 5 seconds.
 - **Disconnects:** when the stream closes, or 2 pings in a row go unanswered, the game pauses and play stays blocked until an agent connects again. The player can't turn this pause off. Claude Code retries a dropped server on its own (5 attempts with backoff); `/mcp` retries by hand.
-- **Unverified:** whether Claude Code answers server-sent pings isn't documented. Check it at milestone 1; if it doesn't answer, the open stream alone decides.
+- **Verified on 2026-10-10 with Claude Code 2.1.296** (`claude -p` against a scratch server): it opens the stream right after initializing, keeps it open for the whole session, and answers every ping at once.
+  - In two sessions, of 37 and 29 seconds, the game saw the agent connected from start to end, with no disconnect in between. The wire log of the second shows 5 pings, 5 seconds apart, each answered within 10 ms.
+  - A client that opens the stream and answers no ping is disconnected 12 seconds after the stream opens (two pings missed), so a Claude Code that answered none would have been cut off mid-session.
+  - Claude Code first POSTs a `server/discover` probe, which the server refuses with a 400 ("Server not initialized"), and then initializes as usual.
 
 ### 7.3 Tools
 
@@ -537,7 +540,6 @@ The game's values are starting values to tune. They live in the scenario file, s
 
 - **Rebuilding:** instant or delayed? Half a day is the placeholder (the user).
 - **Determinism beyond one machine:** wasmoon's has been verified only on one Mac. Check x64 and browsers before relying on replays across machines.
-- **Pings:** whether Claude Code answers server-sent pings is unverified (§7.2).
 - **Budget-mode counting** reads a memory offset tied to the pinned wasmoon build. Only a concern if we switch to it.
 - **The design doc's 코드 블럭 예시 table** (a distributor feeding ore to smelters) predates the food-only logistics decision. The prototype doesn't use it.
 - **The game around the prototype** waits for it to prove the loop: the copy-paste stage and the unlock progression, part assembly (B), free placement (C), the other facilities and events, and sprites.

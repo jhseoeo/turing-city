@@ -1,6 +1,6 @@
 # turing-city (working title)
 
-An automation and town-management game. The player builds small boards into the town's facilities, the player's own AI agent (Claude Code or any other) writes their Lua firmware through the game's local MCP server, and the electromagnetic noise the working machines leak draws Luddites who smash them. Planned stack: TypeScript, Phaser, and Electron for a desktop game; a web build is parked (see "Design"). Solo side project, developed on a Mac; the repository started 2026-10-09. No code yet: the first milestone is the prototype in `docs/design.md` (첫 프로토타입), which checks whether the loop of an agent writing and fixing firmware is fun.
+An automation and town-management game. The player builds small boards into the town's facilities, the player's own AI agent (Claude Code or any other) writes their Lua firmware through the game's local MCP server, and the electromagnetic noise the working machines leak draws Luddites who smash them. Planned stack: TypeScript, Phaser, and Electron for a desktop game; a web build is parked (see "Design"). Solo side project, developed on a Mac; the repository started 2026-10-09. The prototype in `docs/design.md` (첫 프로토타입) checks whether the loop of an agent writing and fixing firmware is fun. Milestone 1 is built: the power plant and two datacenters, with the player's agent writing their firmware over MCP and a browser viewer for the player (the user's playtest checklist is in `docs/playtests/`). The food chain (farms, the warehouse, trucks, housing) and the season wrap-up are milestone 2.
 
 Read `docs/design.md` first. It's the game design document, in Korean: the vision, the systems, the decision log (결정 기록), and a hand-off section for implementation (구현 핸드오프).
 
@@ -24,7 +24,7 @@ Read `docs/design.md` first. It's the game design document, in Korean: the visio
 ### Open questions
 
 - The design doc's 미결 사항 (open items), including whether a destroyed board should be rebuilt at once or after a delay.
-- From the prototype spec (§13): Lua determinism on x64 and in browsers, and whether Claude Code answers server-sent MCP pings. The Lua spike of 2026-10-09 settled instruction counting and determinism on one machine (spec §4.4 and §6.4 to §6.6).
+- From the prototype spec (§13): Lua determinism on x64 and in browsers. The Lua spike of 2026-10-09 settled instruction counting and determinism on one machine (spec §4.4 and §6.4 to §6.6). The other question, whether Claude Code answers server-sent MCP pings, is settled: it does (checked 2026-10-10 with Claude Code 2.1.296, spec §7.2).
 
 ## Agents
 
@@ -41,7 +41,7 @@ Four project agents live in `.claude/agents/` (set up 2026-10-09, adapted from t
 - Outside SDD, a review is one pass. Several reviewers over several rounds cost tokens for every agent and every round, while what they find shrinks fast after the first round.
 - Reviews gate one diff: `reviewer` and `qa-tester` judge one change before it merges, and the reviewer proposes no refactors. What builds up over many changes that each looked fine (repeated logic, growing files, ticks that slow down as boards multiply, slower checks) belongs to an `optimizer` agent, added when one of those shows up. As in roguelike-fps, it would never run on its own: the main session proposes a pass, it surveys, the user picks the items, and they go on a branch of their own.
 - `game-designer` can also be the main session, for talking with the user directly: `claude --agent game-designer`. As a subagent it can't ask the user anything, so its reports end with the questions only the user can answer.
-- The game is made to be played by agents, so it is also the agents' test bench: an implementer checks behavior by running the simulation headless, and `qa-tester` connects to the game's MCP server as a player's agent would. The commands get listed under "Code and checks" when the prototype's tooling exists.
+- The game is made to be played by agents, so it is also the agents' test bench. An implementer checks behavior by running seasons headless (`pnpm sim`) and the viewer headlessly (`pnpm shots`). `qa-tester` connects to the game's MCP server as a player's agent would: start `pnpm start:dev`, add the server to the QA session with the `claude mcp add` command it prints, then use the agent tools plus the dev tools (`dev_run_until` and the others, which exist only in dev mode). The commands are listed under "Code and checks".
 - Agent memory (`.claude/agent-memory/<agent>/`) stays on this machine; git ignores it.
 - Not yet: an `optimizer` (see above), a `playtest` skill (once the game writes a play log), and 2D art roles (in the art phase; roguelike-fps's 3D art agents don't carry over).
 
