@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { LOG_LIMIT } from './boards.ts';
+import { FIRMWARE_SOURCE } from './commands.ts';
 import type { AlertView, BoardSummary, FirmwareView, LogView, MapView, StatusView } from './queries.ts';
 import type { Refusal } from './refusal.ts';
 
@@ -71,16 +72,7 @@ export interface AgentTool {
 
 const board = z.string().describe('A board id, such as "DA". list_boards lists them.');
 const since = z.number().optional().describe('Only entries after this many game seconds into the season.');
-// A board's Lua state takes the source as a C string, which ends at the first NUL byte: the code after it would vanish
-// without an error, and a syntax error behind it would pass the check.
-const code = z
-  .string()
-  .max(65_536)
-  .refine(
-    (source) => !source.includes('\u0000'),
-    'the source contains a NUL byte (\\u0000); the board would cut the code off there, so remove it',
-  )
-  .describe('The Lua source, up to 64 KB.');
+const code = FIRMWARE_SOURCE.describe('The Lua source, up to 64 KB.');
 
 /** What a board tool says of whom it reaches: the worker refuses the agent every board without a comm module (spec §8). */
 const ONLY_COMM =

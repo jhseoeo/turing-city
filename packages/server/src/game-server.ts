@@ -59,6 +59,9 @@ export async function startGameServer(
         runUntil: (goal) => controller.runUntil(goal),
         newSeason: (seed) => controller.startSeason(seed),
         rebuild: (board) => controller.rebuild(board),
+        repair: (facility) => controller.repair(facility),
+        install: (facility, part) => controller.install(facility, part),
+        hand: (facility, action) => controller.hand(facility, action),
       }
     : undefined;
   const mcp = createMcpEndpoint({

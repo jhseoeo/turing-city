@@ -56,6 +56,9 @@ async function start(dev = false, token: () => string = () => TOKEN): Promise<Ri
     runUntil: async () => {},
     newSeason: async () => {},
     rebuild: async () => ({ ok: true }),
+    repair: async () => ({ ok: true }),
+    install: async () => ({ ok: true }),
+    hand: async () => ({ ok: true }),
   };
   const agent: AgentStatus[] = [];
   const endpoint = createMcpEndpoint({
@@ -141,7 +144,17 @@ describe('MCP endpoint', () => {
     const second = await connect(dev.url);
     const names = (await second.client.listTools()).tools.map((t) => t.name);
     expect(names).toEqual(
-      expect.arrayContaining(['dev_play', 'dev_pause', 'dev_set_speed', 'dev_run_until', 'dev_new_season', 'dev_rebuild']),
+      expect.arrayContaining([
+        'dev_play',
+        'dev_pause',
+        'dev_set_speed',
+        'dev_run_until',
+        'dev_new_season',
+        'dev_rebuild',
+        'dev_repair',
+        'dev_install',
+        'dev_hand',
+      ]),
     );
     await second.client.close();
   });
@@ -154,6 +167,16 @@ describe('MCP endpoint', () => {
     expect(r.api.deployed).toEqual([['DA', 'function tick() end']]);
     const status = await client.callTool({ name: 'get_status', arguments: {} });
     expect(JSON.parse((status.content as Array<{ text: string }>)[0]!.text).money).toBe(5000);
+    await client.close();
+  });
+
+  it("hands over a string result as the text itself, so that a board's manual reads as markdown, and anything else as JSON", async () => {
+    const r = await start();
+    const manual = '# DA · 데이터센터\n\n- `io.process()`\n';
+    r.api.manual = async () => manual;
+    const { client } = await connect(r.url);
+    expect(textOf(await client.callTool({ name: 'get_datasheet', arguments: { board: 'DA' } }))).toBe(manual);
+    expect(JSON.parse(textOf(await client.callTool({ name: 'get_status', arguments: {} }))).money).toBe(5000);
     await client.close();
   });
 
@@ -269,7 +292,17 @@ describe('a failure inside the game', () => {
       status: rejects,
       alerts: rejects,
     });
-    Object.assign(r.dev, { play: throws, pause: throws, setSpeed: throws, runUntil: rejects, newSeason: rejects, rebuild: rejects });
+    Object.assign(r.dev, {
+      play: throws,
+      pause: throws,
+      setSpeed: throws,
+      runUntil: rejects,
+      newSeason: rejects,
+      rebuild: rejects,
+      repair: rejects,
+      install: rejects,
+      hand: rejects,
+    });
     const { client } = await connect(r.url);
     // valid arguments for every tool, so that nothing but the failure can make a call fail
     const calls: Record<string, Record<string, unknown>> = {
@@ -287,6 +320,9 @@ describe('a failure inside the game', () => {
       dev_run_until: { seconds: 5 },
       dev_new_season: { seed: 1 },
       dev_rebuild: { board: 'DA' },
+      dev_repair: { facility: 'DA' },
+      dev_install: { facility: 'F1', part: 'board' },
+      dev_hand: { facility: 'DA', action: { kind: 'process' } },
     };
     expect(Object.keys(calls).sort()).toEqual((await client.listTools()).tools.map((t) => t.name).sort());
     const answers: Record<string, { isError: unknown; text: string }> = {};
@@ -310,6 +346,7 @@ describe('what the agent is given beyond the eight tools', () => {
   it('hands each dev tool its arguments, and returns what the game answers', async () => {
     const r = await start(true);
     const calls: unknown[][] = [];
+    const done = { ok: true };
     Object.assign(r.dev, {
       play: () => void calls.push(['play']),
       pause: () => void calls.push(['pause']),
@@ -318,13 +355,24 @@ describe('what the agent is given beyond the eight tools', () => {
       newSeason: async (seed: number) => void calls.push(['newSeason', seed]),
       rebuild: async (board: string) => {
         calls.push(['rebuild', board]);
-        return { ok: false, reason: 'DB is not destroyed' };
+        return { ok: false, reason: 'DB is not destroyed', refusal: { code: 'notDestroyed', board: 'DB' } };
+      },
+      repair: async (facility: string) => {
+        calls.push(['repair', facility]);
+        return done;
+      },
+      install: async (facility: string, part: string) => {
+        calls.push(['install', facility, part]);
+        return done;
+      },
+      hand: async (facility: string, action: unknown) => {
+        calls.push(['hand', facility, action]);
+        return done;
       },
     });
     const { client } = await connect(r.url);
     const answer = async (name: string, args: Record<string, unknown>): Promise<unknown> =>
       JSON.parse(textOf(await client.callTool({ name, arguments: args })));
-    const done = { ok: true };
     expect(await answer('dev_play', {})).toEqual(done);
     expect(await answer('dev_pause', {})).toEqual(done);
     expect(await answer('dev_set_speed', { speed: 3 })).toEqual(done);
@@ -332,7 +380,16 @@ describe('what the agent is given beyond the eight tools', () => {
     expect(await answer('dev_run_until', { alertKinds: ['fire'] })).toEqual(done);
     expect(await answer('dev_run_until', {})).toEqual(done);
     expect(await answer('dev_new_season', { seed: 7 })).toEqual(done);
-    expect(await answer('dev_rebuild', { board: 'DB' })).toEqual({ ok: false, reason: 'DB is not destroyed' });
+    expect(await answer('dev_rebuild', { board: 'DB' })).toEqual({
+      ok: false,
+      reason: 'DB is not destroyed',
+      refusal: { code: 'notDestroyed', board: 'DB' },
+    });
+    expect(await answer('dev_repair', { facility: 'DA' })).toEqual(done);
+    expect(await answer('dev_install', { facility: 'F1', part: 'board' })).toEqual(done);
+    const dispatch = { kind: 'dispatch', truck: 1, from: 'F1', to: 'W', amount: 20 };
+    expect(await answer('dev_hand', { facility: 'W', action: dispatch })).toEqual(done);
+    expect(await answer('dev_hand', { facility: 'DA', action: { kind: 'process' } })).toEqual(done);
     expect(calls).toStrictEqual([
       ['play'],
       ['pause'],
@@ -342,17 +399,59 @@ describe('what the agent is given beyond the eight tools', () => {
       ['runUntil', {}],
       ['newSeason', 7],
       ['rebuild', 'DB'],
+      ['repair', 'DA'],
+      ['install', 'F1', 'board'],
+      ['hand', 'W', dispatch],
+      ['hand', 'DA', { kind: 'process' }],
     ]);
     await client.close();
   });
 
-  it('refuses dev arguments that fit no speed, no time, and no seed, before the game sees them', async () => {
+  it("returns the game's refusal of a repair, an install, or a hand as it is, for whatever the agent gave", async () => {
+    const r = await start(true);
+    // A refusal that carries the arguments it came from: an answer made up by the tool, or made for other arguments, shows.
+    const refuse = (...given: unknown[]) => ({
+      ok: false,
+      reason: `refused ${JSON.stringify(given)}`,
+      refusal: { code: 'cannotAct', facility: String(given[1]), detail: 'no' },
+    });
+    Object.assign(r.dev, {
+      repair: async (facility: string) => refuse('repair', facility),
+      install: async (facility: string, part: string) => refuse('install', facility, part),
+      hand: async (facility: string, action: unknown) => refuse('hand', facility, action),
+    });
+    const { client } = await connect(r.url);
+    const thermal = { kind: 'setThermal', output: 120 };
+    const priority = { kind: 'setPriority', order: ['H1', 'DA'] };
+    const asked: Array<[string, Record<string, unknown>, unknown[]]> = [
+      ['dev_repair', { facility: 'DB' }, ['repair', 'DB']],
+      ['dev_install', { facility: 'F2', part: 'comm' }, ['install', 'F2', 'comm']],
+      ['dev_install', { facility: 'H1', part: 'board' }, ['install', 'H1', 'board']],
+      ['dev_hand', { facility: 'P', action: thermal }, ['hand', 'P', thermal]],
+      ['dev_hand', { facility: 'F1', action: priority }, ['hand', 'F1', priority]],
+      ['dev_hand', { facility: 'DB', action: { kind: 'cool' } }, ['hand', 'DB', { kind: 'cool' }]],
+    ];
+    for (const [name, args, given] of asked) {
+      const result = await client.callTool({ name, arguments: args });
+      // The refusal is the answer, not a tool error: a QA agent reads `ok: false` and the reason as it reads a success.
+      expect({ isError: result.isError === true, answer: JSON.parse(textOf(result)) }, `${name} ${JSON.stringify(args)}`).toEqual({
+        isError: false,
+        answer: refuse(...given),
+      });
+    }
+    await client.close();
+  });
+
+  it('refuses dev arguments that fit no speed, no time, no seed, no part, and no action, before the game sees them', async () => {
     const r = await start(true);
     const calls: unknown[] = [];
     Object.assign(r.dev, {
       setSpeed: (speed: number) => calls.push(speed),
       runUntil: async (goal: unknown) => calls.push(goal),
       newSeason: async (seed: number) => calls.push(seed),
+      repair: async (facility: unknown) => calls.push(facility),
+      install: async (facility: unknown) => calls.push(facility),
+      hand: async (facility: unknown) => calls.push(facility),
     });
     const { client } = await connect(r.url);
     const refused: Array<[string, Record<string, unknown>]> = [
@@ -367,6 +466,13 @@ describe('what the agent is given beyond the eight tools', () => {
       ['dev_run_until', { seconds: 5, alertKinds: [''] }],
       ['dev_new_season', { seed: 1.5 }],
       ['dev_new_season', {}],
+      ['dev_install', { facility: 'F1', part: 'shield' }],
+      ['dev_install', { facility: 'F1' }],
+      ['dev_repair', {}],
+      ['dev_hand', { facility: 'DA' }],
+      ['dev_hand', { facility: 'DA', action: { kind: 'fly' } }],
+      ['dev_hand', { facility: 'P', action: { kind: 'setThermal', output: -5 } }],
+      ['dev_hand', { facility: 'W', action: { kind: 'dispatch', truck: 1, from: 'F1', to: 'W' } }],
     ];
     const answers: unknown[] = [];
     for (const [name, args] of refused) answers.push((await client.callTool({ name, arguments: args })).isError);

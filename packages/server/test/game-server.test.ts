@@ -150,7 +150,7 @@ function last<T extends ServerToViewer['type']>(seen: ServerToViewer[], type: T)
 }
 
 describe('game server', () => {
-  it('runs a season end to end: a viewer starts it without an agent, the agent connects, and its drop is told and paused for', async () => {
+  it('runs a season end to end: a viewer starts it without an agent, the agent works a board through its comm module, and its drop is told and paused for', async () => {
     const configDir = tempDir('tc-server-');
     const server = await startGameServer({ port: 0, configDir, dev: true, viewerDist: null, scenarioPath: M1 });
     stop = server.close;
@@ -168,13 +168,21 @@ describe('game server', () => {
     const agent = new Client({ name: 'e2e-agent', version: '0.0.1' });
     await agent.connect(transport as Transport);
     await until(() => last(v.seen, 'status')?.status.agent.connected === true);
-    // DA has a board (T1) and no comm module: the agent cannot reach it, and is told how the player opens it.
-    const refused = await agent.callTool({
-      name: 'deploy_firmware',
-      arguments: { board: 'DA', code: 'function tick(io) io.log("on") end' },
-    });
+    const deploy = () =>
+      agent.callTool({ name: 'deploy_firmware', arguments: { board: 'DA', code: 'function tick(io) io.log("on") end' } });
+    // DA has a board (T1) and no comm module: the agent is told how the player opens it.
+    const refused = await deploy();
     expect(refused.isError).toBe(true);
     expect(textOf(refused)).toBe("DA has no comm module: the player installs one from the board's panel");
+    await agent.callTool({ name: 'dev_install', arguments: { facility: 'DA', part: 'comm' } });
+    expect((await deploy()).isError).toBeFalsy();
+    await until(() => last(v.seen, 'deploy') !== undefined);
+    await agent.callTool({ name: 'dev_run_until', arguments: { seconds: 1 } });
+    await until(() => last(v.seen, 'snapshot')!.snapshot.facilities.find((f) => f.id === 'DA')!.board!.hasFirmware);
+
+    v.send({ type: 'inspect', board: 'DA' });
+    await until(() => last(v.seen, 'inspection') !== undefined);
+    expect(last(v.seen, 'inspection')!.inspection!.logs.some((l) => l.text === 'on')).toBe(true);
 
     v.send({ type: 'play' });
     await until(() => last(v.seen, 'status')?.status.state === 'running');
@@ -422,6 +430,48 @@ describe('game server', () => {
     expect(await call('dev_play', {})).toMatchObject({ isError: false });
   });
 
+  it("wires each of a dev agent's player commands to its own command of the game, with what it was given", async () => {
+    const { server, configDir } = await start({ dev: true });
+    const agent = await connectAgent(server, configDir);
+    const call = async (name: string, args: Record<string, unknown>): Promise<unknown> => {
+      const result = await agent.callTool({ name, arguments: args });
+      expect(result.isError, name).toBeFalsy();
+      return JSON.parse(textOf(result));
+    };
+    const tiers = async (): Promise<unknown> =>
+      ((await call('list_boards', {})) as Array<{ id: string; tier: number }>).map((board) => [board.id, board.tier]);
+    await call('dev_new_season', { seed: 1 });
+    // Each refusal says which command was asked, of which facility: a tool wired to another command, or given another facility, says
+    // something else (or nothing is refused at all).
+    expect(await call('dev_repair', { facility: 'DB' })).toMatchObject({ ok: false, reason: 'DB is not wrecked' });
+    expect(await call('dev_rebuild', { board: 'P' })).toMatchObject({ ok: false, reason: 'P is not destroyed' });
+    expect(await call('dev_hand', { facility: 'P', action: { kind: 'process' } })).toMatchObject({
+      ok: false,
+      reason: "P: process is a datacenter's action",
+    });
+    expect(await call('dev_hand', { facility: 'DA', action: { kind: 'harvest' } })).toMatchObject({
+      ok: false,
+      reason: "DA: harvest is a farm's action",
+    });
+    expect(await tiers()).toEqual([
+      ['P', 1],
+      ['DA', 1],
+      ['DB', 1],
+    ]);
+    // An install reaches the facility and the part it names, and no other.
+    expect(await call('dev_install', { facility: 'DB', part: 'comm' })).toEqual({ ok: true });
+    expect(await tiers()).toEqual([
+      ['P', 1],
+      ['DA', 1],
+      ['DB', 2],
+    ]);
+    expect(await call('dev_install', { facility: 'DB', part: 'comm' })).toMatchObject({
+      ok: false,
+      reason: 'DB already has a comm module',
+    });
+    expect(await call('dev_install', { facility: 'DA', part: 'board' })).toMatchObject({ ok: false, reason: 'DA already has a board' });
+  });
+
   it('offers the dev tools only to a server started with the dev flag', async () => {
     const toolNames = async (dev: boolean): Promise<string[]> => {
       const { server, configDir } = await start({ dev });
@@ -431,10 +481,13 @@ describe('game server', () => {
     expect(plain).toContain('deploy_firmware');
     expect(plain.filter((name) => name.startsWith('dev_'))).toEqual([]);
     expect((await toolNames(true)).filter((name) => name.startsWith('dev_')).sort()).toEqual([
+      'dev_hand',
+      'dev_install',
       'dev_new_season',
       'dev_pause',
       'dev_play',
       'dev_rebuild',
+      'dev_repair',
       'dev_run_until',
       'dev_set_speed',
     ]);
