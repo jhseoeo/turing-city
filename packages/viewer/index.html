@@ -6,7 +6,19 @@
     <title>turing-city</title>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="start"></div>
+    <div id="game" hidden>
+      <header id="topbar"></header>
+      <main>
+        <section id="left">
+          <div id="map"></div>
+          <div id="feed"></div>
+        </section>
+        <aside id="panel"></aside>
+      </main>
+      <footer id="keys">스페이스 일시정지 · 1/2/3 배속 · H 히트맵 · 시설 클릭 = 패널 · 알림 클릭 = 그 시설로</footer>
+    </div>
+    <div id="overlay" hidden></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

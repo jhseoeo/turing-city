@@ -1,0 +1,208 @@
+:root {
+  --bg: #11151a;
+  --panel: #181d24;
+  --line: #252c35;
+  --text: #d7dde4;
+  --dim: #7d8894;
+  --ok: #3fd07a;
+  --warn: #ffb020;
+  --bad: #ff4d4d;
+  --accent: #2f6fde;
+  color-scheme: dark;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font:
+    13px -apple-system,
+    "Apple SD Gothic Neo",
+    sans-serif;
+}
+button {
+  background: #2a313a;
+  color: var(--text);
+  border: 0;
+  border-radius: 5px;
+  padding: 6px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+button.primary {
+  background: var(--accent);
+  color: #fff;
+}
+pre {
+  margin: 0;
+  white-space: pre-wrap;
+  font:
+    11px ui-monospace,
+    Menlo,
+    monospace;
+}
+.dim {
+  color: var(--dim);
+}
+.ok {
+  color: var(--ok);
+}
+.warn {
+  color: var(--warn);
+}
+.bad {
+  color: var(--bad);
+}
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0;
+}
+.start {
+  max-width: 640px;
+  margin: 80px auto;
+}
+.start h1 {
+  margin: 0 0 4px;
+}
+.cmd {
+  background: #0d1116;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+  color: #9fe0b4;
+  word-break: break-all;
+}
+.start-button {
+  margin-top: 18px;
+  background: var(--ok);
+  color: #0c0f13;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 9px 20px;
+}
+#topbar {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  padding: 9px 14px;
+  background: #0c0f13;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+#topbar b {
+  color: #fff;
+}
+#topbar .speed button {
+  padding: 2px 8px;
+  margin-right: 2px;
+}
+#topbar .speed button.on {
+  background: var(--accent);
+  color: #fff;
+}
+#topbar .agent {
+  margin-left: auto;
+}
+main {
+  display: flex;
+}
+#left {
+  flex: 1;
+  padding: 12px;
+}
+#panel {
+  width: 340px;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+  padding: 12px 14px;
+  min-height: 480px;
+}
+#panel h2 {
+  margin: 0 0 2px;
+  font-size: 15px;
+  color: #fff;
+}
+#panel .sec {
+  margin-top: 12px;
+}
+#panel .label {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--dim);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+#panel .kv {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  row-gap: 3px;
+}
+#panel pre {
+  background: #0d1116;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 8px;
+  max-height: 180px;
+  overflow: auto;
+}
+#feed {
+  margin-top: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+#feed .item {
+  display: flex;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px solid #1f262e;
+  cursor: pointer;
+}
+#feed .t {
+  color: var(--dim);
+  width: 76px;
+  flex: none;
+}
+#feed .toggles {
+  margin-top: 7px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: var(--dim);
+}
+#keys {
+  color: var(--dim);
+  padding: 6px 14px 9px;
+  border-top: 1px solid var(--line);
+}
+#overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 10, 13, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* Without this, display: flex above beats the hidden attribute: the "hidden" overlay covers the page and takes every click. */
+#overlay[hidden] {
+  display: none;
+}
+#overlay .box {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 20px 24px;
+  max-width: 520px;
+}
+#overlay .box.bad {
+  border-color: rgba(255, 77, 77, 0.5);
+}
