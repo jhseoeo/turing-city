@@ -42,18 +42,22 @@ export function applyFacilityAction(ctx: SimContext, facility: FacilityState, ac
   const t = ctx.scenario.tuning;
   switch (action.kind) {
     case 'process': {
-      // A job runs jobMs from its start. A press while one runs doesn't stack: the job ends jobMs after the latest press.
+      // A job runs jobMs from its start. A press while one runs doesn't stack: the job ends jobMs after the latest press. A job
+      // that covers the step before startStep is still running: firmware acts after the power phase charged that step and before
+      // the datacenter phase pays and heats it, so the press goes on with the job, and no step is lost.
       const dc = w.datacenters[facility.id]!;
-      const running = dc.busyFrom <= startStep && startStep < dc.busyUntil;
+      const running = dc.busyFrom < startStep && startStep <= dc.busyUntil;
       if (!running) dc.busyFrom = startStep;
       dc.busyUntil = Math.max(dc.busyUntil, startStep + jobSteps(ctx));
       break;
     }
     case 'cool': {
-      // A cooling cycle runs to its end: a press while one runs does nothing.
+      // A cooling cycle runs to its end: a press while one runs does nothing. A press on the step after its last goes on with it,
+      // for the same reason as a job's: that last step is still to be cooled, so the new cycle extends the window.
       const dc = w.datacenters[facility.id]!;
       if (dc.coolFrom <= startStep && startStep < dc.coolUntil) break;
-      dc.coolFrom = startStep;
+      const continues = dc.coolFrom < startStep && startStep <= dc.coolUntil;
+      if (!continues) dc.coolFrom = startStep;
       dc.coolUntil = startStep + coolSteps(ctx);
       break;
     }
