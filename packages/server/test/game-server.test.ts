@@ -1,7 +1,7 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { type AddressInfo, connect, type Socket } from 'node:net';
-import { networkInterfaces, tmpdir } from 'node:os';
+import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import { loadConfig } from '../src/config.ts';
 import { startGameServer } from '../src/game-server.ts';
+import { removeTempDirs, tempDir } from './helpers/temp-dirs.ts';
 
 let stop: (() => Promise<void>) | null = null;
 /** What a test opened, undone last in, first out: viewers go before the server they are connected to. */
@@ -26,6 +27,7 @@ afterEach(async () => {
   }
   await stop?.();
   stop = null;
+  removeTempDirs(); // after the servers that use them are closed
 });
 
 type GameServer = Awaited<ReturnType<typeof startGameServer>>;
@@ -34,7 +36,7 @@ type GameServer = Awaited<ReturnType<typeof startGameServer>>;
 async function start(
   options: { dev?: boolean; viewerDist?: string | null; onStatus?: (status: ControllerStatus) => void } = {},
 ): Promise<{ server: GameServer; configDir: string }> {
-  const configDir = mkdtempSync(join(tmpdir(), 'tc-server-'));
+  const configDir = tempDir('tc-server-');
   const server = await startGameServer({ port: 0, configDir, viewerDist: null, ...options });
   closers.push(() => server.close());
   return { server, configDir };
@@ -154,7 +156,7 @@ function last<T extends ServerToViewer['type']>(seen: ServerToViewer[], type: T)
 
 describe('game server', () => {
   it('runs a season end to end: viewer, agent, deploy, and the connection rule', async () => {
-    const configDir = mkdtempSync(join(tmpdir(), 'tc-server-'));
+    const configDir = tempDir('tc-server-');
     const server = await startGameServer({ port: 0, configDir, dev: true, viewerDist: null });
     stop = server.close;
     const v = await viewer(server.port);
@@ -198,9 +200,9 @@ describe('game server', () => {
   }, 30_000);
 
   it('keeps serving after requests that would crash a careless server', async () => {
-    const dist = mkdtempSync(join(tmpdir(), 'tc-viewer-'));
+    const dist = tempDir('tc-viewer-');
     writeFileSync(join(dist, 'index.html'), '<!doctype html>');
-    const server = await startGameServer({ port: 0, configDir: mkdtempSync(join(tmpdir(), 'tc-server-')), viewerDist: dist });
+    const server = await startGameServer({ port: 0, configDir: tempDir('tc-server-'), viewerDist: dist });
     stop = server.close;
     // Any web page can make the browser request a malformed escape.
     expect((await fetch(`${server.url}/%`)).status).toBe(400);
@@ -221,8 +223,7 @@ describe('game server', () => {
     await new Promise<void>((resolve) => taken.listen(0, '127.0.0.1', resolve));
     closers.push(() => new Promise((resolve) => taken.close(resolve)));
     const { port } = taken.address() as AddressInfo;
-    const configDir = mkdtempSync(join(tmpdir(), 'tc-server-'));
-    closers.push(() => rmSync(configDir, { recursive: true, force: true }));
+    const configDir = tempDir('tc-server-');
     const failure = await Promise.race([
       startGameServer({ port, configDir, viewerDist: null }).catch((error: unknown) => error),
       new Promise((resolve) => setTimeout(resolve, 3000, 'still waiting')),
@@ -233,13 +234,13 @@ describe('game server', () => {
   });
 
   it('refuses a WebSocket from another website', async () => {
-    const server = await startGameServer({ port: 0, configDir: mkdtempSync(join(tmpdir(), 'tc-server-')), viewerDist: null });
+    const server = await startGameServer({ port: 0, configDir: tempDir('tc-server-'), viewerDist: null });
     stop = server.close;
     await expect(viewer(server.port, 'http://evil.example')).rejects.toThrow();
   });
 
   it('refuses a WebSocket handshake that sends no Origin', async () => {
-    const server = await startGameServer({ port: 0, configDir: mkdtempSync(join(tmpdir(), 'tc-server-')), viewerDist: null });
+    const server = await startGameServer({ port: 0, configDir: tempDir('tc-server-'), viewerDist: null });
     stop = server.close;
     // A browser always sends an Origin, so a handshake without one is no web page: a client that does not set the header.
     // (A process that sets it itself gets in, even one that cannot read config.json; the prototype accepts that, spec section 7.1.)
@@ -254,7 +255,7 @@ describe('game server', () => {
     { mode: 'a plain server', dev: false },
     { mode: 'a dev-mode server', dev: true },
   ])('lets $mode accept the pages it serves, and the Vite dev server only in dev mode', async ({ dev }) => {
-    const server = await startGameServer({ port: 0, configDir: mkdtempSync(join(tmpdir(), 'tc-server-')), dev, viewerDist: null });
+    const server = await startGameServer({ port: 0, configDir: tempDir('tc-server-'), dev, viewerDist: null });
     stop = server.close;
     const own = [`http://127.0.0.1:${server.port}`, `http://localhost:${server.port}`];
     const lookalike = `${own[1]}.evil.example`;
@@ -317,7 +318,7 @@ describe('game server', () => {
   });
 
   it('lets only the /mcp path reach the MCP endpoint', async () => {
-    const dist = mkdtempSync(join(tmpdir(), 'tc-viewer-'));
+    const dist = tempDir('tc-viewer-');
     writeFileSync(join(dist, 'index.html'), '<!doctype html>');
     const { server } = await start({ viewerDist: dist });
     const status = async (path: string): Promise<number> => (await fetch(`${server.url}${path}`)).status;
@@ -336,7 +337,7 @@ describe('game server', () => {
   });
 
   it('serves the built viewer: each file by its type, index.html for any other path, and nothing from outside the directory', async () => {
-    const base = mkdtempSync(join(tmpdir(), 'tc-viewer-'));
+    const base = tempDir('tc-viewer-');
     const dist = join(base, 'dist');
     mkdirSync(join(dist, 'assets'), { recursive: true });
     const page = '<!doctype html><title>viewer</title>';
@@ -363,14 +364,14 @@ describe('game server', () => {
   });
 
   it('forbids framing every page and refusal of the viewer server, so that no website can overlay the game and redirect clicks', async () => {
-    const base = mkdtempSync(join(tmpdir(), 'tc-viewer-'));
+    const base = tempDir('tc-viewer-');
     const dist = join(base, 'dist');
     mkdirSync(join(dist, 'assets'), { recursive: true });
     writeFileSync(join(dist, 'index.html'), '<!doctype html><title>viewer</title>');
     writeFileSync(join(dist, 'assets', 'app.js'), 'export {};');
     writeFileSync(join(base, 'secret.txt'), 'outside the build directory');
     const { server } = await start({ viewerDist: dist });
-    const { server: unbuilt } = await start({ viewerDist: mkdtempSync(join(tmpdir(), 'tc-viewer-')) });
+    const { server: unbuilt } = await start({ viewerDist: tempDir('tc-viewer-') });
     const framing = async (url: string): Promise<[number, string | null, string | null]> => {
       const res = await fetch(url);
       return [res.status, res.headers.get('x-frame-options'), res.headers.get('content-security-policy')];
@@ -388,7 +389,7 @@ describe('game server', () => {
   });
 
   it('says what to do when the viewer has not been built, and has nothing at / when it is told to serve none', async () => {
-    const { server } = await start({ viewerDist: mkdtempSync(join(tmpdir(), 'tc-viewer-')) });
+    const { server } = await start({ viewerDist: tempDir('tc-viewer-') });
     const res = await fetch(`${server.url}/`);
     expect(res.status).toBe(404);
     expect(await res.text()).toContain('run pnpm start');

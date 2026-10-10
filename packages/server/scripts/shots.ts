@@ -20,8 +20,6 @@ const SEED = 3;
 /** The map's cell size in pixels: CELL in the viewer's map-scene.ts, which pulls in Phaser and cannot load here. */
 const CELL = 34;
 mkdirSync(out, { recursive: true });
-const configDir = mkdtempSync(join(tmpdir(), 'tc-shots-'));
-const server = await startGameServer({ port: 0, configDir, dev: true });
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 const page = await browser.newPage({ viewport: { width: 1320, height: 860 } });
 
@@ -276,6 +274,13 @@ async function measure(label: string, seconds: number): Promise<void> {
   );
 }
 
+// The server and its config directory (it holds a token) are made last, just before the try that removes them: a Chrome that fails
+// to launch, above, must not leave either behind.
+const configDir = mkdtempSync(join(tmpdir(), 'tc-shots-'));
+const server = await startGameServer({ port: 0, configDir, dev: true }).catch((error: unknown) => {
+  rmSync(configDir, { recursive: true, force: true });
+  throw error;
+});
 let serverClosed = false;
 try {
   await page.goto(server.url);

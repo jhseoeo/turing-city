@@ -1,22 +1,20 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
+import { removeTempDirs, tempDir } from './helpers/temp-dirs.ts';
 
 const MAIN = fileURLToPath(new URL('../src/main.ts', import.meta.url));
 const cleanups: Array<() => unknown> = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+  removeTempDirs();
 });
 
 /** Runs the server's entry point with a config directory of its own (the token never lands in the user's real one). */
 function run(...args: string[]): { status: number | null; stdout: string; stderr: string } {
-  const configDir = mkdtempSync(join(tmpdir(), 'tc-main-'));
-  cleanups.push(() => rmSync(configDir, { recursive: true, force: true }));
+  const configDir = tempDir('tc-main-');
   const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', MAIN, ...args], {
     env: { ...process.env, XDG_CONFIG_HOME: configDir },
     encoding: 'utf8',

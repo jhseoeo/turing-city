@@ -1,12 +1,15 @@
-import { mkdtempSync, statSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { statSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { configDir, connectCommand, loadConfig, reissueToken } from '../src/config.ts';
+import { removeTempDirs, tempDir } from './helpers/temp-dirs.ts';
+
+afterEach(removeTempDirs);
 
 describe('config', () => {
   it('creates a token once and keeps it', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'tc-config-'));
+    const dir = tempDir('tc-config-');
     const first = loadConfig(dir);
     expect(first.token).toMatch(/^[A-Za-z0-9_-]{32}$/);
     expect(loadConfig(dir).token).toBe(first.token);
@@ -14,7 +17,7 @@ describe('config', () => {
   });
 
   it('reissues a new token', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'tc-config-'));
+    const dir = tempDir('tc-config-');
     const first = loadConfig(dir);
     const second = reissueToken(dir);
     expect(second.token).not.toBe(first.token);
@@ -30,7 +33,7 @@ describe('config', () => {
 
 describe('config: what the brief left unpinned', () => {
   it('keeps the port of a saved config, through a reissue too', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'tc-config-'));
+    const dir = tempDir('tc-config-');
     writeFileSync(join(dir, 'config.json'), JSON.stringify({ token: 'saved-token', port: 9000 }));
     expect(loadConfig(dir)).toEqual({ token: 'saved-token', port: 9000 });
     const reissued = reissueToken(dir);
@@ -45,7 +48,7 @@ describe('config: what the brief left unpinned', () => {
 
   // The token is a secret: only its owner may read the file, and it stays so when the token is reissued.
   it.skipIf(process.platform === 'win32')('keeps the token where only its owner can read it', () => {
-    const dir = join(mkdtempSync(join(tmpdir(), 'tc-config-')), 'turing-city'); // not there yet: loadConfig makes it
+    const dir = join(tempDir('tc-config-'), 'turing-city'); // not there yet: loadConfig makes it
     loadConfig(dir);
     expect(statSync(dir).mode & 0o777).toBe(0o700);
     expect(statSync(join(dir, 'config.json')).mode & 0o777).toBe(0o600);
