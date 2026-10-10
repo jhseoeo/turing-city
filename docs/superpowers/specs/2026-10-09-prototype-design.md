@@ -351,7 +351,8 @@ Three layers keep a firmware bug from freezing the game:
 3. **The watchdog.**
    - The simulation runs in the worker thread, so the main thread (MCP, WebSocket) always answers.
    - The main thread times each batch of up to 200 steps that it asks the worker for. When a batch takes longer than 5 seconds of wall time, it terminates the worker, stops the session, and tells the player which board and which firmware version were running.
-   - When the timer falls due it looks once more on the next turn of the event loop, because the worker's answer may already have been posted and not yet read (the process was stopped and resumed, or the main thread was busy), and the loop runs its timers before it reads messages. Only a batch still out then stops the session.
+   - When the timer falls due it looks once more on the next turn of the event loop, because the worker's answer may already have been posted and not yet read (the main thread was busy), and the loop runs its timers before it reads messages. Only a batch still out then stops the session.
+   - A timer that runs more than a second after it was due means that the process itself stood still (Ctrl+Z and `fg`, a debugger) and the worker thread with it, so the worker has had no time yet to answer: the batch gets a fresh period instead of failing. If it is still out when that period runs out on time, the session stops as above.
    - Wall time depends on the machine, so it is never a game rule; it's a crash guard. Recovering by replaying the record with that firmware disabled comes later.
    - If the watchdog ever fires, layer 2 has a hole: close it.
 

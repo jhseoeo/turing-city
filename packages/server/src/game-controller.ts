@@ -42,6 +42,11 @@ const CLOCK_MS = 50;
  * game: batches of 200 steps, an auto-pause landing a whole batch after its alert. Past this, the time is skipped.
  */
 const CATCH_UP_MS = 200;
+/**
+ * A watchdog timer that runs this much later than it was due means that the process itself stood still (Ctrl+Z and fg, a debugger),
+ * and the worker thread with it: the worker has had no time yet to answer, so the batch gets a fresh period instead of failing.
+ */
+const STALL_MS = 1000;
 const NO_SEASON = "The season hasn't started: ask the player to press Start.";
 
 /**
@@ -287,16 +292,27 @@ export class GameController {
     return new Promise((resolve, reject) => {
       const waiter = { resolve, reject };
       this.advanceWaiter = waiter;
-      // The timer can fall due with the worker's answer already posted and not yet read (the process stood still, or the loop was
-      // busy), and the loop runs its timers before it reads messages. One more turn reads the answer first: the batch is hung only
-      // if it is still out then.
-      this.watchdog = setTimeout(() => {
-        setImmediate(() => {
-          if (this.advanceWaiter === waiter) this.onWatchdog();
-        });
-      }, this.watchdogMs);
+      this.armWatchdog(waiter);
       this.post({ type: 'advance', steps });
     });
+  }
+
+  /** Starts the timer that stops the session if the batch `waiter` waits for is still out when it falls due. */
+  private armWatchdog(waiter: NonNullable<GameController['advanceWaiter']>): void {
+    const due = performance.now() + this.watchdogMs;
+    this.watchdog = setTimeout(() => {
+      if (this.advanceWaiter !== waiter) return;
+      // Long after it was due: the process stood still, the worker with it, and has not yet had the time to answer.
+      if (performance.now() - due > STALL_MS) {
+        this.armWatchdog(waiter);
+        return;
+      }
+      // On time, the answer can still be posted and not yet read (the loop was busy), and the loop runs its timers before it reads
+      // messages. One more turn reads the answer first: the batch is hung only if it is still out then.
+      setImmediate(() => {
+        if (this.advanceWaiter === waiter) this.onWatchdog();
+      });
+    }, this.watchdogMs);
   }
 
   private onWorker(m: WorkerResponse): void {

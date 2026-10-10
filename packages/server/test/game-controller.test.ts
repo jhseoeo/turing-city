@@ -1035,6 +1035,74 @@ describe('GameController: the watchdog', () => {
     expect(c.status()).toMatchObject({ state: 'crashed', crash: 'the simulator stopped responding; the session stopped' });
   });
 
+  // The process stood still (Ctrl+Z and fg, a debugger) with a batch out: the worker thread stood still with it, so when the timer, due
+  // long ago, is run first on resume, the worker has not yet had the time to post its answer, and a re-check one turn later is too soon.
+  // The tests stand the main thread still for real (the timer's lateness is read from the real clock) and drive the timer by hand.
+  describe('after the process stood still', () => {
+    const STAND_STILL_MS = 1500; // more than the limit past which a late timer is taken for a stopped process: 1 s
+    const stall = (ms: number): void => void Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+    const turns = async (n = 3): Promise<void> => {
+      for (let i = 0; i < n; i++) await new Promise((resolve) => setImmediate(resolve));
+    };
+    /** A season whose next message to the worker is held back, and the way to let it through; timers are the test's from here on. */
+    async function holdingTheNextBatch(): Promise<{ c: GameController; release: () => void; run: Promise<unknown> }> {
+      const c = make({ watchdogMs: 100 });
+      c.setAgent(AGENT);
+      await c.startSeason(1);
+      const worker = inside(c).worker!;
+      const post = worker.postMessage.bind(worker);
+      const held: unknown[] = [];
+      const hold = vi.spyOn(worker, 'postMessage').mockImplementation((message: unknown) => void held.push(message));
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const run = c.runUntil({ seconds: 1 }).catch((error: unknown) => error);
+      return {
+        c,
+        run,
+        release: () => {
+          hold.mockRestore();
+          for (const message of held) post(message as never);
+        },
+      };
+    }
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('gives the batch a fresh period when the timer falls due long after it was due, and lets its answer land', async () => {
+      const { c, release, run } = await holdingTheNextBatch();
+      stall(STAND_STILL_MS);
+      vi.advanceTimersByTime(100); // the timer runs 1.4 s late: the process was stopped, the worker with it
+      await turns();
+      expect(c.status()).toMatchObject({ state: 'paused', crash: null });
+      release(); // the worker is running again, and answers
+      vi.useRealTimers();
+      expect(await run).toBeUndefined();
+      expect(c.status()).toMatchObject({ state: 'paused', crash: null });
+      expect(c.latestSnapshot()!.step).toBe(20);
+    });
+
+    it('still stops a session whose batch is out when the timer falls due only a little late', async () => {
+      const { c, run } = await holdingTheNextBatch();
+      stall(300); // 200 ms late: a busy moment, not a stopped process
+      vi.advanceTimersByTime(100);
+      expect(c.status().state).toBe('paused'); // after the re-check, as for a timer on time
+      await expect(run).resolves.toMatchObject({ message: expect.stringContaining('stopped responding') });
+      expect(c.status()).toMatchObject({ state: 'crashed', crash: 'the simulator stopped responding; the session stopped' });
+    });
+
+    it('stops a session whose batch is still out when the fresh period runs out on time', async () => {
+      const { c, run } = await holdingTheNextBatch();
+      stall(STAND_STILL_MS);
+      vi.advanceTimersByTime(100); // late: the batch gets another period
+      await turns();
+      expect(c.status().state).toBe('paused');
+      vi.advanceTimersByTime(100); // the new period runs out on time and the worker has still not answered: it hangs
+      expect(c.status().state).toBe('paused'); // the re-check comes first
+      await expect(run).resolves.toMatchObject({ message: expect.stringContaining('stopped responding') });
+      expect(c.status()).toMatchObject({ state: 'crashed', crash: 'the simulator stopped responding; the session stopped' });
+    });
+  });
+
   it('arms a watchdog for every batch, with the limit it is given and 5 seconds by default', async () => {
     const timeouts = vi.spyOn(globalThis, 'setTimeout');
     try {
