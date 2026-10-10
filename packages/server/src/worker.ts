@@ -122,11 +122,21 @@ async function handle(message: WorkerRequest): Promise<void> {
       send({ type: 'advanced', snapshot: snapshot(s.ctx), alerts });
       return;
     }
+    // A request that changes the world tells the main thread how it stands before it answers: snapshots otherwise come with
+    // a batch of steps, and a game that stands still would show neither the deploy nor the rebuild.
     case 'deploy':
-      reply(message.id, () => s.deploy(message.board, message.code));
+      reply(message.id, () => {
+        const result = s.deploy(message.board, message.code);
+        send({ type: 'snapshot', snapshot: snapshot(s.ctx) });
+        return result;
+      });
       return;
     case 'rebuild':
-      reply(message.id, () => s.rebuild(message.board));
+      reply(message.id, () => {
+        const result = s.rebuild(message.board);
+        if (result.ok) send({ type: 'snapshot', snapshot: snapshot(s.ctx) });
+        return result;
+      });
       return;
     case 'mark':
       s.mark(message.kind);

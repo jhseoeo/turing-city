@@ -24,6 +24,11 @@ export type WorkerRequest =
 export type WorkerResponse =
   | { readonly type: 'started'; readonly snapshot: Snapshot }
   | { readonly type: 'advanced'; readonly snapshot: Snapshot; readonly alerts: readonly AlertView[] }
+  /**
+   * How the world stands after a deploy or a rebuild changed it between batches, sent ahead of that request's answer. It is not the
+   * answer to a batch: it resolves none and disarms no watchdog.
+   */
+  | { readonly type: 'snapshot'; readonly snapshot: Snapshot }
   | { readonly type: 'reply'; readonly id: number; readonly value: unknown }
   /** The request with this id threw (a deploy to an unknown board, say). Only that request fails; the season goes on. */
   | { readonly type: 'refused'; readonly id: number; readonly message: string }

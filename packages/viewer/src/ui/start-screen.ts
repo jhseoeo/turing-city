@@ -1,6 +1,7 @@
 import { clear, el } from '../dom.ts';
 import type { Connection } from '../net.ts';
 import type { Store } from '../store.ts';
+import { noticeLines } from './notice.ts';
 
 /** Spec §8.1: connect your agent, then start the season. */
 export function renderStartScreen(root: HTMLElement, store: Store, net: Connection): void {
@@ -22,8 +23,7 @@ export function renderStartScreen(root: HTMLElement, store: Store, net: Connecti
         ]),
       ]),
       el('button', { class: 'start-button', disabled: !connected, onclick: () => net.send({ type: 'startSeason' }) }, ['시즌 시작']),
-      store.error ? el('p', { class: 'bad' }, [store.error]) : '',
-      store.socketOpen ? '' : el('p', { class: 'bad' }, ['게임 서버에 연결할 수 없어요. pnpm start가 돌고 있나요?']),
+      ...noticeLines(store),
     ]),
   );
 }

@@ -120,6 +120,7 @@ async function connectAgent(name: string): Promise<Agent> {
 }
 
 interface Status {
+  readonly time: { readonly seconds: number };
   readonly money: number;
   readonly power: { readonly generation: number; readonly demand: number };
   readonly ended: { readonly kind: string } | null;
@@ -275,6 +276,7 @@ async function measure(label: string, seconds: number): Promise<void> {
   );
 }
 
+let serverClosed = false;
 try {
   await page.goto(server.url);
   await shot('1-start-waiting');
@@ -341,6 +343,13 @@ try {
 
   await agent.disconnect();
   await shot('7-agent-lost');
+
+  // The server refuses to play without an agent. The game screen must tell the player so: it used to show a refusal on the start screen only.
+  await page.keyboard.press('Space');
+  const refusal = await waitUntil(async () => (await textOf('#notice')).includes('connect an agent first'));
+  check('a command the server refuses is told on the game screen', refusal, `the notice says "${await textOf('#notice')}"`);
+  await shot('7-agent-lost-refused');
+  check('and the notice goes away by itself', refusal && (await waitUntil(() => page.locator('#notice').isHidden(), 8000)));
 
   // ---- A second agent, and the clock running: what the page's controls do while it redraws 19 times a second ----
   await page.keyboard.press('h'); // the heatmap off again
@@ -576,6 +585,23 @@ try {
     await waitUntil(async () => (await page.locator('#overlay').isHidden()) && (await clockLabel()).startsWith('1일차 00:00')),
   );
 
+  // A deploy while the game stands still: the page shows it at once. The snapshots used to come only with the clock.
+  await newSeason();
+  await clickCell(5, 4); // DA, with no firmware yet
+  check('a board with no firmware says so', await waitUntil(async () => (await textOf('#panel')).includes('펌웨어 없음')));
+  const deployed = (await agent.call('deploy_firmware', { board: 'DA', code: careful })) as { version: number };
+  const waiting = `설치 대기 v${deployed.version}`;
+  check(
+    'a deploy while the game is paused shows in the panel as waiting to install, and the board stops reading "펌웨어 없음"',
+    await waitUntil(async () => {
+      const panel = await textOf('#panel');
+      return panel.includes(waiting) && panel.includes('● 동작') && !panel.includes('펌웨어 없음');
+    }),
+    `the panel says "${(await textOf('#panel')).slice(0, 80).replaceAll('\n', ' ')}"`,
+  );
+  check('the game stood still all that time', (await status()).run.paused && (await status()).time.seconds === 0);
+  await shot('11-deploy-pending');
+
   // A board whose firmware fails every tick: its light blinks red.
   await newSeason();
   await deployHealthy();
@@ -624,9 +650,21 @@ try {
     `money ${affordable.money}, cost ${rebuildCost}`,
   );
   await shot('13-board-destroyed');
+  // The raid paused the game, and it stays paused: the click's result must reach the screen with no help from the clock.
   await clickOn('#panel button');
-  await agent.call('dev_run_until', { seconds: 1 });
-  check('the rebuild button starts the rebuild', await waitUntil(async () => (await textOf('#panel')).includes('재건 중…')));
+  check(
+    'the rebuild button starts the rebuild while the game is paused',
+    await waitUntil(async () => (await textOf('#panel')).includes('재건 중…')),
+  );
+  const paid = await status();
+  check(
+    'the rebuild took its cost, the top bar shows the lower money, and no game time passed',
+    paid.money === affordable.money - rebuildCost &&
+      paid.run.paused &&
+      paid.time.seconds === affordable.time.seconds &&
+      (await waitUntil(async () => (await textOf('#topbar')).includes(paid.money.toLocaleString('en-US')))),
+    `money ${affordable.money} -> ${paid.money}, cost ${rebuildCost}, paused ${paid.run.paused}, seconds ${affordable.time.seconds} -> ${paid.time.seconds}`,
+  );
   await shot('14-rebuilding');
 
   // The same button with too little money. A plant that acts every tick and burns the most fuel draws the raid (at 102 s, seed 3)
@@ -642,6 +680,7 @@ try {
     (await alertKinds()).includes('boardDestroyed') && poor.money < rebuildCost && poor.ended === null,
     `money ${poor.money}, cost ${rebuildCost}`,
   );
+  await waitUntil(async () => (await centerOf('#feed .item', '부서졌어요')) !== null); // the page draws what the server just announced a moment later
   await clickOn('#feed .item', '부서졌어요');
   check(
     'with too little money the rebuild button is disabled, and the panel says why',
@@ -652,10 +691,20 @@ try {
     `the button: ${JSON.stringify(await buttonOf('#panel button'))}`,
   );
   await shot('15-rebuild-unaffordable');
+
+  // The server goes away with the game on the screen: the page says so (it used to say so on the start screen only).
+  serverClosed = true;
+  await server.close();
+  check(
+    'the game screen says when the server is gone',
+    await waitUntil(async () => (await textOf('#notice')).includes('게임 서버에 연결할 수 없어요'), 4000),
+    `the notice says "${await textOf('#notice')}"`,
+  );
+  await shot('16-server-lost');
 } finally {
   for (const agent of agents) await agent.disconnect().catch(() => undefined);
   await browser.close();
-  await server.close();
+  if (!serverClosed) await server.close();
   rmSync(configDir, { recursive: true, force: true }); // the token it holds belongs to this run only
 }
 if (failures.length > 0) {

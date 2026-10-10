@@ -276,6 +276,10 @@ export class GameController {
         waiter?.resolve(m.alerts);
         return;
       }
+      case 'snapshot':
+        this.snapshotNow = m.snapshot;
+        this.emit({ kind: 'snapshot', snapshot: m.snapshot });
+        return;
       case 'reply': {
         const p = this.pending.get(m.id);
         this.pending.delete(m.id);

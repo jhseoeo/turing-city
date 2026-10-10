@@ -1,6 +1,6 @@
 import type { Snapshot } from '@turing-city/core';
 import { describe, expect, it } from 'vitest';
-import { consumersOf, heatAlpha, ledOf, moneyLabel, timeLabel } from '../src/format.ts';
+import { consumersOf, firmwareLabel, heatAlpha, ledOf, moneyLabel, timeLabel } from '../src/format.ts';
 
 type Board = Snapshot['boards'][number];
 const board = (over: Partial<Board>): Board => ({
@@ -44,6 +44,13 @@ describe('format', () => {
     expect(ledOf(board({ ...everythingWrong, status: 'asleep' }))).toBe('asleep');
     expect(ledOf(board(everythingWrong))).toBe('unpowered');
     expect(ledOf(board({ erroring: true, hasFirmware: false }))).toBe('error');
+  });
+
+  it('names the firmware a board runs and the deploy waiting to install on it', () => {
+    expect(firmwareLabel(null, null)).toBe('펌웨어 없음');
+    expect(firmwareLabel(2, null)).toBe('펌웨어 v2');
+    expect(firmwareLabel(null, 1)).toBe('설치 대기 v1');
+    expect(firmwareLabel(2, 3)).toBe('펌웨어 v2 · 설치 대기 v3');
   });
 
   it('shades the heatmap from 1 EMF up, capped', () => {

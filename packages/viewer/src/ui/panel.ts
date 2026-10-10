@@ -1,5 +1,5 @@
 import { clear, el } from '../dom.ts';
-import { KIND_LABELS, LED_LABELS, ledOf, moneyLabel } from '../format.ts';
+import { firmwareLabel, KIND_LABELS, LED_LABELS, ledOf, moneyLabel } from '../format.ts';
 import type { Connection } from '../net.ts';
 import type { Store } from '../store.ts';
 
@@ -39,7 +39,7 @@ export function renderPanel(root: HTMLElement, store: Store, net: Connection): v
     el('h2', {}, [`${KIND_LABELS[board.kind]} ${board.id}`]),
     el('div', {}, [
       el('span', { class: led === 'running' ? 'ok' : led === 'error' || led === 'destroyed' ? 'bad' : 'warn' }, [`● ${LED_LABELS[led]}`]),
-      el('span', { class: 'dim' }, [inspection?.firmware ? ` · 펌웨어 v${inspection.firmware.version}` : ' · 펌웨어 없음']),
+      el('span', { class: 'dim' }, [` · ${firmwareLabel(inspection?.firmware?.version ?? null, inspection?.pending?.version ?? null)}`]),
     ]),
   );
   if (board.status === 'destroyed') {
@@ -105,6 +105,15 @@ export function renderPanel(root: HTMLElement, store: Store, net: Connection): v
           .join('\n') || '(없음)',
       ]),
     ),
+    // A deploy installs at the board's next tick, which for a board that is asleep or smashed is a while off: until then it shows here.
+    ...(inspection.pending
+      ? [
+          section(
+            `설치 대기 중인 펌웨어 v${inspection.pending.version} (읽기 전용)`,
+            el('pre', { [SCROLL_KEY]: `${board.id}/pending` }, [inspection.pending.source]),
+          ),
+        ]
+      : []),
     section(
       `펌웨어${inspection.firmware ? ` v${inspection.firmware.version}` : ''} (읽기 전용)`,
       el('pre', { [SCROLL_KEY]: `${board.id}/firmware` }, [inspection.firmware?.source ?? '(없음)']),

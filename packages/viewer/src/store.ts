@@ -6,6 +6,9 @@ export type FeedItem =
 
 const FEED_LIMIT = 50;
 
+/** How long the screen tells the player that the server refused a command. */
+export const ERROR_SHOWN_MS = 5000;
+
 /** What the screens read; every change notifies the subscribers. */
 export class Store {
   hello: { connect: string; port: number } | null = null;
@@ -18,6 +21,7 @@ export class Store {
   selected: string | null = null;
   heatmap = false;
   private readonly listeners = new Set<() => void>();
+  private errorTimer: ReturnType<typeof setTimeout> | null = null;
 
   subscribe(fn: () => void): () => void {
     this.listeners.add(fn);
@@ -47,7 +51,7 @@ export class Store {
         this.inspection = { board: message.board, inspection: message.inspection };
         break;
       case 'error':
-        this.error = message.message;
+        this.showError(message.message);
         break;
     }
     this.notify();
@@ -67,6 +71,17 @@ export class Store {
   toggleHeatmap(): void {
     this.heatmap = !this.heatmap;
     this.notify();
+  }
+
+  /** A refusal is told for a few seconds; a newer one starts the time over. */
+  private showError(text: string): void {
+    this.error = text;
+    if (this.errorTimer !== null) clearTimeout(this.errorTimer);
+    this.errorTimer = setTimeout(() => {
+      this.errorTimer = null;
+      this.error = null;
+      this.notify();
+    }, ERROR_SHOWN_MS);
   }
 
   private push(...items: FeedItem[]): void {

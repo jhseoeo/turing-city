@@ -473,13 +473,13 @@ describe('GameController: events', () => {
     expect(statuses[1]).toMatchObject({ speed: 2, autoPause: ['fire'] });
     expect(heard()).toEqual(['status paused', 'status paused']);
     await c.deploy('DA', FAILING);
-    expect(heard()).toEqual(['deploy DA v1 at 0']);
+    expect(heard()).toEqual(['snapshot 0', 'deploy DA v1 at 0']); // a deploy changes the world: the new picture goes ahead of it
     await c.runUntil({ seconds: 1 });
     expect(heard()).toEqual(['snapshot 20', 'alerts firmwareError@DA']);
     await c.runUntil({ seconds: 1 });
     expect(heard()).toEqual(['snapshot 40']); // no alerts event for a batch that raised none
     await c.deploy('DB', 'function tick() end');
-    expect(heard()).toEqual(['deploy DB v1 at 2']);
+    expect(heard()).toEqual(['snapshot 40', 'deploy DB v1 at 2']);
     c.play();
     c.pause();
     expect(heard()).toEqual(['status running', 'status paused']);
@@ -541,6 +541,65 @@ describe('GameController: events', () => {
     c.close();
     c.setSpeed(2);
     expect(events).toEqual([]);
+  });
+
+  // Snapshots used to come only with a batch of steps, so a game that stood still showed neither of these.
+  it('sends the new picture of the world with a deploy, ahead of its answer, though no time passes', async () => {
+    const c = make();
+    c.setAgent(AGENT);
+    await c.startSeason(1);
+    const events: ControllerEvent[] = [];
+    c.onEvent((event) => events.push(event));
+    const heard = (): string[] => events.splice(0).map(line);
+    const boardDA = () => c.latestSnapshot()!.boards.find((b) => b.id === 'DA')!;
+
+    expect(boardDA().hasFirmware).toBe(false);
+    await c.deploy('DA', 'function tick() end');
+    expect(boardDA().hasFirmware).toBe(true); // already in date when the deploy is answered
+    expect(c.latestSnapshot()!.step).toBe(0);
+    expect(heard()).toEqual(['snapshot 0', 'deploy DA v1 at 0']);
+
+    // A request that changed nothing sends nothing.
+    await expect(c.deploy('ZZ', 'function tick() end')).rejects.toBeInstanceOf(ToolError);
+    expect(await c.deploy('DA', 'function tick( end')).toMatchObject({ ok: false });
+    expect(heard()).toEqual([]);
+  });
+
+  it('sends the new picture of the world when a rebuild starts, though no time passes', async () => {
+    const c = make();
+    c.setAgent(AGENT);
+    await c.startSeason(1);
+    await c.runUntil({ alertKinds: ['boardDestroyed'] }); // no firmware: the Luddites smash a board in the fifth game day
+    const lost = (await c.alerts(undefined)).find((a) => a.kind === 'boardDestroyed')!.facility!;
+    const intact = ['P', 'DA', 'DB'].find((id) => id !== lost)!;
+    const before = c.latestSnapshot()!;
+    const events: ControllerEvent[] = [];
+    c.onEvent((event) => events.push(event));
+
+    expect(await c.rebuild(intact)).toMatchObject({ ok: false });
+    expect(events).toEqual([]); // a refused rebuild changed nothing
+
+    expect(await c.rebuild(lost)).toEqual({ ok: true });
+    const after = c.latestSnapshot()!; // already in date when the rebuild is answered
+    expect(after.step).toBe(before.step);
+    expect(after.boards.find((b) => b.id === lost)!.status).toBe('rebuilding');
+    expect(after.money).toBe(before.money - scenario.tuning.rebuild.cost);
+    expect(events.map(line)).toEqual([`snapshot ${before.step}`]);
+  });
+
+  it('does not take a snapshot sent between batches for the answer to a batch', async () => {
+    const c = makeFor(calmScenario(), { watchdogMs: 200 }); // a town that lives through the 600 seconds
+    c.setAgent(AGENT);
+    await c.startSeason(1);
+    const first = c.latestSnapshot()!;
+    const run = c.runUntil({ seconds: 600 }); // a batch is out
+    // The worker says how the world stands between batches: the batch waiter and the watchdog belong to the batch.
+    inside(c).worker!.emit('message', { type: 'snapshot', snapshot: { ...first, money: 1234 } });
+    expect(c.latestSnapshot()!.money).toBe(1234);
+    await expect(c.runUntil({ seconds: 1 })).rejects.toThrow('already running'); // the batch is still out
+    await run;
+    expect(c.status()).toMatchObject({ state: 'paused', crash: null });
+    expect(c.latestSnapshot()!.step).toBe(12_000);
   });
 });
 

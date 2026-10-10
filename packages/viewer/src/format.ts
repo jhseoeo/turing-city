@@ -39,6 +39,14 @@ export const LED_LABELS: Record<Led, string> = {
   off: '펌웨어 없음',
 };
 
+/** The firmware a board runs and the deploy waiting to install on it, by version: '펌웨어 v2 · 설치 대기 v3'. */
+export function firmwareLabel(installed: number | null, pending: number | null): string {
+  const parts: string[] = [];
+  if (installed !== null) parts.push(`펌웨어 v${installed}`);
+  if (pending !== null) parts.push(`설치 대기 v${pending}`);
+  return parts.length > 0 ? parts.join(' · ') : '펌웨어 없음';
+}
+
 export const KIND_LABELS: Record<FacilityKind, string> = { power: '발전소', datacenter: '데이터센터' };
 
 /** Heatmap opacity for a cell's EMF: nothing under 1, at most 0.6. */

@@ -4,6 +4,7 @@ import { type MapScene, mountMap } from './map/map-scene.ts';
 import { Connection, gameSocketUrl } from './net.ts';
 import { Store } from './store.ts';
 import { renderFeed } from './ui/feed.ts';
+import { renderNotice } from './ui/notice.ts';
 import { renderOverlay } from './ui/overlay.ts';
 import { renderPanel } from './ui/panel.ts';
 import { renderStartScreen } from './ui/start-screen.ts';
@@ -26,6 +27,7 @@ function render(): void {
   $('#start').hidden = inSeason;
   $('#game').hidden = !inSeason;
   renderOverlay($('#overlay'), store, net);
+  renderNotice($('#notice'), store, inSeason);
   if (!inSeason) {
     renderStartScreen($('#start'), store, net);
     return;
