@@ -396,6 +396,18 @@ describe('game server', () => {
     expect((await fetch(`${bare.url}/`)).status).toBe(404);
   });
 
+  it('answers a dev_play with no season with an error, as the other tools do', async () => {
+    const { server, configDir } = await start({ dev: true });
+    const agent = await connectAgent(server, configDir);
+    const call = async (name: string, args: Record<string, unknown>): Promise<{ isError: boolean; text: string }> => {
+      const result = await agent.callTool({ name, arguments: args });
+      return { isError: result.isError === true, text: textOf(result) };
+    };
+    expect(await call('dev_play', {})).toEqual({ isError: true, text: "The season hasn't started: ask the player to press Start." });
+    expect(await call('dev_new_season', { seed: 1 })).toMatchObject({ isError: false });
+    expect(await call('dev_play', {})).toMatchObject({ isError: false });
+  });
+
   it('offers the dev tools only to a server started with the dev flag', async () => {
     const toolNames = async (dev: boolean): Promise<string[]> => {
       const { server, configDir } = await start({ dev });

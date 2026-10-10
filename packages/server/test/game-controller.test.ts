@@ -263,7 +263,7 @@ describe('GameController: its status and the rules of play', () => {
   it('plays only a paused season, and pauses only a running one', async () => {
     const c = make();
     c.setAgent(AGENT);
-    c.play();
+    expect(() => c.play()).toThrow("The season hasn't started"); // there is nothing to play, and the caller is told so
     c.pause();
     expect(c.status().state).toBe('idle');
     await c.startSeason(1);
@@ -731,6 +731,7 @@ describe('GameController: requests', () => {
     await expect(c.runUntil({ seconds: 600 })).rejects.toThrow('stopped');
     await expect(c.listBoards()).rejects.toBeInstanceOf(ToolError);
     await expect(c.deploy('DA', 'function tick() end')).rejects.toBeInstanceOf(ToolError);
+    expect(() => c.play()).toThrow('The season crashed');
     await c.startSeason(1);
     expect(c.status()).toMatchObject({ state: 'paused', crash: null });
     expect(await c.listBoards()).toHaveLength(3);

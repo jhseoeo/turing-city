@@ -99,16 +99,19 @@ export interface Stats {
 
 export type EndKind = 'completed' | 'bankrupt' | 'fallen';
 
-export type AlertKind =
-  | 'raid'
-  | 'ludditesNear'
-  | 'boardDestroyed'
-  | 'fire'
-  | 'overheat'
-  | 'powerShortage'
-  | 'firmwareError'
-  | 'moneyBelowZero'
-  | 'seasonEnd';
+/** Every kind of alert. Whatever names a kind from outside (the dev tools, the viewer's auto-pause) refuses any other. */
+export const ALERT_KINDS = [
+  'raid',
+  'ludditesNear',
+  'boardDestroyed',
+  'fire',
+  'overheat',
+  'powerShortage',
+  'firmwareError',
+  'moneyBelowZero',
+  'seasonEnd',
+] as const;
+export type AlertKind = (typeof ALERT_KINDS)[number];
 
 export interface Alert {
   readonly id: number;

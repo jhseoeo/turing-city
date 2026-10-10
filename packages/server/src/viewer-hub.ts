@@ -1,6 +1,6 @@
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
-import type { AlertKind, ControllerEvent, ServerToViewer, ViewerToServer } from '@turing-city/core';
+import { ALERT_KINDS, type ControllerEvent, type ServerToViewer, type ViewerToServer } from '@turing-city/core';
 import { type WebSocket, WebSocketServer } from 'ws';
 import { z } from 'zod';
 import type { GameController } from './game-controller.ts';
@@ -34,20 +34,6 @@ function toMessage(event: ControllerEvent): ServerToViewer {
 /** The most a viewer's message may weigh. A command is a few dozen bytes; a bigger message closes its connection. */
 const MAX_MESSAGE_BYTES = 64 * 1024;
 
-/** Every alert kind. A Record, so the compiler fails when core gets a kind that is not listed here. */
-const ALERT_KINDS: Record<AlertKind, true> = {
-  raid: true,
-  ludditesNear: true,
-  boardDestroyed: true,
-  fire: true,
-  overheat: true,
-  powerShortage: true,
-  firmwareError: true,
-  moneyBelowZero: true,
-  seasonEnd: true,
-};
-const KIND_NAMES = Object.keys(ALERT_KINDS) as [AlertKind, ...AlertKind[]];
-
 const boardId = z.string().min(1).max(32);
 
 /** What a viewer may send: the commands of ViewerToServer, exactly. Nothing else reaches the controller. */
@@ -57,7 +43,7 @@ const viewerCommand: z.ZodType<ViewerToServer> = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('pause') }),
   z.strictObject({ type: z.literal('speed'), speed: z.literal([1, 2, 3]) }),
   z.strictObject({ type: z.literal('rebuild'), board: boardId }),
-  z.strictObject({ type: z.literal('autoPause'), kinds: z.array(z.enum(KIND_NAMES)).max(KIND_NAMES.length) }),
+  z.strictObject({ type: z.literal('autoPause'), kinds: z.array(z.enum(ALERT_KINDS)).max(ALERT_KINDS.length) }),
   z.strictObject({ type: z.literal('reissueToken') }),
   z.strictObject({ type: z.literal('inspect'), board: boardId }),
 ]);

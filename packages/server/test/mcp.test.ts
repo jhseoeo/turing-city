@@ -359,6 +359,10 @@ describe('what the agent is given beyond the eight tools', () => {
       ['dev_run_until', { seconds: 0 }],
       ['dev_run_until', { seconds: -3 }],
       ['dev_run_until', { alertKinds: 'raid' }],
+      // A kind that does not exist would never be raised, and the run would go on to the end of the season.
+      ['dev_run_until', { alertKinds: ['raidd'] }],
+      ['dev_run_until', { alertKinds: ['raid', 'nope'] }],
+      ['dev_run_until', { seconds: 5, alertKinds: [''] }],
       ['dev_new_season', { seed: 1.5 }],
       ['dev_new_season', {}],
     ];

@@ -4,7 +4,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { EmptyResultSchema } from '@modelcontextprotocol/sdk/types.js';
-import { AGENT_INSTRUCTIONS, AGENT_TOOLS, type AgentStatus, type AlertKind, type GameApi } from '@turing-city/core';
+import { AGENT_INSTRUCTIONS, AGENT_TOOLS, type AgentStatus, ALERT_KINDS, type AlertKind, type GameApi } from '@turing-city/core';
 import { z } from 'zod';
 
 /** Time control for QA agents. Never part of the game: it exists only with the server's --dev flag. */
@@ -126,14 +126,15 @@ export function createMcpEndpoint(options: McpOptions): {
       mcp.registerTool(
         'dev_run_until',
         {
-          description: 'DEV: run as fast as possible while paused, for some game seconds or until an alert of one of the kinds.',
-          inputSchema: { seconds: z.number().positive().optional(), alertKinds: z.array(z.string()).optional() },
+          description:
+            'DEV: run as fast as possible while paused, for some game seconds or until an alert of one of the kinds. It stops at the end of the batch in which the goal is met, up to 10 game seconds late (a batch is up to 200 steps).',
+          inputSchema: { seconds: z.number().positive().optional(), alertKinds: z.array(z.enum(ALERT_KINDS)).optional() },
         },
         async ({ seconds, alertKinds }) =>
           run(async () => {
             await dev.runUntil({
               ...(seconds === undefined ? {} : { seconds }),
-              ...(alertKinds === undefined ? {} : { alertKinds: alertKinds as AlertKind[] }),
+              ...(alertKinds === undefined ? {} : { alertKinds }),
             });
             return ok;
           }),

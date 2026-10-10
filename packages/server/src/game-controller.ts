@@ -151,6 +151,7 @@ export class GameController {
 
   play(): void {
     if (!this.agent.connected) throw new Error('connect an agent first');
+    if (this.state === 'idle' || this.state === 'crashed') throw this.noSeason(); // nothing to play, and the caller is to hear it
     if (this.state !== 'paused') return;
     this.state = 'running';
     this.post({ type: 'mark', kind: 'resume' });
