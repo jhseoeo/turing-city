@@ -3,28 +3,37 @@ import type { LuaWasm } from 'wasmoon';
 import { ACTION_CODES, BoardVm } from './board-vm.ts';
 import { createLuaRuntime } from './runtime.ts';
 
-/** Turns the VM's flat number queue into actions. An unknown code ends the decoding. */
+/**
+ * Turns the VM's flat number queue into actions. A facility travels as its index from 1 in facilityIds. An index that names none
+ * drops its id from a priority list, and drops a dispatch whole. An unknown code ends the decoding.
+ */
 export function decodeActions(queue: readonly number[], facilityIds: readonly string[]): Action[] {
   const out: Action[] = [];
   let i = 0;
   const next = (): number => queue[i++] ?? 0;
+  const facility = (): string | undefined => facilityIds[next() - 1];
   while (i < queue.length) {
     const code = next();
     if (code === ACTION_CODES.process) out.push({ kind: 'process' });
-    else if (code === ACTION_CODES.cool) {
-      next(); // the level milestone 1's io.cool(level) still pushes: a cycle has none
-      out.push({ kind: 'cool' });
-    } else if (code === ACTION_CODES.setThermal) out.push({ kind: 'setThermal', output: next() });
+    else if (code === ACTION_CODES.cool) out.push({ kind: 'cool' });
+    else if (code === ACTION_CODES.setThermal) out.push({ kind: 'setThermal', output: next() });
     else if (code === ACTION_CODES.setPriority) {
       const n = next();
       const order: string[] = [];
       for (let k = 0; k < n; k++) {
-        const id = facilityIds[next() - 1];
+        const id = facility();
         if (id !== undefined) order.push(id);
       }
       out.push({ kind: 'setPriority', order });
     } else if (code === ACTION_CODES.sleep) out.push({ kind: 'sleep', seconds: next() });
-    else break;
+    else if (code === ACTION_CODES.harvest) out.push({ kind: 'harvest' });
+    else if (code === ACTION_CODES.dispatch) {
+      const truck = next();
+      const from = facility();
+      const to = facility();
+      const amount = next();
+      if (from !== undefined && to !== undefined) out.push({ kind: 'dispatch', truck, from, to, amount });
+    } else break;
   }
   return out;
 }

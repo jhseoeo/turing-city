@@ -1,28 +1,44 @@
-import { type BoardKind, type BootInfo, parseScenario, Session } from '@turing-city/core';
+import { type BootInfo, parseScenario, Session, takesBoard } from '@turing-city/core';
 import { describe, expect, it, vi } from 'vitest';
 import m1 from '../../../scenarios/m1-power.json' with { type: 'json' };
+import m2 from '../../../scenarios/m2-town.json' with { type: 'json' };
 import { BoardVm } from '../src/board-vm.ts';
 import { decodeActions, WasmoonHost } from '../src/host.ts';
 
+/** The whole town's ids, in scenario order. */
+const TOWN = ['H1', 'H2', 'P', 'DA', 'W', 'DB', 'F1', 'F2', 'F3'];
+
 describe('decodeActions', () => {
   it('turns the queue into actions, with facility ids', () => {
-    expect(decodeActions([1, 2, 3, 3, 250, 4, 2, 3, 2, 5, 20], ['P', 'DA', 'DB'])).toEqual([
+    expect(decodeActions([1, 2, 3, 250, 4, 2, 6, 4, 5, 20, 6, 7, 2, 7, 5, 30], TOWN)).toEqual([
       { kind: 'process' },
-      { kind: 'cool' }, // a cycle has no level: the 3 that io.cool(3) pushed is read and dropped
+      { kind: 'cool' },
       { kind: 'setThermal', output: 250 },
       { kind: 'setPriority', order: ['DB', 'DA'] },
       { kind: 'sleep', seconds: 20 },
+      { kind: 'harvest' },
+      { kind: 'dispatch', truck: 2, from: 'F1', to: 'W', amount: 30 },
     ]);
   });
+
   it('stops at an unknown code', () => {
     expect(decodeActions([1, 9, 1], [])).toEqual([{ kind: 'process' }]);
+  });
+
+  it('drops a dispatch that names no facility, and goes on after it', () => {
+    expect(decodeActions([7, 1, 99, 5, 3, 1], TOWN)).toEqual([{ kind: 'process' }]);
+  });
+
+  it('drops a dispatch whose destination names none either, and an unknown facility from a priority list', () => {
+    expect(decodeActions([7, 1, 5, 99, 3, 1], TOWN)).toEqual([{ kind: 'process' }]);
+    expect(decodeActions([4, 3, 2, 99, 3], TOWN)).toEqual([{ kind: 'setPriority', order: ['H2', 'P'] }]);
   });
 });
 
 describe('WasmoonHost in a session', () => {
   it('runs deployed Lua, applies its actions, and reboots it after a sleep with empty mem', async () => {
     const session = new Session(parseScenario(m1), 7, await WasmoonHost.create());
-    session.world.plant.thermalSetting = 1_000; // plenty of power: DA's job and its cooling are never shed
+    session.world.plant.thermalSetting = 300; // plenty of power: DA's job is never shed
     session.deploy(
       'DA',
       `
@@ -31,18 +47,24 @@ describe('WasmoonHost in a session', () => {
         io.log("tick", mem.n)
         if mem.n == 2 then io.sleep(1) return end
         io.process()
-        io.cool(1)
       end`,
     );
-    for (let i = 0; i < 4; i++) session.step(); // DA's first beat is step 3
-    const dc = session.world.datacenters.DA!;
-    expect(dc).toMatchObject({ busyFrom: 4, busyUntil: 14, coolFrom: 4, coolUntil: 84 }); // a job of 0.5 s and a cycle of 4 s
+    for (let i = 0; i < 4; i++) session.step(); // DA's first beat is step 3: a job from step 4, half a second long
+    expect(session.world.datacenters.DA!).toMatchObject({ busyFrom: 4, busyUntil: 14 });
     for (let i = 0; i < 4; i++) session.step(); // second beat at 7: sleep 1 s
     const da = session.world.boards[1]!;
     expect(da.status).toBe('asleep');
     for (let i = 0; i < 20; i++) session.step(); // wakes at 27; beat at 27 reboots
     const logs = da.log.filter((l) => l.kind === 'log').map((l) => l.text);
     expect(logs).toEqual(['tick\t1', 'tick\t2', 'tick\t1']);
+    session.close();
+  });
+
+  it('starts a cooling cycle with io.cool(), which takes no level', async () => {
+    const session = new Session(parseScenario(m1), 7, await WasmoonHost.create());
+    session.deploy('DA', 'function tick(io) io.cool() end');
+    for (let i = 0; i < 4; i++) session.step(); // DA's first beat is step 3: a cycle from step 4, four seconds long
+    expect(session.world.datacenters.DA!).toMatchObject({ coolFrom: 4, coolUntil: 84 });
     session.close();
   });
 
@@ -61,6 +83,50 @@ describe('WasmoonHost in a session', () => {
     session.step(); // P's first beat is step 0
     expect(session.world.plant.thermalSetting).toBe(250);
     expect(session.world.plant.priority).toEqual(['DB', 'DA']);
+    session.close();
+  });
+
+  it("reads a warehouse's farms and trucks as tables, and sends a truck to a farm that has no board", async () => {
+    const session = new Session(parseScenario(m2), 7, await WasmoonHost.create());
+    session.world.plant.thermalSetting = 300; // power for the whole town and the warehouse's board
+    expect(session.install('W', 'board')).toEqual({ ok: true });
+    session.world.farms.F1!.outbox = 30;
+    session.deploy(
+      'W',
+      `
+      function tick(io)
+        local t = io.trucks[1]
+        io.log(#io.trucks, t.status, io.farms[1].id, io.farms[1].outbox)
+        if t.status == "idle" then io.dispatch(t.id, "F1", "W", 30) end
+      end`,
+    );
+    for (let i = 0; i < 7; i++) session.step(); // W beats every 10 steps (2 Hz), first at step 6: its phase (its index, 4) and the step add up to 10
+    const w = session.world.boards.find((b) => b.id === 'W')!;
+    expect(w.log.filter((l) => l.kind === 'log').map((l) => l.text)).toEqual(['2\tidle\tF1\t30']);
+    expect(session.world.warehouses.W!.trucks[0]).toMatchObject({
+      status: 'outbound',
+      job: { kind: 'collect', targetId: 'F1', amount: 30 },
+    });
+    session.close();
+  });
+
+  it("harvests a farm's crop with io.harvest(), which reads ripeness and outbox", async () => {
+    const session = new Session(parseScenario(m2), 7, await WasmoonHost.create());
+    session.world.plant.thermalSetting = 300; // power for the whole town and the farm's board
+    expect(session.install('F1', 'board')).toEqual({ ok: true });
+    session.deploy('F1', 'function tick(io) io.log(io.ripeness, io.outbox) if io.ripeness == 100 then io.harvest() end end');
+    // The crop of m2's farm ripens in 800 steps. F1 beats every 20 steps (1 Hz) from step 14: its phase (its index, 6) and the step add up to 20.
+    while (session.world.step <= 814) session.step();
+    const logs = (): string[] =>
+      session.world.boards
+        .find((b) => b.id === 'F1')!
+        .log.filter((l) => l.kind === 'log')
+        .map((l) => l.text);
+    expect(logs().slice(0, 2)).toEqual(['1\t0', '4\t0']); // the beats at 14 and 34 read 1 and 4 percent
+    expect(logs().at(-1)).toBe('100\t0'); // the beat at 814 reads a ripe crop, and harvests: like every firmware action, from step 815
+    expect(session.world.farms.F1).toEqual({ plantedAt: 815, outbox: 40 });
+    while (session.world.step <= 834) session.step();
+    expect(logs().at(-1)).toBe('2\t40'); // the new crop is 19 steps old, and the harvest waits in the outbox
     session.close();
   });
 
@@ -108,7 +174,8 @@ describe('WasmoonHost lifetime', () => {
   const scenario = parseScenario(m1);
   const bootInfo = (boardId: string): BootInfo => {
     const f = scenario.facilities.find((x) => x.id === boardId)!;
-    return { boardId, kind: f.kind as BoardKind, spec: f.board!, facilityIds: scenario.facilities.map((x) => x.id), seed: 1 };
+    if (!takesBoard(f.kind) || f.board === null) throw new Error(`${boardId} takes no board`);
+    return { boardId, kind: f.kind, spec: f.board, facilityIds: scenario.facilities.map((x) => x.id), seed: 1 };
   };
 
   it("closes a board's VM when it shuts down or boots again, and every VM when the host closes", async () => {

@@ -150,6 +150,34 @@ describe('hostile firmware', () => {
     expect(reports[1]?.elapsedMs).toBeLessThan(BUDGET_MS);
   });
 
+  it('does not run firmware metamethods on a list or a record of readings, when the host writes the next frame into them', async () => {
+    // The firmware traps writes and lengths on a list of its readings and on a record in it, then clears a field and an item.
+    // The host writes the next frame into those very tables: with anything but raw access, the traps would run uncounted there.
+    const reports = await runTicks([
+      'function tick(io) local trap = { __newindex = function() while true do end end, __len = function() while true do end end } setmetatable(io.farms, trap) setmetatable(io.farms[1], trap) io.farms[1].outbox = nil io.farms[2] = nil end',
+      null,
+    ]);
+    expect(reports).not.toBe('hung');
+    if (reports === 'hung') return;
+    expect(reports[1]?.kind).toBeNull();
+    expect(reports[1]?.elapsedMs).toBeLessThan(BUDGET_MS);
+  });
+
+  it('does not run firmware metamethods when the host clears the items that its list of readings has outgrown', async () => {
+    // The firmware leaves items past the end of its two-item list, with gaps between them (3, 4, and 8), and traps writes to it.
+    // The next frame clears them from the list's border down: the gaps are absent keys, where a write that is not raw would run
+    // the trap, uncounted. The second tick runs the same firmware, which does nothing now: a write of its own to a cleared key
+    // would run the trap inside the tick, and the cap would stop it as cpu.
+    const reports = await runTicks([
+      'function tick(io, mem) if mem.done then return end mem.done = true io.farms[3] = 1 io.farms[4] = 1 io.farms[8] = 1 setmetatable(io.farms, { __newindex = function() while true do end end }) end',
+      null,
+    ]);
+    expect(reports).not.toBe('hung');
+    if (reports === 'hung') return;
+    expect(reports[1]?.kind).toBeNull();
+    expect(reports[1]?.elapsedMs).toBeLessThan(BUDGET_MS);
+  });
+
   it('does not close a coroutine that the cap killed, on a later tick either', async () => {
     // Tick 1 starts a coroutine with a <close> handler and the cap kills it: it dies with its hooks off. Closing it on
     // tick 2 with coroutine.close would run the handler uncounted. The sandbox has no coroutine.close, so tick 2 fails

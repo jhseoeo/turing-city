@@ -31,11 +31,11 @@ describe('BoardVm', () => {
         mem.n = (mem.n or 0) + 1
         io.log("n", mem.n, io.temp, io.price)
         if io.temp < 80 then io.process() end
-        io.cool(2)
+        io.cool()
       end`,
     );
     expect(r.ok).toBe(true);
-    expect(r.queue).toEqual([1, 2, 2]);
+    expect(r.queue).toEqual([1, 2]);
     expect(r.logs).toEqual(['n\t1\t70\t40']);
     expect(r.instructions).toBeGreaterThan(20);
     expect(r.instructions).toBeLessThan(400);
@@ -76,10 +76,9 @@ describe('BoardVm', () => {
   });
 
   it('caps the action queue at 64 numbers, whole actions only', () => {
-    const v = vm({ instructionCap: 20_000 }); // 100 io.cool calls take about 2,900 instructions
-    const r = v.tick(SENSORS, `function tick(io) for i = 1, 100 do io.cool(1) end end`);
-    expect(r.queue).toHaveLength(64);
-    expect(r.queue.every((n) => n === 2 || n === 1)).toBe(true);
+    const v = vm({ instructionCap: 20_000 }); // 100 io.cool() calls take a few thousand instructions
+    const r = v.tick(SENSORS, `function tick(io) for i = 1, 100 do io.cool() end end`);
+    expect(r.queue).toEqual(Array.from({ length: 64 }, () => 2));
     v.close();
   });
 
@@ -247,17 +246,17 @@ describe('BoardVm', () => {
   });
 
   it('drops an action that does not fit whole at the 64-number limit, and still takes a later one that fits', () => {
-    const v = vm({ instructionCap: 20_000 });
-    // 31 cool(1) calls are 62 numbers and process() makes 63. The next cool(1) would reach 65 and is dropped whole;
-    // the last process() fits at 64.
-    const r = v.tick(SENSORS, `function tick(io) for i = 1, 31 do io.cool(1) end io.process() io.cool(1) io.process() end`);
-    expect(r.queue).toEqual([...Array.from({ length: 31 }, () => [2, 1]).flat(), 1, 1]);
-    v.close();
+    const p = vm({ kind: 'power', instructionCap: 20_000 });
+    // 31 set_thermal(1) calls are 62 numbers. set_priority({"DA"}) needs three more and would reach 65: it is dropped whole.
+    // The last set_thermal(7) needs two, which fit at 64.
+    const r = p.tick(SENSORS, `function tick(io) for i = 1, 31 do io.set_thermal(1) end io.set_priority({"DA"}) io.set_thermal(7) end`);
+    expect(r.queue).toEqual([...Array.from({ length: 31 }, () => [3, 1]).flat(), 3, 7]);
+    p.close();
   });
 
   it('returns no actions from a tick that failed after queueing some', () => {
     const v = vm();
-    const r = v.tick(SENSORS, `function tick(io) io.process() io.cool(2) error("after", 0) end`);
+    const r = v.tick(SENSORS, `function tick(io) io.process() io.cool() error("after", 0) end`);
     expect(r.ok).toBe(false);
     expect(r.queue).toEqual([]);
     v.close();
@@ -535,7 +534,7 @@ describe('BoardVm', () => {
     it("does not count the host's queue and log arrays as firmware data", () => {
       // The same firmware and sensors on two boards, so that only the history differs: one of them once queued 64
       // numbers and logged 20 lines, which grows the two arrays for good. Each redeploy collects before it reads.
-      const noisy = `function tick(io) if io.noisy == 1 then for i = 1, 20 do io.log("x") end for i = 1, 32 do io.cool(1) end end end`;
+      const noisy = `function tick(io) if io.noisy == 1 then for i = 1, 20 do io.log("x") end for i = 1, 64 do io.cool() end end end`;
       const a = vm({ instructionCap: 20_000 });
       a.tick({ ...SENSORS, noisy: 1 }, noisy);
       const after = a.tick({ ...SENSORS, noisy: 0 }, noisy).ramUsedBytes;
@@ -592,11 +591,11 @@ describe('BoardVm', () => {
       expect(v.tick(SENSORS, spoil).error).toBeNull();
       const r = v.tick(
         SENSORS,
-        `function tick(io, mem) io.log(type(io.cool), io.foo, io.nothing, getmetatable(io), mem.kept, io.temp) io.cool(1) end`,
+        `function tick(io, mem) io.log(type(io.cool), io.foo, io.nothing, getmetatable(io), mem.kept, io.temp) io.cool() end`,
       );
       expect(r.error).toBeNull();
       expect(r.logs).toEqual(['function\tnil\tnil\tnil\ttrue\t70']);
-      expect(r.queue).toEqual([2, 1]);
+      expect(r.queue).toEqual([2]);
       v.close();
     });
 
@@ -804,6 +803,180 @@ describe('BoardVm', () => {
         io.log(select(2, pcall(g)))
         io.log(select(2, pcall(g)))`);
       expect(r.logs).toEqual(['false\ttable\t7', 'boom', 'cannot resume dead coroutine']);
+    });
+  });
+
+  describe('structured sensors, and the actions of farms and warehouses', () => {
+    // The whole town's ids, in scenario order: firmware names a facility by id, and the queue carries its index from 1.
+    const TOWN = ['H1', 'H2', 'P', 'DA', 'W', 'DB', 'F1', 'F2', 'F3'];
+    const WAREHOUSE = {
+      stock: 3,
+      farms: [
+        { id: 'F1', outbox: 11, distance: 12 },
+        { id: 'F2', outbox: 0, distance: 11 },
+      ],
+      housing: [{ id: 'H1', food: 7.5, residents: 40, distance: 14 }],
+      trucks: [
+        { id: 1, status: 'idle', x: 11, y: 6, load: 0, target: undefined },
+        { id: 2, status: 'outbound', x: 9, y: 6, load: 9, target: 'H1' },
+      ],
+      day: 1,
+      clock: 0.5,
+    };
+    const warehouse = () => vm({ kind: 'warehouse', facilityIds: TOWN, instructionCap: 3000, ramBytes: 16 * 1024 });
+
+    it('writes lists as sequences from 1 and records as tables with string keys, with strings, floats, and nil inside', () => {
+      const v = warehouse();
+      const r = v.tick(
+        WAREHOUSE,
+        `function tick(io)
+          local t1, t2 = io.trucks[1], io.trucks[2]
+          io.log(io.stock, #io.farms, io.farms[1].id, io.farms[2].outbox, io.housing[1].food, #io.trucks, t1.status, t1.target, t2.target, t2.load)
+        end`,
+      );
+      expect(r.error).toBeNull();
+      expect(r.logs).toEqual(['3\t2\tF1\t0\t7.5\t2\tidle\tnil\tH1\t9']);
+      v.close();
+    });
+
+    it('writes the readings again every tick, whatever the firmware did to them, and clears what a shorter list no longer holds', () => {
+      const v = warehouse();
+      const tamper = `function tick(io, mem)
+        if mem.seen then io.log(#io.farms, io.farms[1].outbox, type(io.trucks), io.farms[3] == nil) return end
+        mem.seen = true
+        io.farms[1].outbox = 99 io.farms[3] = { id = "ZZ" } io.trucks = nil
+      end`;
+      expect(v.tick(WAREHOUSE, tamper).error).toBeNull();
+      expect(v.tick(WAREHOUSE, null).logs).toEqual(['2\t11\ttable\ttrue']);
+      // A list that comes shorter loses its last items.
+      expect(v.tick({ ...WAREHOUSE, farms: [WAREHOUSE.farms[0]!] }, null).logs).toEqual(['1\t11\ttable\ttrue']);
+      v.close();
+    });
+
+    it('gives each deploy tables of its own, so that what a firmware stored in them does not reach the next', () => {
+      const v = warehouse();
+      expect(v.tick(WAREHOUSE, `function tick(io) io.farms[1].note = "old" io.farms.extra = 1 end`).error).toBeNull();
+      const r = v.tick(WAREHOUSE, `function tick(io) io.log(io.farms[1].note, io.farms.extra, io.farms[1].id) end`);
+      expect(r.logs).toEqual(['nil\tnil\tF1']);
+      v.close();
+    });
+
+    it('counts the readings as part of the board, and writes them every tick without allocating', () => {
+      const tiny = `function tick() end`;
+      const v = warehouse();
+      const used = [v.tick(WAREHOUSE, tiny).ramUsedBytes];
+      for (let i = 0; i < 20; i++) used.push(v.tick(WAREHOUSE, null).ramUsedBytes);
+      // Writing the readings again leaves nothing behind. New tables every tick would read higher and higher, as garbage piles up.
+      expect(Math.max(...used) - Math.min(...used)).toBeLessThan(64);
+      // The readings of the first frame are the board's own, as a flat frame's keys are.
+      const bare = warehouse();
+      expect(Math.abs(used[0]! - bare.tick({ day: 1, clock: 0.5 }, tiny).ramUsedBytes)).toBeLessThan(64);
+      v.close();
+      bare.close();
+    });
+
+    it('encodes dispatch with facility indexes, refuses an unknown facility, and keeps a dispatch whole at the 64-number limit', () => {
+      const v = warehouse();
+      // F1 is 7, W is 5, H2 is 2.
+      const r = v.tick(WAREHOUSE, `function tick(io) io.dispatch(2, "F1", "W", 30) io.dispatch(1, "W", "H2", 5) end`);
+      expect(r.queue).toEqual([7, 2, 7, 5, 30, 7, 1, 5, 2, 5]);
+      for (const call of ['io.dispatch(1, "ZZ", "W", 1)', 'io.dispatch(1, "F1", nil, 1)']) {
+        const bad = v.tick(WAREHOUSE, `function tick(io) ${call} end`);
+        expect(bad.ok, call).toBe(false);
+        expect(bad.error?.message, call).toMatch(/^firmware:1: unknown facility: (ZZ|nil)$/);
+      }
+      // Twelve dispatches are 60 numbers. A thirteenth would reach 65 and is dropped whole; a sleep's two numbers still fit.
+      const full = v.tick(WAREHOUSE, `function tick(io) for i = 1, 13 do io.dispatch(1, "F1", "W", 1) end io.sleep(1) end`);
+      expect(full.queue).toEqual([...Array.from({ length: 12 }, () => [7, 1, 7, 5, 1]).flat(), 5, 1]);
+      v.close();
+    });
+
+    it('gives a farm io.harvest(), a datacenter an io.cool() with no level, and each kind only its own actions', () => {
+      const farm = vm({ kind: 'farm', facilityIds: TOWN });
+      expect(farm.tick(SENSORS, `function tick(io) io.harvest() end`).queue).toEqual([6]);
+      expect(farm.tick(SENSORS, `function tick(io) io.process() end`).error?.message).toBe(
+        "firmware:1: attempt to call a nil value (field 'process')",
+      );
+      farm.close();
+      const dc = vm();
+      // A level that firmware still passes changes nothing: a cycle is a cycle.
+      expect(dc.tick(SENSORS, `function tick(io) io.cool() io.cool(3) io.process() end`).queue).toEqual([2, 2, 1]);
+      for (const call of ['io.harvest()', 'io.dispatch(1, "F1", "W", 1)']) {
+        expect(dc.tick(SENSORS, `function tick(io) ${call} end`).ok, call).toBe(false);
+      }
+      dc.close();
+    });
+
+    it("keeps the old firmware's tables when a deploy does not compile, as it keeps its io", () => {
+      const v = warehouse();
+      const count = `function tick(io) io.farms[1].n = (io.farms[1].n or 0) + 1 io.log(io.farms[1].n) end`;
+      expect(v.tick(WAREHOUSE, count).logs).toEqual(['1']);
+      expect(v.tick(WAREHOUSE, `function tick( end`).ok).toBe(false);
+      // Still the same firmware, in the tables it already had; a new one starts with tables of its own.
+      expect(v.tick(WAREHOUSE, null).logs).toEqual(['2']);
+      expect(v.tick(WAREHOUSE, `function tick(io) io.log(io.farms[1].n) end`).logs).toEqual(['nil']);
+      v.close();
+    });
+
+    it('writes lists and records nested in each other, each in a table of its own', () => {
+      const v = warehouse();
+      const look = `function tick(io)
+        io.log(#io.grid, #io.grid[1], io.grid[1][2], #io.grid[2], io.grid[2][1], #(io.grid[3] or {}), io.at.x, io.at.y.n, io.at.y.tags[2], io.grid[1] ~= io.grid[2], io.at ~= io.at.y)
+      end`;
+      const first = v.tick({ grid: [[1, 2], [3]], at: { x: 4, y: { n: 5, tags: ['a', 'b'] } } }, look);
+      expect(first.logs).toEqual(['2\t2\t2\t1\t3\t0\t4\t5\tb\ttrue\ttrue']);
+      // The next frame goes into the same tables, and an inner list that comes shorter loses its last item.
+      const shorter = v.tick({ grid: [[1], [3]], at: { x: 6, y: { n: 7, tags: [] } } }, null);
+      expect(shorter.logs).toEqual(['2\t1\tnil\t1\t3\t0\t6\t7\tnil\ttrue\ttrue']);
+      // A list can come longer after the first frame too.
+      const longer = v.tick({ grid: [[1], [3], [5, 6, 7]], at: { x: 8, y: { n: 9, tags: ['c', 'd'] } } }, null);
+      expect(longer.logs).toEqual(['3\t1\tnil\t1\t3\t3\t8\t9\td\ttrue\ttrue']);
+      v.close();
+    });
+
+    it('clears a reading that turns nil, in a record and at the top, where the last frame had a value', () => {
+      const v = warehouse();
+      const look = `function tick(io) io.log(io.luddite_dist, io.trucks[1].target, io.trucks[1].status) end`;
+      expect(v.tick({ luddite_dist: 3, trucks: [{ status: 'outbound', target: 'H1' }] }, look).logs).toEqual(['3\tH1\toutbound']);
+      // The truck is back and idle, and no Luddites are on the map: nothing is left of what the last frame said.
+      expect(v.tick({ luddite_dist: undefined, trucks: [{ status: 'idle', target: undefined }] }, null).logs).toEqual(['nil\tnil\tidle']);
+      v.close();
+    });
+
+    it('turns what a dispatch gets as a truck or an amount into a number, and what is no number into 0', () => {
+      const v = warehouse();
+      expect(v.tick(WAREHOUSE, `function tick(io) io.dispatch("2", "F1", "W", "30") end`).queue).toEqual([7, 2, 7, 5, 30]);
+      // Five numbers for each dispatch, whatever was passed: nothing that is no number leaves a hole that puts the decoder out of step.
+      const odd = v.tick(WAREHOUSE, `function tick(io) io.dispatch(nil, "F1", "W", {}) io.dispatch(1, "F1", "W") end`);
+      expect(odd.queue).toEqual([7, 0, 7, 5, 0, 7, 1, 7, 5, 0]);
+      v.close();
+    });
+
+    it("prints no address in dispatch's error either", () => {
+      const v = warehouse();
+      const decoy = `local d = setmetatable({}, { __metatable = { __tostring = true } })`;
+      for (const call of ['io.dispatch(1, d, "W", 1)', 'io.dispatch(1, "F1", d, 1)']) {
+        const r = v.tick(WAREHOUSE, `function tick(io) ${decoy} ${call} end`);
+        expect(r.error?.message, call).toBe('firmware:1: unknown facility: table');
+      }
+      v.close();
+    });
+
+    it.each([
+      ['datacenter', 'cool,log,process,sleep'],
+      ['power', 'log,set_priority,set_thermal,sleep'],
+      ['farm', 'harvest,log,sleep'],
+      ['warehouse', 'dispatch,log,sleep'],
+    ] as const)('gives a %s board these io functions and no others: %s', (kind, names) => {
+      const v = vm({ kind, facilityIds: TOWN });
+      const list = `function tick(io)
+        local n = {}
+        for k, f in pairs(io) do if type(f) == "function" then n[#n + 1] = k end end
+        table.sort(n)
+        io.log(table.concat(n, ","))
+      end`;
+      expect(v.tick(SENSORS, list).logs).toEqual([names]);
+      v.close();
     });
   });
 });

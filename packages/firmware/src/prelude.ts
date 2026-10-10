@@ -259,13 +259,15 @@ function __boot(kind, fids, seed)
   for k = 1, 64 do q[k] = nil end
   for k = 1, 20 do logs[k] = "" end
   for k = 1, 20 do logs[k] = nil end
+  -- Firmware names facilities by id, and the queue carries each one's index in fids: every facility of the town, in order.
   local fidx = {}
   for k = 1, #fids do fidx[fids[k]] = k end
   actions.log = log
   actions.sleep = function(seconds) push(5, tonumber(seconds) or 0) end
   if kind == "datacenter" then
     actions.process = function() push(1) end
-    actions.cool = function(level) push(2, tonumber(level) or 0) end
+    -- One cooling cycle; while one runs, another call does nothing (the game's rule, not the prelude's).
+    actions.cool = function() push(2) end
   elseif kind == "power" then
     actions.set_thermal = function(output) push(3, tonumber(output) or 0) end
     actions.set_priority = function(list)
@@ -277,6 +279,15 @@ function __boot(kind, fids, seed)
         idx[k] = i
       end
       push(4, #idx, T.unpack(idx))
+    end
+  elseif kind == "farm" then
+    actions.harvest = function() push(6) end
+  elseif kind == "warehouse" then
+    actions.dispatch = function(truck, from, to, amount)
+      local f, t = fidx[from], fidx[to]
+      if not f then error("unknown facility: " .. safe_tostring(from), 2) end
+      if not t then error("unknown facility: " .. safe_tostring(to), 2) end
+      push(7, tonumber(truck) or 0, f, t, tonumber(amount) or 0)
     end
   end
   return fresh_io()

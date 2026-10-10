@@ -3,7 +3,7 @@ import { MICRO } from '../src/fixed.ts';
 import { stateHash } from '../src/hash.ts';
 import { replay, Session } from '../src/session.ts';
 import { FakeHost } from './helpers/fake-host.ts';
-import { m1Scenario } from './helpers/scenarios.ts';
+import { m1Scenario, m2Scenario } from './helpers/scenarios.ts';
 
 const SEED = 1234;
 
@@ -175,5 +175,16 @@ describe('Session', () => {
   it('rejects a deploy to an unknown board', () => {
     const s = new Session(m1Scenario(), SEED, new FakeHost());
     expect(() => s.deploy('ZZ', 'x')).toThrow('unknown board ZZ');
+  });
+
+  it('boots a board knowing every facility of the town by id, those without a board too', () => {
+    const host = new FakeHost();
+    const src = host.program('noop', () => ({}));
+    const s = new Session(m2Scenario(), SEED, host);
+    s.world.plant.thermalSetting = 300;
+    expect(s.install('W', 'board')).toEqual({ ok: true });
+    s.deploy('W', src);
+    run(s, 7); // W's first beat is step 6: its phase (its index, 4) and the step make a multiple of its period (10)
+    expect(host.boots.map((b) => [b.boardId, b.facilityIds])).toEqual([['W', ['H1', 'H2', 'P', 'DA', 'W', 'DB', 'F1', 'F2', 'F3']]]);
   });
 });
