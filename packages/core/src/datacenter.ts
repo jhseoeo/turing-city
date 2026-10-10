@@ -1,5 +1,5 @@
 import { clearFlag, raiseAlert, raiseOnce } from './alerts.ts';
-import { destroyBoard } from './boards.ts';
+import { wreckFacility } from './boards.ts';
 import { idiv, MICRO, MILLI, mulDiv } from './fixed.ts';
 import { findFacility, type SimContext } from './world.ts';
 
@@ -59,7 +59,7 @@ export function runFires(ctx: SimContext, step: number): void {
     const ppm = idiv((dc.tempMilli - t.fireThresholdMilli) * t.firePermillePerDegreePerSecond, sps);
     if (ctx.rng.fire.chancePpm(ppm)) {
       raiseAlert(ctx.world, step, 'fire', board.id, `${board.id}에 불이 났어요`);
-      destroyBoard(ctx, board, step, 'fire');
+      wreckFacility(ctx, findFacility(ctx.world, board.id)!, step, 'fire');
     }
   }
 }

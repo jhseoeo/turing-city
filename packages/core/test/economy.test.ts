@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { destroyBoard } from '../src/boards.ts';
+import { wreckFacility } from '../src/boards.ts';
 import type { Action } from '../src/firmware-host.ts';
 import { MICRO } from '../src/fixed.ts';
 import { stateHash } from '../src/hash.ts';
 import { replay, Session } from '../src/session.ts';
-import { cellIndex } from '../src/world.ts';
+import { cellIndex, findFacility } from '../src/world.ts';
 import { FakeHost } from './helpers/fake-host.ts';
 import { m1Scenario } from './helpers/scenarios.ts';
 
@@ -56,21 +56,23 @@ describe('economy', () => {
     expect(s.world.ledger.fuel).toBe(700 * MICRO);
   });
 
-  it("burns no fuel while the plant's board is down", () => {
-    const s = calm();
-    s.world.plant.thermalSetting = 100;
-    s.world.boards[0]!.status = 'destroyed';
-    steps(s, DAY);
-    expect(s.world.ledger.fuel).toBe(0);
-  });
-
-  it("burns no fuel while the plant's board sleeps or is being rebuilt", () => {
-    for (const status of ['asleep', 'rebuilding'] as const) {
+  it("keeps burning fuel whatever the plant's board is doing: the board only automates the thermal module", () => {
+    for (const status of ['asleep', 'destroyed', 'rebuilding'] as const) {
       const s = calm();
       s.world.plant.thermalSetting = 100;
       s.world.boards[0]!.status = status;
+      steps(s, DAY);
+      expect(s.world.ledger.fuel, status).toBe(700 * MICRO);
+    }
+  });
+
+  it('burns no fuel while the plant itself is wrecked or being repaired', () => {
+    for (const condition of ['wrecked', 'repairing'] as const) {
+      const s = calm();
+      s.world.plant.thermalSetting = 100;
+      findFacility(s.world, 'P')!.condition = condition;
       steps(s, 40);
-      expect(s.world.ledger.fuel, status).toBe(0);
+      expect(s.world.ledger.fuel, condition).toBe(0);
     }
   });
 
@@ -94,16 +96,16 @@ describe('economy', () => {
     expect(s.world.ledger.fuel).toBe(FUEL_PER_STEP);
   });
 
-  it("still charges the step in which the plant's firmware puts its board to sleep", () => {
+  it("keeps charging after the plant's firmware puts its board to sleep: the thermal module goes on at its setting", () => {
     const s = plantDoing({ kind: 'sleep', seconds: 1 }, 100);
     s.step();
     expect(s.world.boards[0]!.status).toBe('asleep');
     expect(s.world.ledger.fuel).toBe(FUEL_PER_STEP);
     steps(s, 5);
-    expect(s.world.ledger.fuel).toBe(FUEL_PER_STEP);
+    expect(s.world.ledger.fuel).toBe(6 * FUEL_PER_STEP);
   });
 
-  it("still charges the step in which Luddites smash the plant's board", () => {
+  it('still charges the step in which Luddites wreck the plant, and nothing after it', () => {
     const s = calm();
     const plant = s.world.boards[0]!;
     s.world.plant.thermalSetting = 100;
@@ -121,6 +123,7 @@ describe('economy', () => {
     s.world.emf[cellIndex(s.scenario, plant.x, plant.y)] = 100_000;
     s.step();
     expect(plant.status).toBe('destroyed');
+    expect(findFacility(s.world, 'P')!.condition).toBe('wrecked');
     expect(s.world.ledger.fuel).toBe(FUEL_PER_STEP);
     steps(s, 5);
     expect(s.world.ledger.fuel).toBe(FUEL_PER_STEP);
@@ -151,7 +154,7 @@ describe('economy', () => {
     expect(da.log.filter((l) => l.kind === 'log').at(-1)?.text).toBe('n=1');
   });
 
-  it('brings a rebuilt datacenter back as new hardware: ambient temperature, no cooling, and no fire roll', () => {
+  it('brings a repaired datacenter back as new hardware: ambient temperature, no cooling, and no fire roll', () => {
     const s = calm(new FakeHost(), (j) => {
       // Below the file's 25,000: the temperature phase lifts anything under ambient back up, so only a lower ambient shows where the reset read it.
       j.tuning.datacenter.ambientMilli = 20_000;
@@ -159,27 +162,33 @@ describe('economy', () => {
     const da = s.world.boards[1]!;
     const wreck = s.world.datacenters.DA!;
     const other = s.world.datacenters.DB!;
-    wreck.tempMilli = 140_000; // far above 122 °C: after the rebuild's 400 steps of leaking heat it is still above 90 °C
+    wreck.tempMilli = 140_000; // far above 122 °C: after the repair's 400 steps of leaking heat it is still above 90 °C
     wreck.coolFrom = 0;
     wreck.coolUntil = Number.MAX_SAFE_INTEGER;
     other.tempMilli = 80_000;
-    destroyBoard(s.ctx, da, 0, 'fire');
-    expect(s.rebuild('DA')).toEqual({ ok: true });
-    Object.assign(s.ctx.rng, { fire: { nextU32: () => 0, int: (lo: number) => lo, chancePpm: () => true } }); // any fire roll burns the board
-    steps(s, 401); // the board is back at step 400
+    wreckFacility(s.ctx, findFacility(s.world, 'DA')!, 0, 'fire');
+    expect(s.repair('DA')).toEqual({ ok: true });
+    Object.assign(s.ctx.rng, { fire: { nextU32: () => 0, int: (lo: number) => lo, chancePpm: () => true } }); // any fire roll burns it
+    steps(s, 401); // the datacenter stands again at step 400
+    expect(findFacility(s.world, 'DA')!.condition).toBe('ok');
     expect(wreck.tempMilli).toBe(20_000);
     expect(wreck.coolUntil).toBe(-1); // no cooling
+    expect(da.status).toBe('destroyed'); // its board is a separate purchase
+    expect(s.rebuild('DA')).toEqual({ ok: true });
+    steps(s, 401);
     expect(da.status).toBe('running');
     steps(s, 5);
     expect(da.status).toBe('running');
     expect(s.world.alerts.some((a) => a.kind === 'fire')).toBe(false);
-    expect(other.tempMilli).toBeGreaterThan(20_000); // only the rebuilt board starts over
+    expect(other.tempMilli).toBeGreaterThan(20_000); // only the repaired datacenter starts over
   });
 
-  it('rebuilds the power plant too, which has no datacenter state to reset', () => {
+  it('repairs and rebuilds the power plant too, which has no datacenter state to reset', () => {
     const s = calm();
     const plant = s.world.boards[0]!;
-    destroyBoard(s.ctx, plant, 0, 'luddites');
+    wreckFacility(s.ctx, findFacility(s.world, 'P')!, 0, 'luddites');
+    expect(s.repair('P')).toEqual({ ok: true });
+    steps(s, 401);
     expect(s.rebuild('P')).toEqual({ ok: true });
     steps(s, 401);
     expect(plant.status).toBe('running');
@@ -206,12 +215,12 @@ describe('economy', () => {
     expect(s.world.alerts.filter((a) => a.kind === 'moneyBelowZero')).toHaveLength(2);
   });
 
-  it('falls when every firmware board is destroyed at once', () => {
+  it('never ends a season for its boards: with every board destroyed, it goes on', () => {
     const s = calm();
     for (const b of s.world.boards) b.status = 'destroyed';
-    s.step();
-    expect(s.world.ended?.kind).toBe('fallen');
-    expect(s.world.alerts.at(-1)).toMatchObject({ kind: 'seasonEnd', message: '마을이 함락됐어요' });
+    for (const f of s.world.facilities) f.condition = 'wrecked';
+    steps(s, 10);
+    expect(s.world.ended).toBeNull();
   });
 
   it('replays a rebuild', () => {
@@ -244,12 +253,15 @@ describe('economy', () => {
     live.deploy('DA', 'burn');
     steps(live, 40);
     expect(live.world.boards[1]!.status).toBe('destroyed');
+    expect(live.repair('DA')).toEqual({ ok: true });
+    steps(live, 401); // the datacenter stands again at step 440
     expect(live.rebuild('DA')).toEqual({ ok: true });
-    steps(live, 440); // back at step 440 with its last firmware, which burns it again
-    expect(live.world.stats.boardsLost).toBe(2);
+    steps(live, 440); // back at step 841 with its last firmware, which burns it again
+    expect(live.world.stats.wrecks).toBe(2);
     expect(live.record.inputs.map((i) => [i.step, i.kind])).toEqual([
       [0, 'deploy'],
-      [40, 'rebuild'],
+      [40, 'repair'],
+      [441, 'rebuild'],
     ]);
 
     const again = replay(live.scenario, live.seed, live.record, makeHost(), live.world.step);
@@ -330,22 +342,7 @@ describe('economy', () => {
     expect(under.world.alerts.filter((a) => a.kind === 'moneyBelowZero')).toHaveLength(1);
   });
 
-  it('counts a board being rebuilt as lost when the town falls, and a board asleep as still standing', () => {
-    const lost = calm();
-    lost.world.boards[0]!.status = 'destroyed';
-    lost.world.boards[1]!.status = 'rebuilding';
-    lost.world.boards[2]!.status = 'destroyed';
-    lost.step();
-    expect(lost.world.ended?.kind).toBe('fallen');
-    const standing = calm();
-    standing.world.boards[0]!.status = 'destroyed';
-    standing.world.boards[1]!.status = 'destroyed';
-    standing.world.boards[2]!.status = 'asleep';
-    standing.step();
-    expect(standing.world.ended).toBeNull();
-  });
-
-  it('ends the season as bankrupt, not fallen, when both are true on the same step', () => {
+  it('ends the season as bankrupt when its money has been below zero long enough, whatever its boards are doing', () => {
     const s = calm();
     for (const b of s.world.boards) b.status = 'destroyed';
     s.world.money = -1;
@@ -354,7 +351,7 @@ describe('economy', () => {
     expect(s.world.ended).toEqual({ kind: 'bankrupt', step: 0 });
   });
 
-  it('ends the season as fallen, not completed, when the last board goes on the last step', () => {
+  it('completes a season whose boards are all destroyed on its last step', () => {
     const s = calm(new FakeHost(), (j) => {
       j.time.secondsPerDay = 1;
       j.time.seasonDays = 1; // 20 steps
@@ -362,8 +359,8 @@ describe('economy', () => {
     steps(s, 19);
     for (const b of s.world.boards) b.status = 'destroyed';
     s.step();
-    expect(s.world.ended).toEqual({ kind: 'fallen', step: 19 });
-    expect(s.world.alerts.at(-1)).toMatchObject({ kind: 'seasonEnd', message: '마을이 함락됐어요' });
+    expect(s.world.ended).toEqual({ kind: 'completed', step: 19 });
+    expect(s.world.alerts.at(-1)).toMatchObject({ kind: 'seasonEnd', message: '시즌이 끝났어요' });
   });
 
   it('ends a season that nothing ruins as completed, and says so', () => {
@@ -396,10 +393,6 @@ describe('economy', () => {
     // Money is the score, and a replay stops where the season ended, so a rebuild after it would change one and could not be replayed.
     const endings: Record<string, (s: Session) => void> = {
       completed: (s) => steps(s, 20),
-      fallen: (s) => {
-        for (const b of s.world.boards) b.status = 'destroyed';
-        s.step();
-      },
       bankrupt: (s) => {
         s.world.money = -1;
         steps(s, 20);

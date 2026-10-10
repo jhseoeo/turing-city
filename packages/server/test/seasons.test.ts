@@ -1,5 +1,14 @@
 import { readFileSync } from 'node:fs';
-import { MICRO, parseScenario, replay, runSeason, type SeasonResult, Session, stateHash, stepsPerDay } from '@turing-city/core';
+import {
+  parseScenario,
+  replay,
+  runSeason,
+  type SeasonResult,
+  Session,
+  standInForThePlayer,
+  stateHash,
+  stepsPerDay,
+} from '@turing-city/core';
 import { WasmoonHost } from '@turing-city/firmware';
 import { describe, expect, it } from 'vitest';
 import { loadFirmwareDir } from '../src/firmware-files.ts';
@@ -45,15 +54,15 @@ describe('season checks', () => {
     120_000,
   );
 
-  it('replays a recorded session, with a deploy in mid-season and rebuilds, into the same state on a fresh Lua runtime', async () => {
+  it('replays a recorded session, with a deploy in mid-season, repairs, and rebuilds, into the same state on a fresh Lua runtime', async () => {
     const seed = 3;
     const live = new Session(scenario, seed, await WasmoonHost.create());
     for (const id of Object.keys(careful).sort()) live.deploy(id, careful[id]!);
-    const rebuildCost = scenario.tuning.rebuild.cost * MICRO;
     const swapAt = 10 * stepsPerDay(scenario.time);
     while (!live.world.ended) {
-      // The player: rebuilds what is smashed as soon as the money allows, and after ten days swaps one board's firmware.
-      for (const b of live.world.boards) if (b.status === 'destroyed' && live.world.money >= rebuildCost) live.rebuild(b.id);
+      // The player: repairs what is wrecked and rebuilds its board as soon as the money allows, and after ten days swaps one
+      // board's firmware.
+      standInForThePlayer(live);
       if (live.world.step === swapAt) {
         live.mark('pause');
         live.deploy('DA', careless.DA!);
@@ -64,6 +73,7 @@ describe('season checks', () => {
     const inputs = live.record.inputs;
     expect(inputs.some((i) => i.kind === 'deploy' && i.step === 0)).toBe(true);
     expect(inputs.some((i) => i.kind === 'deploy' && i.step === swapAt)).toBe(true);
+    expect(inputs.filter((i) => i.kind === 'repair').length).toBeGreaterThan(1);
     expect(inputs.filter((i) => i.kind === 'rebuild').length).toBeGreaterThan(1);
     expect(inputs.map((i) => i.kind)).toEqual(expect.arrayContaining(['pause', 'resume']));
 

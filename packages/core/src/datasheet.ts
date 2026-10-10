@@ -104,7 +104,7 @@ export function firmwareRules(t: Tuning, time: TimeConfig): readonly string[] {
     `A facility's power draw grows ${t.transmissionLossPctPerCell}% for each cell between it and the plant (distanceToPlant); powerDrawNow includes that.`,
     `A game day is ${time.secondsPerDay} seconds. fuel_price is charged per unit of thermal output per day and price is paid per second of processing, so one unit of thermal output costs fuel_price / ${time.secondsPerDay} per second.`,
     'io.sleep() puts the board to sleep when the tick returns: the actions queued after the call in the same tick are dropped, and those before it apply.',
-    "A facility's setting (the thermal output, the priority list) keeps its value through a sleep, while mem and globals are wiped. A sleep ends the datacenter's job and its cooling cycle, and the thermal module only works while its board is awake.",
+    "A facility's setting (the thermal output, the priority list) keeps its value through a sleep, while mem and globals are wiped. A sleep stops only the board: a datacenter's job and cooling cycle run their course, and the thermal module keeps its output.",
     'Available: the base library (pairs, pcall, setmetatable, ...), string, table, math, coroutine. Missing: os, io (the library), load, require, debug, collectgarbage, utf8.',
     "string.find searches plain text only; string.match, gmatch, and gsub don't exist. math.randomseed doesn't exist; math.random is seeded per board.",
     'tostring of a table or function gives just its type, and setmetatable refuses __gc and __mode.',

@@ -646,7 +646,7 @@ try {
   const mapRect = { x: Math.round(map.x), y: Math.round(map.y), width: Math.round(map.width), height: Math.round(map.height) };
   await bothPhases('12-raid', "the Luddites' path", mapRect, RED, 300);
   await page.keyboard.press('Space');
-  const smashed = await waitUntil(async () => (await alertKinds()).includes('boardDestroyed'), 30_000);
+  const smashed = await waitUntil(async () => (await alertKinds()).includes('wrecked'), 30_000);
   check('a smashed board pauses the game by itself', smashed && (await waitUntil(async () => (await status()).run.paused, 2000)));
 
   // The alert names the board; clicking it opens the board's panel, where a destroyed board offers its rebuild.
@@ -691,12 +691,12 @@ try {
   await newSeason();
   await agent.call('deploy_firmware', { board: 'P', code: 'function tick(io) io.set_thermal(300) end' });
   await agent.call('dev_run_until', { seconds: 100 });
-  for (let seconds = 0; seconds < 60 && !(await alertKinds()).includes('boardDestroyed'); seconds++)
+  for (let seconds = 0; seconds < 60 && !(await alertKinds()).includes('wrecked'); seconds++)
     await agent.call('dev_run_until', { seconds: 1 });
   const poor = await status();
   check(
     'a board is smashed while the money is below the rebuild cost, and the season goes on',
-    (await alertKinds()).includes('boardDestroyed') && poor.money < rebuildCost && poor.ended === null,
+    (await alertKinds()).includes('wrecked') && poor.money < rebuildCost && poor.ended === null,
     `money ${poor.money}, cost ${rebuildCost}`,
   );
   await waitUntil(async () => (await centerOf('#feed .item', '부서졌어요')) !== null); // the page draws what the server just announced a moment later

@@ -64,6 +64,13 @@ describe('refusalText', () => {
     expect(refusalText('x', SAMPLES.badCommand)).toBe('서버가 알아듣지 못하는 명령이에요 (speed: Invalid input).');
   });
 
+  it('says of a facility that does not stand that it is wrecked or being repaired, and never tells one under repair to repair it', () => {
+    // The one `wrecked` code covers both states and carries neither, so the text has to be true of both.
+    const text = refusalText('x', SAMPLES.wrecked);
+    expect(text).toBe("'W' 시설은 부서졌거나 복구 중이라서 지금은 할 수 없어요.");
+    expect(text).not.toContain('먼저 복구');
+  });
+
   it('falls back to a Korean sentence that carries the original text, for a refusal with no code or one it does not know', () => {
     const original = 'a new season started';
     expect(refusalText(original, undefined)).toBe(`서버가 명령을 받아들이지 않았어요: ${original}`);

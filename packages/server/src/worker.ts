@@ -141,6 +141,13 @@ async function handle(message: WorkerRequest): Promise<void> {
         return result;
       });
       return;
+    case 'repair':
+      reply(message.id, () => {
+        const result = s.repair(message.facility);
+        if (result.ok) send({ type: 'snapshot', snapshot: snapshot(s.ctx) });
+        return result;
+      });
+      return;
     case 'mark':
       s.mark(message.kind);
       return;

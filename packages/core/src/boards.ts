@@ -1,7 +1,7 @@
 import { raiseAlert } from './alerts.ts';
 import { clamp } from './fixed.ts';
 import { stepsForSeconds } from './time.ts';
-import { type BoardState, type LogLine, type SimContext, toInt } from './world.ts';
+import { type BoardState, type FacilityState, findBoard, type LogLine, type SimContext, toInt } from './world.ts';
 
 export const LOG_LIMIT = 200;
 
@@ -24,19 +24,22 @@ export function deployFirmware(board: BoardState, source: string): number {
   return version;
 }
 
+/** Drops the board's VM: its mem and globals are gone. Its facility is not touched: a sleep stops only the board. */
 export function shutdownVm(ctx: SimContext, board: BoardState): void {
   if (board.vmBooted) {
     ctx.host.shutdown(board.id);
     board.vmBooted = false;
   }
-  // A datacenter works only through its board here: a board that sleeps or is destroyed ends its job and its cooling.
-  const dc = ctx.world.datacenters[board.id];
-  if (dc) {
-    dc.busyFrom = -1;
-    dc.busyUntil = -1;
-    dc.coolFrom = -1;
-    dc.coolUntil = -1;
-  }
+}
+
+/** Ends whatever a datacenter was doing: its job and its cooling cycle. */
+function stopDatacenter(ctx: SimContext, facilityId: string): void {
+  const dc = ctx.world.datacenters[facilityId];
+  if (!dc) return;
+  dc.busyFrom = -1;
+  dc.busyUntil = -1;
+  dc.coolFrom = -1;
+  dc.coolUntil = -1;
 }
 
 export function startSleep(ctx: SimContext, board: BoardState, step: number, seconds: number): void {
@@ -47,18 +50,45 @@ export function startSleep(ctx: SimContext, board: BoardState, step: number, sec
   appendLog(board, step, 'system', `sleeping ${s} s (RAM wiped)`);
 }
 
-export function destroyBoard(ctx: SimContext, board: BoardState, step: number, cause: 'fire' | 'luddites'): void {
-  if (board.status === 'destroyed' || board.status === 'rebuilding') return;
+/** The board's part of a wreck: it stops, loses its VM and mem, and a rebuild under way is lost with it. */
+function destroyBoard(ctx: SimContext, board: BoardState, step: number, cause: 'fire' | 'luddites'): void {
+  if (board.status === 'destroyed') return;
   shutdownVm(ctx, board);
   board.status = 'destroyed';
   board.wakeAt = null;
-  ctx.world.stats.boardsLost += 1;
+  board.readyAt = null;
   appendLog(board, step, 'system', cause === 'fire' ? 'destroyed by fire' : 'smashed by Luddites');
-  raiseAlert(ctx.world, step, 'boardDestroyed', board.id, `${board.id} 보드가 부서졌어요 (${cause === 'fire' ? '화재' : '러다이트'})`);
 }
 
-/** Phase 1: sleeps that end and rebuilds that finish at this step. */
+/**
+ * Luddites or fire wreck a whole facility: it stops, by hand too, until the player repairs it, and its board, if it has one, is
+ * destroyed with it (the board is rebuilt separately, once the facility stands again).
+ */
+export function wreckFacility(ctx: SimContext, facility: FacilityState, step: number, cause: 'fire' | 'luddites'): void {
+  if (facility.condition !== 'ok') return;
+  facility.condition = 'wrecked';
+  facility.repairReadyAt = null;
+  const board = findBoard(ctx.world, facility.id);
+  if (board) destroyBoard(ctx, board, step, cause);
+  stopDatacenter(ctx, facility.id);
+  ctx.world.stats.wrecks += 1;
+  raiseAlert(ctx.world, step, 'wrecked', facility.id, `${facility.id} 시설이 부서졌어요 (${cause === 'fire' ? '화재' : '러다이트'})`);
+}
+
+/** Phase 1: sleeps that end, board rebuilds that finish, and facility repairs that finish at this step. */
 export function runTransitions(ctx: SimContext, step: number): void {
+  for (const facility of ctx.world.facilities) {
+    if (facility.condition !== 'repairing' || facility.repairReadyAt === null || facility.repairReadyAt > step) continue;
+    facility.condition = 'ok';
+    facility.repairReadyAt = null;
+    // A repaired datacenter is new hardware: the wreck's heat doesn't come back with it.
+    const dc = ctx.world.datacenters[facility.id];
+    if (dc) dc.tempMilli = ctx.scenario.tuning.datacenter.ambientMilli;
+    stopDatacenter(ctx, facility.id);
+    // A repaired farm starts a new crop: whatever grew before the wreck is lost.
+    const farm = ctx.world.farms[facility.id];
+    if (farm) farm.plantedAt = step;
+  }
   for (const board of ctx.world.boards) {
     if (board.status === 'asleep' && board.wakeAt !== null && board.wakeAt <= step) {
       board.status = 'running';
@@ -67,9 +97,6 @@ export function runTransitions(ctx: SimContext, step: number): void {
     } else if (board.status === 'rebuilding' && board.readyAt !== null && board.readyAt <= step) {
       board.status = 'running';
       board.readyAt = null;
-      // A rebuilt datacenter is new hardware: the wreck's heat doesn't come back with it.
-      const dc = ctx.world.datacenters[board.id];
-      if (dc) dc.tempMilli = ctx.scenario.tuning.datacenter.ambientMilli;
       appendLog(board, step, 'system', 'rebuilt');
     }
   }

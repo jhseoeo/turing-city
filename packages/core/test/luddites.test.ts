@@ -121,7 +121,7 @@ describe('Luddites', () => {
     }
     expect(s.world.boards[2]!.status).toBe('destroyed');
     expect(g).toMatchObject({ x: 16, y: 8 });
-    expect(s.world.alerts.filter((a) => a.kind === 'boardDestroyed')).toHaveLength(1);
+    expect(s.world.alerts.filter((a) => a.kind === 'wrecked')).toHaveLength(1);
   });
 
   it('moves only on its beat', () => {
@@ -311,7 +311,7 @@ describe('Luddites', () => {
     ]);
     expect(standing).toEqual(['running', 'running', 'running', 'running', 'destroyed']);
     expect(s.world.boards[0]!.log.at(-1)).toMatchObject({ kind: 'system', text: 'smashed by Luddites' });
-    expect(s.world.alerts.filter((a) => a.kind === 'boardDestroyed')).toMatchObject([{ step: 80, facilityId: 'P' }]);
+    expect(s.world.alerts.filter((a) => a.kind === 'wrecked')).toMatchObject([{ step: 80, facilityId: 'P' }]);
   });
 
   it('re-aims at every cell: when another board gets louder it turns toward that one', () => {
@@ -523,7 +523,7 @@ describe('Luddites', () => {
       if (g.y !== before) moved.push(i);
     }
     expect(moved).toEqual([0, 20, 40]);
-    expect(s.world.alerts.find((a) => a.kind === 'boardDestroyed')).toMatchObject({ step: 40, facilityId: 'DB' });
+    expect(s.world.alerts.find((a) => a.kind === 'wrecked')).toMatchObject({ step: 40, facilityId: 'DB' });
   });
 
   it("looks at the field as this step's EMF phase left it", () => {

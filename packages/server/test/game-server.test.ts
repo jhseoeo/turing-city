@@ -81,15 +81,6 @@ const until = async (cond: () => boolean, ms = 5000): Promise<void> => {
   }
 };
 
-/** As until(), for a condition that has to be asked of the game. */
-const eventually = async (cond: () => Promise<boolean>, ms = 5000): Promise<void> => {
-  const t0 = Date.now();
-  while (!(await cond())) {
-    if (Date.now() - t0 > ms) throw new Error('timed out waiting');
-    await new Promise((r) => setTimeout(r, 20));
-  }
-};
-
 /** Whether a TCP connection to this address opens. */
 function canConnect(port: number, host: string): Promise<boolean> {
   return new Promise((resolve) => {
@@ -557,20 +548,22 @@ describe('game server', () => {
     await until(() => last(v.seen, 'status')?.status.agent.connected === true);
     await agent.callTool({ name: 'dev_new_season', arguments: { seed: 1 } });
     await until(() => last(v.seen, 'status')?.status.state === 'paused');
-    // The nine alert kinds there are: all of them, and no more, are a valid setting.
+    // The eleven alert kinds there are: all of them, and no more, are a valid setting.
     const everyKind: AlertKind[] = [
       'raid',
       'ludditesNear',
-      'boardDestroyed',
+      'wrecked',
       'fire',
       'overheat',
       'powerShortage',
+      'hunger',
       'firmwareError',
       'moneyBelowZero',
       'seasonEnd',
+      'agentLost',
     ];
     v.send({ type: 'autoPause', kinds: everyKind });
-    await until(() => last(v.seen, 'status')?.status.autoPause.length === 9);
+    await until(() => last(v.seen, 'status')?.status.autoPause.length === 11);
     expect(last(v.seen, 'status')!.status.autoPause).toEqual(everyKind);
     v.send({ type: 'speed', speed: 3 });
     v.send({ type: 'autoPause', kinds: ['fire'] });
@@ -592,7 +585,7 @@ describe('game server', () => {
       '{"type":"autoPause","kinds":5}',
       '{"type":"autoPause","kinds":[1]}',
       '{"type":"autoPause","kinds":["nope"]}',
-      `{"type":"autoPause","kinds":[${'"fire",'.repeat(9)}"fire"]}`, // ten entries, one more than there are kinds
+      `{"type":"autoPause","kinds":[${'"fire",'.repeat(11)}"fire"]}`, // twelve entries, one more than there are kinds
     ];
     const errors = (): number => v.seen.filter((m) => m.type === 'error').length;
     const answered = errors();
@@ -626,7 +619,7 @@ describe('game server', () => {
     expect(other.seen.filter((m) => m.type === 'status')).toHaveLength(1);
     const late = await viewer(server.port);
     await until(() => last(late.seen, 'status') !== undefined);
-    expect(last(late.seen, 'status')!.status.autoPause).toEqual(['raid', 'boardDestroyed', 'fire', 'firmwareError']);
+    expect(last(late.seen, 'status')!.status.autoPause).toEqual(['raid', 'wrecked', 'fire', 'firmwareError']);
   });
 
   it("streams the season to every viewer and carries the player's commands", async () => {
@@ -673,20 +666,17 @@ describe('game server', () => {
     await until(() => v.seen.some((m) => m.type === 'inspection' && m.board === 'DB'));
     expect(v.seen.some((m) => m.type === 'inspection' && m.board === 'DA')).toBe(false);
 
-    // Alerts go to everyone. With no firmware the Luddites smash a board in the fifth game day.
-    await call('dev_run_until', { alertKinds: ['boardDestroyed'] });
-    const destroyed = (x: typeof v) =>
-      x.seen.flatMap((m) => (m.type === 'alerts' ? m.alerts : [])).find((a) => a.kind === 'boardDestroyed');
-    await until(() => destroyed(v) !== undefined && destroyed(late) !== undefined);
-    const lost = destroyed(v)!.facility!;
+    // Alerts go to everyone. With no firmware the Luddites wreck a facility in the fifth game day.
+    await call('dev_run_until', { alertKinds: ['wrecked'] });
+    const wrecked = (x: typeof v) => x.seen.flatMap((m) => (m.type === 'alerts' ? m.alerts : [])).find((a) => a.kind === 'wrecked');
+    await until(() => wrecked(v) !== undefined && wrecked(late) !== undefined);
+    const lost = wrecked(v)!.facility!;
 
-    // Rebuilding the lost board from the viewer is accepted: the game says nothing and the board is being rebuilt.
+    // The lost facility's board is rebuilt only once the facility is repaired, and the viewer that asked is told so.
     v.send({ type: 'rebuild', board: lost });
-    await eventually(async () => {
-      const boards = JSON.parse(textOf(await call('list_boards', {}))) as Array<{ id: string; status: string }>;
-      return boards.find((b) => b.id === lost)?.status === 'rebuilding';
-    });
-    expect(v.seen.filter((m) => m.type === 'error')).toHaveLength(1);
+    await until(() => last(v.seen, 'error')?.refusal?.code === 'repairFirst');
+    expect(last(v.seen, 'error')!.refusal).toEqual({ code: 'repairFirst', facility: lost });
+    expect(late.seen.filter((m) => m.type === 'error')).toHaveLength(0);
   });
 
   it("hands every status change to onStatus, the agent's comings and goings among them, and nothing else", async () => {

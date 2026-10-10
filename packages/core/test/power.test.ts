@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { stateHash } from '../src/hash.ts';
-import { facilityDemand, priorityOrder, runPower } from '../src/power.ts';
+import { facilityDemand, plantFacility, priorityOrder, runPower } from '../src/power.ts';
 import { Session } from '../src/session.ts';
 import { stepsForSeconds } from '../src/time.ts';
 import { findBoard, type WorldState } from '../src/world.ts';
@@ -120,12 +120,24 @@ describe('power', () => {
     expect(s.world.boards.slice(1).every((b) => !b.powered)).toBe(true);
   });
 
-  it("runs thermal only while the plant's board is running", () => {
-    const s = calm(50);
-    s.world.plant.thermalSetting = 200;
-    plantBoard(s.world).status = 'destroyed';
-    runPower(s.ctx, 0);
-    expect(s.world.plant.generation).toBe(50);
+  it("runs the thermal module at its setting whatever the plant's board is doing: the board only automates it", () => {
+    for (const status of ['running', 'asleep', 'destroyed', 'rebuilding'] as const) {
+      const s = calm(50);
+      s.world.plant.thermalSetting = 200;
+      plantBoard(s.world).status = status;
+      runPower(s.ctx, 0);
+      expect(s.world.plant.generation, status).toBe(250);
+    }
+  });
+
+  it('makes only the wind while the plant itself is wrecked or being repaired', () => {
+    for (const condition of ['wrecked', 'repairing'] as const) {
+      const s = calm(50);
+      s.world.plant.thermalSetting = 200;
+      plantFacility(s.world).condition = condition;
+      runPower(s.ctx, 0);
+      expect(s.world.plant.generation, condition).toBe(50);
+    }
   });
 
   it('raises a shortage alert once per episode', () => {
@@ -320,16 +332,6 @@ describe('power', () => {
     const short = calm(27);
     runPower(short.ctx, 0);
     expect(short.world.plant.shed).toEqual(['DB']);
-  });
-
-  it("stops the thermal module while the plant's board sleeps or is being rebuilt", () => {
-    for (const status of ['asleep', 'rebuilding'] as const) {
-      const s = calm(50);
-      s.world.plant.thermalSetting = 200;
-      plantBoard(s.world).status = status;
-      runPower(s.ctx, 0);
-      expect(s.world.plant.generation, status).toBe(50);
-    }
   });
 
   it('raises a new shortage alert when a second shortage begins after the first has ended', () => {

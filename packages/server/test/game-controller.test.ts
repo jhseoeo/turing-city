@@ -249,7 +249,7 @@ describe('GameController: its status and the rules of play', () => {
       agent: { connected: false, clientName: null },
       blockedByAgent: true,
       crash: null,
-      autoPause: ['raid', 'boardDestroyed', 'fire', 'firmwareError'],
+      autoPause: ['raid', 'wrecked', 'fire', 'firmwareError'],
       scenarioName: scenario.name,
     };
     expect(scenario.name).not.toBe('');
@@ -510,7 +510,7 @@ describe('GameController: events', () => {
     c.setSpeed(2);
     c.setAutoPause(['fire']);
     const statuses = events.flatMap((event) => (event.kind === 'status' ? [event.status] : []));
-    expect(statuses[0]).toMatchObject({ speed: 2, autoPause: ['raid', 'boardDestroyed', 'fire', 'firmwareError'] });
+    expect(statuses[0]).toMatchObject({ speed: 2, autoPause: ['raid', 'wrecked', 'fire', 'firmwareError'] });
     expect(statuses[1]).toMatchObject({ speed: 2, autoPause: ['fire'] });
     expect(heard()).toEqual(['status paused', 'status paused']);
     await c.deploy('DA', FAILING);
@@ -606,26 +606,37 @@ describe('GameController: events', () => {
     expect(heard()).toEqual([]);
   });
 
-  it('sends the new picture of the world when a rebuild starts, though no time passes', async () => {
+  it('sends the new picture of the world when a repair or a rebuild starts, though no time passes', async () => {
     const c = make();
     c.setAgent(AGENT);
     await c.startSeason(1);
-    await c.runUntil({ alertKinds: ['boardDestroyed'] }); // no firmware: the Luddites smash a board in the fifth game day
-    const lost = (await c.alerts(undefined)).find((a) => a.kind === 'boardDestroyed')!.facility!;
+    await c.runUntil({ alertKinds: ['wrecked'] }); // no firmware: the Luddites wreck a facility in the fifth game day
+    const lost = (await c.alerts(undefined)).find((a) => a.kind === 'wrecked')!.facility!;
     const intact = ['P', 'DA', 'DB'].find((id) => id !== lost)!;
+    const repairCost = scenario.tuning.repair.cost[lost === 'P' ? 'power' : 'datacenter'];
     const before = c.latestSnapshot()!;
     const events: ControllerEvent[] = [];
     c.onEvent((event) => events.push(event));
 
     expect(await c.rebuild(intact)).toMatchObject({ ok: false });
+    expect(await c.rebuild(lost)).toMatchObject({ ok: false, refusal: { code: 'repairFirst', facility: lost } });
     expect(events).toEqual([]); // a refused rebuild changed nothing
 
-    expect(await c.rebuild(lost)).toEqual({ ok: true });
-    const after = c.latestSnapshot()!; // already in date when the rebuild is answered
-    expect(after.step).toBe(before.step);
-    expect(after.boards.find((b) => b.id === lost)!.status).toBe('rebuilding');
-    expect(after.money).toBe(before.money - scenario.tuning.rebuild.cost);
+    expect(await c.repair(lost)).toEqual({ ok: true });
+    const repairing = c.latestSnapshot()!; // already in date when the repair is answered
+    expect(repairing.step).toBe(before.step);
+    expect(repairing.money).toBe(before.money - repairCost);
     expect(events.map(line)).toEqual([`snapshot ${before.step}`]);
+
+    await c.runUntil({ seconds: 21 }); // a repair takes 20 game seconds
+    const repaired = c.latestSnapshot()!;
+    events.length = 0;
+    expect(await c.rebuild(lost)).toEqual({ ok: true });
+    const after = c.latestSnapshot()!;
+    expect(after.step).toBe(repaired.step);
+    expect(after.boards.find((b) => b.id === lost)!.status).toBe('rebuilding');
+    expect(after.money).toBe(repaired.money - scenario.tuning.rebuild.cost);
+    expect(events.map(line)).toEqual([`snapshot ${repaired.step}`]);
   });
 
   it('does not take a snapshot sent between batches for the answer to a batch', async () => {
@@ -839,10 +850,12 @@ describe('GameController: requests', () => {
     await c.runUntil({ seconds: 1 });
     expect((await c.listBoards()).find((b) => b.id === 'DA')?.status).toBe('asleep');
     expect(await installsAt('DA')).toBe("the board's next tick, after it wakes");
-    // No firmware elsewhere, so the Luddites smash a board in the fifth game day.
-    await c.runUntil({ alertKinds: ['boardDestroyed'] });
-    const lost = (await c.alerts(undefined)).find((a) => a.kind === 'boardDestroyed')!.facility!;
+    // No firmware elsewhere, so the Luddites wreck a facility in the fifth game day.
+    await c.runUntil({ alertKinds: ['wrecked'] });
+    const lost = (await c.alerts(undefined)).find((a) => a.kind === 'wrecked')!.facility!;
     expect(await installsAt(lost)).toBe("the board's next tick, after the player rebuilds it");
+    expect(await c.repair(lost)).toEqual({ ok: true });
+    await c.runUntil({ seconds: 21 }); // a repair takes 20 game seconds
     expect(await c.rebuild(lost)).toEqual({ ok: true });
     expect(await installsAt(lost)).toBe("the board's next tick, after its rebuild finishes");
   });
@@ -887,15 +900,29 @@ describe('GameController: requests', () => {
     expect(await c.deploy('DA', 'function tick() end')).toEqual({ ok: true, version: 1, installsAt: "the board's next tick" });
   });
 
-  it('rebuilds a destroyed board, and says why it cannot rebuild any other', async () => {
+  it('repairs a wrecked facility, then rebuilds its board, and says why it cannot do either anywhere else', async () => {
     const c = make();
     c.setAgent(AGENT);
     await c.startSeason(1);
     expect(await c.rebuild('DA')).toEqual({ ok: false, reason: 'DA is not destroyed', refusal: { code: 'notDestroyed', board: 'DA' } });
     expect(await c.rebuild('ZZ')).toEqual({ ok: false, reason: 'unknown board ZZ', refusal: { code: 'unknownBoard', board: 'ZZ' } });
-    await c.runUntil({ alertKinds: ['boardDestroyed'] }); // no firmware: the Luddites smash a board in the fifth game day
-    const lost = (await c.alerts(undefined)).find((a) => a.kind === 'boardDestroyed')!.facility!;
+    expect(await c.repair('DA')).toEqual({ ok: false, reason: 'DA is not wrecked', refusal: { code: 'notWrecked', facility: 'DA' } });
+    expect(await c.repair('ZZ')).toEqual({
+      ok: false,
+      reason: 'unknown facility ZZ',
+      refusal: { code: 'unknownFacility', facility: 'ZZ' },
+    });
+    await c.runUntil({ alertKinds: ['wrecked'] }); // no firmware: the Luddites wreck a facility in the fifth game day
+    const lost = (await c.alerts(undefined)).find((a) => a.kind === 'wrecked')!.facility!;
     expect((await c.listBoards()).find((b) => b.id === lost)?.status).toBe('destroyed');
+    expect(await c.rebuild(lost)).toEqual({
+      ok: false,
+      reason: `${lost} must be repaired before its board is rebuilt`,
+      refusal: { code: 'repairFirst', facility: lost },
+    });
+    expect(await c.repair(lost)).toEqual({ ok: true });
+    expect(await c.repair(lost)).toEqual({ ok: false, reason: `${lost} is not wrecked`, refusal: { code: 'notWrecked', facility: lost } });
+    await c.runUntil({ seconds: 21 }); // a repair takes 20 game seconds
     expect(await c.rebuild(lost)).toEqual({ ok: true });
     expect((await c.listBoards()).find((b) => b.id === lost)?.status).toBe('rebuilding');
     expect(await c.rebuild(lost)).toEqual({

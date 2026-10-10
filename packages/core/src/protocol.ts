@@ -19,6 +19,7 @@ export type WorkerRequest =
   | { readonly type: 'advance'; readonly steps: number }
   | { readonly type: 'deploy'; readonly id: number; readonly board: string; readonly code: string }
   | { readonly type: 'rebuild'; readonly id: number; readonly board: string }
+  | { readonly type: 'repair'; readonly id: number; readonly facility: string }
   | { readonly type: 'mark'; readonly kind: 'pause' | 'resume' }
   | { readonly type: 'query'; readonly id: number; readonly query: Query };
 

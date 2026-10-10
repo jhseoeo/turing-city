@@ -160,7 +160,7 @@ describe('datacenters', () => {
       s.world.datacenters.DA!.tempMilli = 140_000;
       s.step();
     }
-    expect(s.world.alerts.map((a) => a.kind)).toEqual(expect.arrayContaining(['fire', 'boardDestroyed']));
+    expect(s.world.alerts.map((a) => a.kind)).toEqual(expect.arrayContaining(['fire', 'wrecked']));
   });
 
   it('never catches fire at or below 90 °C', () => {
@@ -361,7 +361,7 @@ describe('datacenters', () => {
     expect(dc).toMatchObject({ coolFrom: 8, coolUntil: 88 }); // a call at step 11, inside it
   });
 
-  it('ends its job and its cooling cycle when its board goes to sleep', () => {
+  it('keeps its job and its cooling cycle when its board goes to sleep: a sleep stops only the board', () => {
     const host = new FakeHost();
     let beats = 0;
     const work = host.program('work then nap', () => ({
@@ -375,7 +375,7 @@ describe('datacenters', () => {
     expect(dc).toMatchObject({ busyFrom: 4, busyUntil: 8, coolFrom: 4, coolUntil: 84 });
     steps(s, 4); // its second beat, at step 7, puts the board to sleep
     expect(s.world.boards[1]!.status).toBe('asleep');
-    expect(dc).toMatchObject({ busyFrom: -1, busyUntil: -1, coolFrom: -1, coolUntil: -1 });
+    expect(dc).toMatchObject({ busyFrom: 4, busyUntil: 8, coolFrom: 4, coolUntil: 84 }); // the windows the firmware opened are as they were
   });
 
   it("takes the cycle's drop out spread over the cycle's steps while its window is open", () => {
@@ -506,11 +506,11 @@ describe('datacenters', () => {
       s.step();
     }
     expect(s.world.boards.map((b) => b.status)).toEqual(['running', 'destroyed', 'running']);
-    expect(s.world.stats.boardsLost).toBe(1);
-    const burned = s.world.alerts.filter((a) => a.kind === 'fire' || a.kind === 'boardDestroyed');
+    expect(s.world.stats.wrecks).toBe(1);
+    const burned = s.world.alerts.filter((a) => a.kind === 'fire' || a.kind === 'wrecked');
     expect(burned.map((a) => [a.kind, a.facilityId])).toEqual([
       ['fire', 'DA'],
-      ['boardDestroyed', 'DA'],
+      ['wrecked', 'DA'],
     ]);
     expect(s.world.boards[1]!.log.at(-1)).toMatchObject({ kind: 'system', text: 'destroyed by fire' });
   });
