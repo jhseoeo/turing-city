@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -202,6 +202,65 @@ async function bothPhases(name: string, what: string, rect: Rect, rgb: Rgb, minD
   );
 }
 
+/**
+ * A rough price of keeping up with the game, for a few seconds of the page as it is: the frame times seen by requestAnimationFrame,
+ * and Chrome's own counters for the main thread's work and the JS heap. Headless Chrome draws Phaser's WebGL in software, so the
+ * frame times say more about this machine than about the player's; the script's share and the heap are the page's own.
+ */
+async function measure(label: string, seconds: number): Promise<void> {
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Performance.enable');
+  const counters = async (): Promise<Record<string, number>> =>
+    Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map((m) => [m.name, m.value]));
+  await cdp.send('HeapProfiler.collectGarbage'); // so the first heap figure is what the page keeps, not what it has yet to sweep
+  const start = await counters();
+  const snapshotsBefore = snapshotFrames;
+  const heapSamples: number[] = [];
+  let measuring = true;
+  const sampler = (async () => {
+    while (measuring) {
+      heapSamples.push((await counters()).JSHeapUsedSize ?? 0);
+      await page.waitForTimeout(250);
+    }
+  })();
+  const frames = await page.evaluate(
+    (ms) =>
+      new Promise<number[]>((resolve) => {
+        const times: number[] = [];
+        let last = performance.now();
+        const end = last + ms;
+        const tick = (now: number): void => {
+          times.push(now - last);
+          last = now;
+          if (now < end) requestAnimationFrame(tick);
+          else resolve(times);
+        };
+        requestAnimationFrame(tick);
+      }),
+    seconds * 1000,
+  );
+  measuring = false;
+  await sampler;
+  const snapshots = snapshotFrames - snapshotsBefore;
+  await cdp.send('HeapProfiler.collectGarbage');
+  const end = await counters();
+  await cdp.detach();
+
+  const ms = frames.slice(1).sort((a, b) => a - b); // the first interval includes the wait for the first frame
+  if (ms.length === 0) throw new Error(`perf ${label}: the page drew no frame in ${seconds} s`);
+  const at = (p: number): number => ms[Math.min(ms.length - 1, Math.floor(ms.length * p))] ?? 0;
+  const span = (end.Timestamp ?? 0) - (start.Timestamp ?? 0);
+  const share = (name: string): number => Math.round((100 * ((end[name] ?? 0) - (start[name] ?? 0))) / span);
+  const mb = (bytes: number | undefined): string => ((bytes ?? 0) / 1e6).toFixed(1);
+  process.stdout.write(
+    `perf ${label}, ${seconds} s: ${ms.length} frames, frame ms p50 ${at(0.5).toFixed(1)} p95 ${at(0.95).toFixed(1)} max ${at(1).toFixed(1)}; ` +
+      `${(snapshots / seconds).toFixed(1)} snapshots/s; main thread busy ${share('TaskDuration')}%, script ${share('ScriptDuration')}%, ` +
+      `layout+style ${Math.round(share('LayoutDuration') + share('RecalcStyleDuration'))}%; ` +
+      `JS heap ${mb(start.JSHeapUsedSize)} -> ${mb(end.JSHeapUsedSize)} MB after GC (peak ${mb(Math.max(...heapSamples))}); ` +
+      `DOM nodes ${start.Nodes} -> ${end.Nodes}\n`,
+  );
+}
+
 try {
   await page.goto(server.url);
   await shot('1-start-waiting');
@@ -327,6 +386,15 @@ try {
     Math.abs(scrolledTo - 120) <= 1,
     `scrollTop ${scrolledTo} after ${snapshotFrames - renders} snapshots`,
   );
+
+  // ---- What the page costs while the clock runs, with DA's panel open: the numbers go to the output, no limit is checked ----
+  await agent.call('dev_pause');
+  await measure('paused', 2);
+  await agent.call('dev_play');
+  await measure('1x', 4);
+  await agent.call('dev_set_speed', { speed: 3 });
+  await measure('3x', 4);
+  await agent.call('dev_set_speed', { speed: 1 });
 
   // ---- The keys, the feed's click-to-jump and the auto-pause toggles, with the clock running ----
   // A key acts on the state the page last showed, so each press waits for the page to show the last one's result.
@@ -483,6 +551,7 @@ try {
   for (const agent of agents) await agent.disconnect().catch(() => undefined);
   await browser.close();
   await server.close();
+  rmSync(configDir, { recursive: true, force: true }); // the token it holds belongs to this run only
 }
 if (failures.length > 0) {
   process.stderr.write(`${failures.length} check(s) failed: ${failures.join('; ')}\n`);
