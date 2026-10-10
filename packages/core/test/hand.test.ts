@@ -58,7 +58,7 @@ describe('facility actions from the hand and from firmware', () => {
     steps(s, 6);
     expect(s.hand('DA', { kind: 'process' })).toEqual({ ok: true });
     expect(windows(s, 'DA').busy).toEqual([6, 16]); // 500 ms at 20 steps a second, from step 6
-    expect(snapshot(s.ctx).boards[1]!.processing).toBe(true); // a paused game shows it before the next step
+    expect(snapshot(s.ctx).facilities[1]!.datacenter!.processing).toBe(true); // a paused game shows it before the next step
     const before = s.world.ledger.datacenterIncome;
     steps(s, 12);
     expect(s.world.ledger.datacenterIncome - before).toBe(20 * MICRO); // 40 a second for half a second

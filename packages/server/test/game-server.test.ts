@@ -177,7 +177,7 @@ describe('game server', () => {
     expect(deployed.isError).toBeFalsy();
     await until(() => last(v.seen, 'deploy') !== undefined);
     await agent.callTool({ name: 'dev_run_until', arguments: { seconds: 1 } });
-    await until(() => last(v.seen, 'snapshot')!.snapshot.boards[1]!.hasFirmware);
+    await until(() => last(v.seen, 'snapshot')!.snapshot.facilities[1]!.board!.hasFirmware);
 
     v.send({ type: 'inspect', board: 'DA' });
     await until(() => last(v.seen, 'inspection') !== undefined);

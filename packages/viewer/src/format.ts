@@ -1,6 +1,6 @@
 import type { AlertKind, EndKind, FacilityKind, Snapshot, TimeView } from '@turing-city/core';
 
-type Board = Snapshot['boards'][number];
+type Facility = Snapshot['facilities'][number];
 
 export function moneyLabel(n: number): string {
   return n.toLocaleString('en-US');
@@ -12,7 +12,10 @@ export function timeLabel(t: TimeView, seasonDays: number): string {
 
 export type Led = 'running' | 'asleep' | 'unpowered' | 'error' | 'destroyed' | 'off';
 
-export function ledOf(b: Board): Led {
+/** A facility's status light, from its board; null without one, so that a facility worked by hand reads as a plain building. */
+export function ledOf(f: Facility): Led | null {
+  const b = f.board;
+  if (!b) return null;
   if (b.status === 'destroyed' || b.status === 'rebuilding') return 'destroyed';
   if (b.status === 'asleep') return 'asleep';
   if (!b.powered) return 'unpowered';
@@ -61,20 +64,20 @@ export function heatAlpha(units: number): number {
   return Math.min(0.6, units / 166);
 }
 
-/** When the power plant is selected: every board it powers, with its draw, priority rank, and whether it's shed. */
+/** When the power plant is selected: every facility it powers, with its draw, priority rank, and whether it's shed. */
 export function consumersOf(
   snapshot: Snapshot,
   selectedId: string | null,
 ): Array<{ id: string; demand: number; rank: number; shed: boolean }> | null {
-  const selected = snapshot.boards.find((b) => b.id === selectedId);
+  const selected = snapshot.facilities.find((f) => f.id === selectedId);
   if (selected?.kind !== 'power') return null;
-  return snapshot.boards
-    .filter((b) => b.kind !== 'power')
-    .map((b) => ({
-      id: b.id,
-      demand: b.demand,
-      rank: snapshot.plant.priority.indexOf(b.id) + 1,
-      shed: snapshot.plant.shed.includes(b.id),
+  return snapshot.facilities
+    .filter((f) => f.kind !== 'power')
+    .map((f) => ({
+      id: f.id,
+      demand: f.demand,
+      rank: snapshot.plant.priority.indexOf(f.id) + 1,
+      shed: snapshot.plant.shed.includes(f.id),
     }));
 }
 
