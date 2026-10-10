@@ -1,7 +1,11 @@
 import './style.css';
+import { bindKeys } from './keys.ts';
 import { type MapScene, mountMap } from './map/map-scene.ts';
 import { Connection, gameSocketUrl } from './net.ts';
 import { Store } from './store.ts';
+import { renderFeed } from './ui/feed.ts';
+import { renderOverlay } from './ui/overlay.ts';
+import { renderPanel } from './ui/panel.ts';
 import { renderStartScreen } from './ui/start-screen.ts';
 import { renderTopBar } from './ui/top-bar.ts';
 
@@ -11,26 +15,32 @@ const net = new Connection(
   (m) => store.apply(m),
   (open) => store.setSocketOpen(open),
 );
-const start = document.querySelector<HTMLElement>('#start')!;
-const game = document.querySelector<HTMLElement>('#game')!;
-const topbar = document.querySelector<HTMLElement>('#topbar')!;
-const mapRoot = document.querySelector<HTMLElement>('#map')!;
+const $ = (id: string): HTMLElement => document.querySelector<HTMLElement>(id)!;
 let map: MapScene | null = null;
 
 function render(): void {
   const inSeason = store.status !== null && store.status.state !== 'idle';
-  start.hidden = inSeason;
-  game.hidden = !inSeason;
+  $('#start').hidden = inSeason;
+  $('#game').hidden = !inSeason;
+  renderOverlay($('#overlay'), store, net);
   if (!inSeason) {
-    renderStartScreen(start, store, net);
+    renderStartScreen($('#start'), store, net);
     return;
   }
-  renderTopBar(topbar, store, net);
+  renderTopBar($('#topbar'), store, net);
+  renderFeed($('#feed'), store, net);
+  renderPanel($('#panel'), store, net);
   if (store.snapshot) {
-    map ??= mountMap(mapRoot, store.snapshot, (id) => store.select(id));
+    map ??= mountMap($('#map'), store.snapshot, (id) => store.select(id));
     map.show(store.snapshot, store.selected, store.heatmap);
   }
 }
 
+// The panel's live sensors and log: ask again twice a second while a board is selected.
+setInterval(() => {
+  if (store.selected) net.send({ type: 'inspect', board: store.selected });
+}, 500);
+
+bindKeys(store, net);
 store.subscribe(render);
 render();

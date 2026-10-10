@@ -15,7 +15,8 @@
     "sim": "node --disable-warning=ExperimentalWarning packages/server/src/sim-cli.ts",
     "start": "pnpm --filter @turing-city/viewer build && node --disable-warning=ExperimentalWarning packages/server/src/main.ts",
     "start:dev": "pnpm --filter @turing-city/viewer build && node --disable-warning=ExperimentalWarning packages/server/src/main.ts --dev",
-    "viewer": "pnpm --filter @turing-city/viewer dev"
+    "viewer": "pnpm --filter @turing-city/viewer dev",
+    "shots": "pnpm --filter @turing-city/viewer build && node --disable-warning=ExperimentalWarning packages/server/scripts/shots.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
