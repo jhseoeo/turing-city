@@ -60,6 +60,19 @@ const inside = (c: GameController): Internals => c as unknown as Internals;
 const BUSY = 'function tick(io) local x = 0 for i = 1, 100000 do x = x + i end end';
 const FAILING = 'function tick() error("boom") end';
 
+/**
+ * Holds the controller's syntax checker back, as it is for about 100 ms when the first deploy loads it, and lets it go on request.
+ * A deploy that is checking its code is then in the window in which the season can change.
+ */
+function holdChecker(c: GameController): { release(): void } {
+  let release = (): void => undefined;
+  const gate = new Promise<{ check(code: string): string | null }>((resolve) => {
+    release = () => resolve({ check: () => null });
+  });
+  (c as unknown as { checker: Promise<unknown> }).checker = gate;
+  return { release: () => release() };
+}
+
 /** One event as a short line, so a whole sequence reads as one list. */
 function line(event: ControllerEvent): string {
   switch (event.kind) {
@@ -342,6 +355,34 @@ describe('GameController: the clock', () => {
     await tick(c, 9); // the tick that found a batch out left its time for this one: 100 ms, not 50
   });
 
+  it('skips the time a stall took instead of running through it at once', async () => {
+    handClock();
+    const c = make(); // 20 steps a second
+    c.setAgent(AGENT);
+    await c.startSeason(1);
+    c.setSpeed(3);
+    c.play();
+    await tick(c, 3);
+    // The process stands still for 8 seconds (Ctrl+Z and fg, a debugger), with a batch out when it does. It comes back owing 480
+    // steps, which used to run as batches of 200, an auto-pause landing a whole batch after its alert.
+    vi.advanceTimersByTime(8000);
+    await until(() => c.latestSnapshot()!.step === 6);
+    await tick(c, 18); // what is owed is capped at 200 ms of the clock at this speed: 12 steps ...
+    await tick(c, 21); // ... and the rest of the stall is gone, not paid back in the batches after it
+  });
+
+  it('still pays back a short overrun in full', async () => {
+    handClock();
+    const c = make();
+    c.setAgent(AGENT);
+    await c.startSeason(1);
+    c.setSpeed(3);
+    c.play();
+    vi.advanceTimersByTime(150); // the first tick starts a batch, and the next two find it still out: a worker that took 150 ms
+    await until(() => c.latestSnapshot()!.step === 3);
+    await tick(c, 12); // the 150 ms the clock was kept from running are paid in full: 9 steps, within the 12 that the cap allows
+  });
+
   it('stops a run when the player presses play during it', async () => {
     handClock();
     const c = make();
@@ -621,6 +662,68 @@ describe('GameController: requests', () => {
     expect(await c.listBoards()).toHaveLength(3);
   });
 
+  it('refuses a deploy whose season was replaced while its code was being checked, and the new season goes on', async () => {
+    const c = make();
+    c.setAgent(AGENT);
+    await c.startSeason(1);
+    const checking = holdChecker(c);
+    const deploying = c.deploy('DA', 'function tick() end').catch((error: unknown) => error);
+    const restarting = c.startSeason(2); // the first deploy of a server waits for the checker to load: the season changes meanwhile
+    checking.release(); // the new worker is still starting: a deploy posted to it would crash it ("no season for deploy")
+    const refusal = await deploying;
+    expect(refusal).toBeInstanceOf(ToolError);
+    expect((refusal as ToolError).message).toBe('A new season started while the code was being checked; deploy it again.');
+    await restarting;
+    expect(c.status()).toMatchObject({ state: 'paused', crash: null });
+    expect(await c.listBoards()).toMatchObject([{}, { firmwareVersion: null, pendingVersion: null }, {}]); // and nothing landed in it
+    await expect(c.deploy('DA', 'function tick() end')).resolves.toMatchObject({ ok: true, version: 1 });
+  });
+
+  it('refuses a deploy whose season crashed while its code was being checked, instead of waiting for ever', async () => {
+    const c = make();
+    c.setAgent(AGENT);
+    await c.startSeason(1);
+    const checking = holdChecker(c);
+    const deploying = c.deploy('DA', 'function tick() end').catch((error: unknown) => error);
+    inside(c).worker!.emit('error', new Error('the thread died'));
+    checking.release();
+    const refusal = await Promise.race([deploying, sleep(1000).then(() => 'still waiting')]);
+    expect(refusal).toBeInstanceOf(ToolError);
+    expect((refusal as ToolError).message).toBe(
+      'The season crashed (the simulator failed: the thread died). The player can start a new season.',
+    );
+  });
+
+  it('tells the agent that the season crashed, and why, where it said that the season had not started', async () => {
+    const c = make({ watchdogMs: 1 });
+    c.setAgent(AGENT);
+    await c.startSeason(1);
+    await expect(c.runUntil({ seconds: 600 })).rejects.toThrow('stopped');
+    const calls = [
+      () => c.listBoards(),
+      () => c.datasheet('DA'),
+      () => c.firmware('DA'),
+      () => c.logs('DA', undefined),
+      () => c.map(),
+      () => c.statusOf(),
+      () => c.alerts(undefined),
+      () => c.inspect('DA'),
+      () => c.deploy('DA', 'function tick() end'),
+      () => c.rebuild('DA'),
+    ];
+    for (const call of calls) {
+      const refusal = await call().catch((error: unknown) => error);
+      expect(refusal).toBeInstanceOf(ToolError);
+      expect((refusal as ToolError).message).toBe(
+        'The season crashed (the simulator stopped responding; the session stopped). The player can start a new season.',
+      );
+    }
+    // Before the first season, and while one starts, there is no crash to name.
+    const fresh = makeFor(scenario);
+    await expect(fresh.listBoards()).rejects.toThrow("The season hasn't started: ask the player to press Start.");
+    await expect(fresh.deploy('DA', 'function tick() end')).rejects.toThrow("The season hasn't started: ask the player to press Start.");
+  });
+
   it('refuses everything after the session failed, until the next season starts', async () => {
     const c = make({ watchdogMs: 1 });
     c.setAgent(AGENT);
@@ -838,6 +941,44 @@ describe('GameController: requests', () => {
 });
 
 describe('GameController: the watchdog', () => {
+  it('does not stop a session whose batch was answered while the process stood still, though the timer fell due first', async () => {
+    const c = make({ watchdogMs: 100 });
+    c.setAgent(AGENT);
+    await c.startSeason(1);
+    await c.runUntil({ seconds: 1 }); // the worker is warm now: a batch takes about a millisecond
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] }); // the watchdog's timer is driven by hand
+    try {
+      const run = c.runUntil({ seconds: 1 }); // a batch is out
+      // The process stood still: the worker answered, nothing has read the answer, and the timer is overdue. The loop that turns
+      // again runs the timer first: the timers come before the poll that reads the worker's message.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+      vi.advanceTimersByTime(100);
+      await run;
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(c.status()).toMatchObject({ state: 'paused', crash: null });
+    expect(c.latestSnapshot()!.step).toBe(40);
+  });
+
+  it('stops a session whose batch is still out a turn of the event loop after the timer fell due', async () => {
+    const c = make({ watchdogMs: 100 });
+    c.setAgent(AGENT);
+    await c.startSeason(1);
+    const unanswered = vi.spyOn(inside(c).worker!, 'postMessage').mockImplementation(() => undefined); // the worker never hears of the batch
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const run = c.runUntil({ seconds: 1 }).catch((error: unknown) => error);
+      vi.advanceTimersByTime(100);
+      expect(c.status().state).toBe('paused'); // not at once: the answer, if there is one, is read first
+      await expect(run).resolves.toMatchObject({ message: expect.stringContaining('stopped responding') });
+    } finally {
+      vi.useRealTimers();
+      unanswered.mockRestore();
+    }
+    expect(c.status()).toMatchObject({ state: 'crashed', crash: 'the simulator stopped responding; the session stopped' });
+  });
+
   it('arms a watchdog for every batch, with the limit it is given and 5 seconds by default', async () => {
     const timeouts = vi.spyOn(globalThis, 'setTimeout');
     try {

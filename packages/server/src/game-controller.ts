@@ -35,6 +35,12 @@ export interface ControllerOptions {
 }
 
 const CLOCK_MS = 50;
+/**
+ * The most time the clock makes up after it was kept from running (a tick that found a batch out, a slow worker). A process that
+ * stood still (Ctrl+Z and fg, a debugger) comes back owing all the time it lost, and running through that would fast-forward the
+ * game: batches of 200 steps, an auto-pause landing a whole batch after its alert. Past this, the time is skipped.
+ */
+const CATCH_UP_MS = 200;
 const NO_SEASON = "The season hasn't started: ask the player to press Start.";
 
 type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => void };
@@ -176,10 +182,17 @@ export class GameController {
   }
 
   async deploy(board: string, code: string): Promise<DeployOutcome> {
-    this.requireSeason();
+    const worker = this.requireSeason();
     this.checker ??= SyntaxChecker.create();
     const problem = (await this.checker).check(code);
     if (problem !== null) return { ok: false, error: problem };
+    // The checker takes about 100 ms to load the first time, and the season can change meanwhile. A deploy posted to a season that
+    // is still starting would crash it ("no season for deploy"), and one posted to a season that is gone would wait for ever.
+    if (this.worker !== worker) {
+      throw this.worker === null
+        ? this.noSeason()
+        : new ToolError('A new season started while the code was being checked; deploy it again.');
+    }
     const result = (await this.request({ type: 'deploy', id: 0, board, code })) as { version: number };
     const time = timeView(this.scenario, this.snapshotNow?.step ?? 0);
     this.emit({ kind: 'deploy', board, version: result.version, time });
@@ -233,7 +246,8 @@ export class GameController {
   private onClock(): void {
     if (this.state !== 'running' || this.advanceWaiter) return;
     const now = performance.now();
-    this.debt += ((now - this.lastClock) / 1000) * this.scenario.time.stepsPerSecond * this.speed;
+    const stepsPerMs = (this.scenario.time.stepsPerSecond * this.speed) / 1000;
+    this.debt = Math.min(this.debt + (now - this.lastClock) * stepsPerMs, CATCH_UP_MS * stepsPerMs);
     this.lastClock = now;
     const n = Math.min(Math.floor(this.debt), this.stepsPerBatch);
     if (n <= 0) return;
@@ -246,8 +260,16 @@ export class GameController {
     // A batch that is out ends on its own, so the caller can retry; the message says so because dev_run_until hands it to an agent.
     if (this.advanceWaiter) return Promise.reject(new Error('a batch of steps is already running; try again in a moment'));
     return new Promise((resolve, reject) => {
-      this.advanceWaiter = { resolve, reject };
-      this.watchdog = setTimeout(() => this.onWatchdog(), this.watchdogMs);
+      const waiter = { resolve, reject };
+      this.advanceWaiter = waiter;
+      // The timer can fall due with the worker's answer already posted and not yet read (the process stood still, or the loop was
+      // busy), and the loop runs its timers before it reads messages. One more turn reads the answer first: the batch is hung only
+      // if it is still out then.
+      this.watchdog = setTimeout(() => {
+        setImmediate(() => {
+          if (this.advanceWaiter === waiter) this.onWatchdog();
+        });
+      }, this.watchdogMs);
       this.post({ type: 'advance', steps });
     });
   }
@@ -318,7 +340,7 @@ export class GameController {
   }
 
   private query(query: Query): Promise<unknown> {
-    if (!this.worker || this.state === 'idle' || this.state === 'crashed') return Promise.reject(new ToolError(NO_SEASON));
+    if (!this.worker || this.state === 'idle' || this.state === 'crashed') return Promise.reject(this.noSeason());
     return this.request({ type: 'query', id: 0, query });
   }
 
@@ -330,8 +352,15 @@ export class GameController {
     });
   }
 
-  private requireSeason(): void {
-    if (!this.worker || this.state === 'idle' || this.state === 'crashed') throw new ToolError(NO_SEASON);
+  /** The worker of the season in play; a ToolError when there is none. */
+  private requireSeason(): Worker {
+    if (!this.worker || this.state === 'idle' || this.state === 'crashed') throw this.noSeason();
+    return this.worker;
+  }
+
+  /** Why there is no season to work on: none has started, or the one that did crashed, and the player can start another. */
+  private noSeason(): ToolError {
+    return new ToolError(this.state === 'crashed' ? `The season crashed (${this.crash}). The player can start a new season.` : NO_SEASON);
   }
 
   private post(message: WorkerRequest): void {
