@@ -398,6 +398,15 @@ describe('game server', () => {
     expect((await fetch(`${bare.url}/`)).status).toBe(404);
   });
 
+  it("answers the panel's inspection with an empty one while there is no season, not with a refusal the screen would show", async () => {
+    const { server } = await start();
+    const v = await viewer(server.port);
+    v.send({ type: 'inspect', board: 'DA' });
+    await until(() => last(v.seen, 'inspection') !== undefined || last(v.seen, 'error') !== undefined);
+    expect(last(v.seen, 'error')).toBeUndefined();
+    expect(last(v.seen, 'inspection')).toEqual({ type: 'inspection', board: 'DA', inspection: null });
+  });
+
   it('answers a dev_play with no season with an error, as the other tools do', async () => {
     const { server, configDir } = await start({ dev: true });
     const agent = await connectAgent(server, configDir);

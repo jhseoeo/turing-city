@@ -120,9 +120,13 @@ export function createViewerHub(options: ViewerHubOptions): {
         options.reissueToken();
         broadcast(options.hello());
         return;
-      case 'inspect':
-        send(ws, { type: 'inspection', board: message.board, inspection: await controller.inspect(message.board) });
+      case 'inspect': {
+        // The panel asks twice a second while a board is selected. With no season to read (before the first, or after a
+        // crash) it gets an empty inspection: a refusal would sit in the screen's notice, over the overlay.
+        const inspection = await controller.inspect(message.board).catch(() => null);
+        send(ws, { type: 'inspection', board: message.board, inspection });
         return;
+      }
     }
   }
 
