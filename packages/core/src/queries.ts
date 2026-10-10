@@ -9,6 +9,7 @@ import { gameTime } from './time.ts';
 import {
   type Alert,
   type AlertKind,
+  type BoardState,
   type BoardStatus,
   findBoard,
   type LogLine,
@@ -30,6 +31,14 @@ export function timeView(scenario: Scenario, step: number): TimeView {
   return { day: t.day, clock: `${String(t.hour).padStart(2, '0')}:${String(t.minute).padStart(2, '0')}`, seconds: t.seconds };
 }
 
+/**
+ * Whether a board has power: it works, and the grid supplies it. The power phase skips a board that draws nothing, so a destroyed or
+ * rebuilding board keeps the flag it had, which says nothing about it.
+ */
+function hasPower(b: BoardState): boolean {
+  return b.powered && (b.status === 'running' || b.status === 'asleep');
+}
+
 export interface BoardSummary {
   readonly id: string;
   readonly kind: FacilityKind;
@@ -49,7 +58,7 @@ export function listBoards(world: WorldState): BoardSummary[] {
     x: b.x,
     y: b.y,
     status: b.status,
-    powered: b.powered,
+    powered: hasPower(b),
     firmwareVersion: b.firmware?.version ?? null,
     pendingVersion: b.pending?.version ?? null,
     lastError: b.lastTick?.error ? `${b.lastTick.error.kind}: ${b.lastTick.error.message}` : null,
@@ -107,7 +116,7 @@ export function mapView(ctx: SimContext): MapView {
       x: b.x,
       y: b.y,
       status: b.status,
-      powered: b.powered,
+      powered: hasPower(b),
       distanceToPlant: manhattan(b.x, b.y, plant.x, plant.y),
     })),
   };
@@ -225,7 +234,7 @@ export function snapshot(ctx: SimContext): Snapshot {
         x: b.x,
         y: b.y,
         status: b.status,
-        powered: b.powered,
+        powered: hasPower(b),
         hasFirmware: b.firmware !== null || b.pending !== null,
         erroring: b.lastTick?.error != null,
         tempC: dc ? idiv(dc.tempMilli, MILLI) : null,

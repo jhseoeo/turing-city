@@ -644,6 +644,12 @@ try {
     await waitUntil(async () => (await textOf('#panel button')) === rebuildLabel),
     `wanted "${rebuildLabel}", got "${await textOf('#panel button')}"`,
   );
+  // A smashed board has no power either, which the server now says in its snapshots: the panel must still name it destroyed, not shed.
+  check(
+    'the panel names a smashed board 파괴, not 정전',
+    (await textOf('#panel')).includes('● 파괴'),
+    (await textOf('#panel')).slice(0, 40),
+  );
   const affordable = await status();
   check(
     'the rebuild button is enabled while the money covers it',

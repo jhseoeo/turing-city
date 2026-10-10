@@ -215,6 +215,35 @@ describe('views in detail', () => {
     expect(logsView(s.ctx, 'P', 1)).toEqual([]);
   });
 
+  // The power phase skips a board that draws nothing, so its flag keeps the value it had: a smashed board stays "powered".
+  it('reports a destroyed or a rebuilding board as unpowered in every view, and a running or sleeping one by the grid', () => {
+    const { s } = session();
+    s.step(); // the grid covers everyone
+    const [p, da, db] = s.world.boards;
+    for (const board of [p!, da!, db!]) expect(board.powered).toBe(true);
+    da!.status = 'destroyed';
+    db!.status = 'rebuilding';
+    p!.status = 'asleep';
+    const seen = () => [
+      listBoards(s.world).map((b) => [b.id, b.status, b.powered]),
+      mapView(s.ctx).facilities.map((f) => [f.id, f.status, f.powered]),
+      snapshot(s.ctx).boards.map((b) => [b.id, b.status, b.powered]),
+    ];
+    for (const view of seen()) {
+      expect(view).toEqual([
+        ['P', 'asleep', true],
+        ['DA', 'destroyed', false],
+        ['DB', 'rebuilding', false],
+      ]);
+    }
+    // A board that is working and shed is unpowered as before, and powered again with the grid.
+    da!.status = 'running';
+    da!.powered = false;
+    expect(listBoards(s.world)[1]!.powered).toBe(false);
+    da!.powered = true;
+    expect(listBoards(s.world)[1]!.powered).toBe(true);
+  });
+
   it('maps each facility with its position, state, power, and distance to the plant', () => {
     const { s } = shortOfPower();
     s.step();
@@ -224,7 +253,7 @@ describe('views in detail', () => {
       height: 12,
       facilities: [
         { id: 'P', kind: 'power', x: 4, y: 4, status: 'running', powered: true, distanceToPlant: 0 },
-        { id: 'DA', kind: 'datacenter', x: 5, y: 4, status: 'destroyed', powered: true, distanceToPlant: 1 },
+        { id: 'DA', kind: 'datacenter', x: 5, y: 4, status: 'destroyed', powered: false, distanceToPlant: 1 },
         { id: 'DB', kind: 'datacenter', x: 16, y: 8, status: 'running', powered: false, distanceToPlant: 16 },
       ],
     });
@@ -343,7 +372,7 @@ describe('views in detail', () => {
     expect(snap.plant).toMatchObject({ wind: 20, thermal: 0, generation: 20, demand: 28, shed: ['DB'] });
     expect(snap.boards.map((b) => [b.id, b.status, b.powered])).toEqual([
       ['P', 'running', true],
-      ['DA', 'destroyed', true],
+      ['DA', 'destroyed', false],
       ['DB', 'running', false],
     ]);
     expect(snap.money).toBe(4999);
