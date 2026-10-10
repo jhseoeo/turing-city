@@ -211,6 +211,10 @@ local io_t, actions = nil, {}
 -- closure, its environment, and the copies of the libraries in it), kept whole so that nothing compiling added
 -- can be freed by the firmware and then spent as data.
 local env, pending, installed = nil, nil, nil
+-- Whether the installed firmware's main chunk has not run to its end: it is running, or it died on an error (the host has
+-- that error, from the tick that ran the chunk). A firmware in that state may have no tick() because of it, which is not
+-- the same thing to tell the player as a firmware that never defined one.
+local unfinished = false
 
 local function log(...)
   local parts = {}
@@ -300,11 +304,15 @@ function __step()
     local p = pending
     pending = nil
     installed, env = p, p.env
+    unfinished = true
     p.f()
+    unfinished = false
   end
   if env == nil then error("__NOTICK__ no firmware installed", 0) end
   local tick = rawget(env, "tick")
-  if type(tick) ~= "function" then error("__NOTICK__ firmware defines no tick(io, mem) function", 0) end
+  if type(tick) ~= "function" then
+    error(unfinished and "__INSTALLFAILED__" or "__NOTICK__ firmware defines no tick(io, mem) function", 0)
+  end
   tick(io_t, mem)
 end
 

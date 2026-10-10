@@ -60,6 +60,11 @@ export class BoardVm {
   private codeBytes = 0;
   /** The last tick ran out of RAM, so the next deploy gets room to start (see STARTUP_BYTES). */
   private starved = false;
+  /**
+   * What the last tick that installed a firmware ended in (its error, or null). A main chunk that fails leaves the board with no
+   * tick(), and every tick after it would say only that, so the cause is kept here for the ticks that follow to name.
+   */
+  private installError: string | null = null;
 
   private readonly lua: LuaWasm;
   private readonly options: BoardVmOptions;
@@ -124,6 +129,7 @@ export class BoardVm {
       this.engine.global.setMemoryMax(undefined);
     }
     const error = status === 0 ? null : this.classify(status, this.errorText(-1));
+    if (newSource !== null) this.installError = error?.message ?? null;
     this.starved = error?.kind === 'ram';
     lua.lua_settop(L, 0);
     const queue = this.drain('queue', () => lua.lua_tonumberx(L, -1, null));
@@ -207,6 +213,9 @@ export class BoardVm {
   private classify(status: number, message: string): TickError {
     if (this.capped) return { kind: 'cpu', message: CPU_MESSAGE };
     if (status === ERR_MEM) return { kind: 'ram', message: 'out of RAM' };
+    if (message === '__INSTALLFAILED__') {
+      return { kind: 'noTick', message: `the last deploy failed to install: ${this.installError ?? 'unknown error'}` };
+    }
     if (message.startsWith('__NOTICK__ ')) return { kind: 'noTick', message: message.slice('__NOTICK__ '.length) };
     return { kind: 'runtime', message };
   }

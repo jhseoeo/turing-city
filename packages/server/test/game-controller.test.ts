@@ -669,6 +669,20 @@ describe('GameController: requests', () => {
     expect(await c.inspect('ZZ')).toBeNull();
   });
 
+  it('keeps the reason a deploy failed to install in what the agent reads, where only "no tick function" used to be left', async () => {
+    const c = make();
+    c.setAgent(AGENT);
+    await c.startSeason(1);
+    await c.deploy('DA', 'local x = nil_function()\nfunction tick(io, mem) end');
+    await c.runUntil({ seconds: 2 }); // DA beats every 4 steps: the install tick, then nine that find no tick()
+    const why = "firmware:1: attempt to call a nil value (global 'nil_function')";
+    const da = (await c.listBoards()).find((b) => b.id === 'DA')!;
+    expect(da.lastError).toBe(`noTick: the last deploy failed to install: ${why}`);
+    const errors = (await c.logs('DA', undefined))!.filter((l) => l.kind === 'error');
+    expect(errors.map((l) => l.text)).toEqual([`runtime: ${why}`, `noTick: the last deploy failed to install: ${why}`]);
+    expect(errors[1]!.repeat).toBe(9);
+  });
+
   it("hands over the Lua checker's message for a syntax error, and says when a deploy installs", async () => {
     const c = make();
     c.setAgent(AGENT);

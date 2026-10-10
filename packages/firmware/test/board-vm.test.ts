@@ -110,6 +110,66 @@ describe('BoardVm', () => {
     v.close();
   });
 
+  describe('a deploy whose main chunk fails to install', () => {
+    const NIL_CALL = `local x = nil_function()\nfunction tick(io, mem) end`;
+    const NIL_CALL_ERROR = "firmware:1: attempt to call a nil value (global 'nil_function')";
+    const notInstalled = (why: string) => ({ kind: 'noTick', message: `the last deploy failed to install: ${why}` });
+
+    it('says why on every tick that follows, where it used to say only that there is no tick function', () => {
+      const v = vm();
+      // The install tick fails with the real error, once ...
+      expect(v.tick(SENSORS, NIL_CALL).error).toEqual({ kind: 'runtime', message: NIL_CALL_ERROR });
+      // ... and the board has no tick() because of it, which the ticks after it name: the cause does not disappear.
+      expect(v.tick(SENSORS, null).error).toEqual(notInstalled(NIL_CALL_ERROR));
+      expect(v.tick(SENSORS, null).error).toEqual(notInstalled(NIL_CALL_ERROR));
+      v.close();
+    });
+
+    it.each([
+      { cause: 'runs out of RAM', source: `big = {} for i = 1, 1e6 do big[i] = i end function tick() end`, kind: 'ram', why: 'out of RAM' },
+      { cause: 'runs into the CPU cap', source: `while true do end function tick() end`, kind: 'cpu', why: 'CPU limit exceeded' },
+    ])('says so when the main chunk $cause', ({ source, kind, why }) => {
+      const v = vm();
+      expect(v.tick(SENSORS, source).error).toEqual({ kind, message: why });
+      expect(v.tick(SENSORS, null).error).toEqual(notInstalled(why));
+      v.close();
+    });
+
+    it('forgets it when the next deploy installs, and names the new reason when that one fails too', () => {
+      const v = vm();
+      v.tick(SENSORS, NIL_CALL);
+      expect(v.tick(SENSORS, `local t = nil\nlocal y = t.x\nfunction tick() end`).error?.message).toMatch(
+        /^firmware:2: attempt to index a nil value/,
+      );
+      expect(v.tick(SENSORS, null).error?.message).toMatch(/^the last deploy failed to install: firmware:2: attempt to index a nil value/);
+      expect(v.tick(SENSORS, `function tick(io) io.log("fine") end`).logs).toEqual(['fine']);
+      expect(v.tick(SENSORS, null).error).toBeNull();
+      v.close();
+    });
+
+    it('does not blame an install for a firmware that never defined tick, or one that took tick away itself', () => {
+      const none = vm();
+      const noTick = { kind: 'noTick', message: 'firmware defines no tick(io, mem) function' };
+      expect(none.tick(SENSORS, `x = 1`).error).toEqual(noTick);
+      expect(none.tick(SENSORS, null).error).toEqual(noTick);
+      none.close();
+      const gone = vm();
+      expect(gone.tick(SENSORS, `function tick() tick = nil error("boom", 0) end`).error).toEqual({ kind: 'runtime', message: 'boom' });
+      expect(gone.tick(SENSORS, null).error).toEqual(noTick); // the main chunk ran to its end, so nothing failed to install
+      gone.close();
+    });
+
+    it('keeps running a tick that the main chunk defined before it failed', () => {
+      const v = vm();
+      const first = v.tick(SENSORS, `function tick(io) io.log("alive") end\nlocal y = nil_function()`);
+      expect(first.error?.message).toMatch(/^firmware:2: attempt to call a nil value/);
+      const next = v.tick(SENSORS, null);
+      expect(next.error).toBeNull();
+      expect(next.logs).toEqual(['alive']);
+      v.close();
+    });
+  });
+
   it('removes unsafe globals and pattern functions, and locks the string metatable', () => {
     const v = vm();
     const r = v.tick(
