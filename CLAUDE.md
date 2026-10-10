@@ -24,7 +24,7 @@ Read `docs/design.md` first. It's the game design document, in Korean: the visio
 ### Open questions
 
 - The design doc's 미결 사항 (open items), including whether a destroyed board should be rebuilt at once or after a delay.
-- From the prototype spec (§13): Lua determinism on x64 and in browsers. The Lua spike of 2026-10-09 settled instruction counting and determinism on one machine (spec §4.4 and §6.4 to §6.6). The other question, whether Claude Code answers server-sent MCP pings, is settled: it does (checked 2026-10-10 with Claude Code 2.1.296, spec §7.2).
+- From the prototype spec (§13): Lua determinism on x64 and in browsers. The Lua spike of 2026-10-09 settled instruction counting and determinism on one machine (spec §4.4 and §6.4 to §6.6). The other question, whether Claude Code answers server-sent MCP pings, is settled for headless Claude Code: it does (checked 2026-10-10 with `claude -p`, Claude Code 2.1.296, spec §7.2). Interactive Claude Code has not been checked; the playtest checklist asks for it.
 
 ## Agents
 
@@ -68,8 +68,8 @@ A docs-only change that records what the user just decided skips steps 3 and 4: 
   - `pnpm sim [scenario.json] [--firmware dir] [--seed n] [--until day] [--rebuild]`: plays a season headless and prints the result as JSON (`money` in whole units, the `ledger` in micro-units; `--rebuild` rebuilds every smashed board as soon as the money allows, standing in for the player). The reference firmware sets are in `scenarios/firmware/m1/careless` and `careful`.
   - `pnpm start`: builds the viewer and serves the game at http://127.0.0.1:7840 (MCP at `/mcp`, the viewer's socket at `/ws`); it prints the agent's connect command, and logs a timestamped line whenever the agent connects or disconnects. `pnpm start:dev` adds the dev tools (`dev_play`, `dev_run_until`, ...) for QA agents.
   - `pnpm viewer` runs Vite's dev server on 5173, for developers as well as QA. It works only with a server started by `pnpm start:dev` on port 7840: the page's socket goes to `ws://127.0.0.1:7840/ws`, and the server accepts Vite's origin only in dev mode, because 5173 is shared by every Vite project on the machine.
-  - `pnpm shots`: drives the real viewer in headless Chrome against a real server and a scripted agent, runs about 50 checks and exits 1 on a failure, takes about 40 s, needs Google Chrome installed, and writes its screenshots to `scratch/shots/`.
-  - The token lives in `~/.config/turing-city/config.json`, outside the repository (it's public).
+  - `pnpm shots`: drives the real viewer in headless Chrome against a real server and a scripted agent, runs about 60 checks and exits 1 on a failure, takes about 50 s, needs Google Chrome installed, and writes its screenshots to `scratch/shots/`.
+  - The token lives in `~/.config/turing-city/config.json`, outside the repository (it's public). `XDG_CONFIG_HOME` (an absolute path) moves that directory, so a server started by hand can use a scratch one; tests and `pnpm shots` use temporary directories.
 - Imports inside the workspace carry the `.ts` suffix, and the code uses only erasable TypeScript syntax (no `enum`, `namespace`, or constructor parameter properties): Node runs the server's worker thread with its own type stripping, which needs both.
 - `core` uses no Node or DOM API, and `firmware`'s `src` no Node API; their tsconfigs and Biome's `noNodejsModules` enforce it.
 

@@ -52,7 +52,7 @@ describe('season checks', () => {
     const rebuildCost = scenario.tuning.rebuild.cost * MICRO;
     const swapAt = 10 * stepsPerDay(scenario.time);
     while (!live.world.ended) {
-      // The player: rebuilds what is smashed as soon as the money allows, and on the tenth day swaps one board's firmware.
+      // The player: rebuilds what is smashed as soon as the money allows, and after ten days swaps one board's firmware.
       for (const b of live.world.boards) if (b.status === 'destroyed' && live.world.money >= rebuildCost) live.rebuild(b.id);
       if (live.world.step === swapAt) {
         live.mark('pause');
