@@ -101,7 +101,7 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
   {
     name: 'deploy_firmware',
     description:
-      "Deploy Lua firmware to a board. It must define function tick(io, mem). A syntax error is refused with Lua's message and the old firmware keeps running; otherwise the new code installs at the board's next tick, keeping mem. A board that is asleep, smashed, or being rebuilt has no ticks until it wakes or is rebuilt, and the answer says when the code installs.",
+      "Deploy Lua firmware to a board. It must define function tick(io, mem). A syntax error is refused with Lua's message and the old firmware keeps running; otherwise the new code installs at the board's next tick, keeping mem. A board that is asleep, smashed, being rebuilt, or without power has no ticks until it wakes, is rebuilt, or gets its power back, and the answer says when the code installs.",
     inputSchema: { board, code },
     run: (api, args) => api.deploy(args.board as string, args.code as string),
   },

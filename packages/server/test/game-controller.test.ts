@@ -4,7 +4,7 @@ import { type ControllerEvent, parseScenario, runSeason, type Scenario, ToolErro
 import { WasmoonHost } from '@turing-city/firmware';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadFirmwareDir } from '../src/firmware-files.ts';
-import { GameController, gameApi } from '../src/game-controller.ts';
+import { GameController, gameApi, installsAt } from '../src/game-controller.ts';
 
 const scenario = parseScenario(JSON.parse(readFileSync('scenarios/m1-power.json', 'utf8')));
 const AGENT = { connected: true, clientName: 'test-agent' };
@@ -808,6 +808,38 @@ describe('GameController: requests', () => {
     expect(await installsAt(lost)).toBe("the board's next tick, after the player rebuilds it");
     expect(await c.rebuild(lost)).toEqual({ ok: true });
     expect(await installsAt(lost)).toBe("the board's next tick, after its rebuild finishes");
+  });
+
+  it('says that a deploy to a board the grid has shed waits for its power', async () => {
+    // Wind 20 feeds the plant (5) and DA (10) but not DB (13 with its transmission loss): DB is shed from the first step.
+    const raw = JSON.parse(readFileSync('scenarios/m1-power.json', 'utf8'));
+    raw.tuning.wind = { ...raw.tuning.wind, start: 20, maxChangePerSecond: 0 };
+    const c = makeFor(parseScenario(raw));
+    c.setAgent(AGENT);
+    await c.startSeason(1);
+    await c.runUntil({ seconds: 1 });
+    const boards = await c.listBoards();
+    expect(boards.map((b) => [b.id, b.status, b.powered])).toEqual([
+      ['P', 'running', true],
+      ['DA', 'running', true],
+      ['DB', 'running', false],
+    ]);
+    const outcome = async (board: string) => (await c.deploy(board, 'function tick() end')) as { ok: true; installsAt: string };
+    expect((await outcome('DA')).installsAt).toBe("the board's next tick");
+    expect((await outcome('DB')).installsAt).toBe("the board's next tick, after its power returns");
+  });
+
+  it('tells when a deploy installs from what the board is doing and whether the grid supplies it', () => {
+    const next = "the board's next tick";
+    expect(installsAt('running', true)).toBe(next);
+    expect(installsAt('running', false)).toBe(`${next}, after its power returns`);
+    expect(installsAt('asleep', true)).toBe(`${next}, after it wakes`);
+    expect(installsAt('asleep', false)).toBe(`${next}, after it wakes and its power returns`);
+    // A board that is smashed or being rebuilt draws nothing, so the grid's flag says nothing about it: the rebuild comes first.
+    for (const powered of [true, false]) {
+      expect(installsAt('destroyed', powered)).toBe(`${next}, after the player rebuilds it`);
+      expect(installsAt('rebuilding', powered)).toBe(`${next}, after its rebuild finishes`);
+    }
   });
 
   it("hands over the Lua checker's message for a syntax error, and says when a deploy installs", async () => {

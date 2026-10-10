@@ -99,10 +99,12 @@ describe('agent tools', () => {
     expect(AGENT_INSTRUCTIONS).toContain('You cannot, so tell the player and ask');
   });
 
-  it("says in deploy_firmware's description that a board that is asleep, smashed, or being rebuilt installs later", () => {
+  it("says in deploy_firmware's description that a board that is asleep, smashed, being rebuilt, or without power installs later", () => {
     const { description } = tool('deploy_firmware');
     expect(description).toContain("installs at the board's next tick");
-    expect(description).toContain('asleep, smashed, or being rebuilt has no ticks until it wakes or is rebuilt');
+    expect(description).toContain(
+      'asleep, smashed, being rebuilt, or without power has no ticks until it wakes, is rebuilt, or gets its power back',
+    );
   });
 
   it('limits firmware to 64 KB in its schema', () => {

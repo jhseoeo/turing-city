@@ -396,7 +396,7 @@ The prototype offers every tool from the start.
 | `list_boards()` | each board's id, facility, position, state (running, asleep, destroyed, rebuilding), `powered` (whether the grid supplies it; false for a destroyed or rebuilding board, which draws nothing), firmware version and the version waiting to install, and latest error |
 | `get_datasheet(board)` | §6.7's datasheet |
 | `get_firmware(board)` | the deployed source. Not in the design doc's list, added because an agent needs the source to edit it |
-| `deploy_firmware(board, code)` | compiles; queues for the board's next tick, or returns the syntax error. The answer says when the code installs: at the board's next tick, or after it wakes (asleep), after the player rebuilds it (destroyed), or after its rebuild finishes (rebuilding) |
+| `deploy_firmware(board, code)` | compiles; queues for the board's next tick, or returns the syntax error. The answer says when the code installs: at the board's next tick, or after its power returns (the grid has shed the board), after it wakes (asleep, and with its power returning too when it is shed as well), after the player rebuilds it (destroyed), or after its rebuild finishes (rebuilding) |
 | `read_logs(board, since)` | log lines after a game time |
 | `get_map()` | the facilities, their positions, distances, and states |
 | `get_status()` | game time, paused or speed, money, food, power supply and demand, the fed, hungry, and unpowered population, season progress, and, once the season is over, how it ended and when (`ended`: the kind and a game time in the form of `time`; the agent sees no raw step anywhere) |

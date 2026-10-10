@@ -129,8 +129,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       reply(message.id, () => {
         const result = s.deploy(message.board, message.code);
         send({ type: 'snapshot', snapshot: snapshot(s.ctx) });
-        // The controller tells the agent when the code installs, which depends on what the board is doing.
-        return { ...result, boardStatus: findBoard(s.world, message.board)!.status };
+        // The controller tells the agent when the code installs, which depends on what the board is doing and on its power.
+        const board = findBoard(s.world, message.board)!;
+        return { ...result, boardStatus: board.status, powered: board.powered };
       });
       return;
     case 'rebuild':
