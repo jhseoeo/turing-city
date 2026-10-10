@@ -92,6 +92,46 @@ describe('power', () => {
     expect(s.world.alerts.filter((a) => a.kind === 'powerShortage')).toHaveLength(1);
   });
 
+  it('logs "power lost" and "power back" in the log of a board whose power flips, once per flip, and in nobody else\'s', () => {
+    const s = calm(100);
+    for (const id of ['DA', 'DB']) {
+      s.world.datacenters[id]!.jobFrom = 0;
+      s.world.datacenters[id]!.jobUntil = 10;
+    }
+    const [, da, db] = s.world.boards;
+    s.world.plant.thermalSetting = 250; // generation 350 against a demand of 379: DB is shed
+    runPower(s.ctx, 0);
+    runPower(s.ctx, 1); // still shed: nothing flipped
+    s.world.plant.thermalSetting = 300;
+    runPower(s.ctx, 2);
+    s.world.plant.thermalSetting = 250;
+    runPower(s.ctx, 3);
+    expect(db!.log).toEqual([
+      { step: 0, kind: 'system', text: 'power lost', repeat: 1 },
+      { step: 2, kind: 'system', text: 'power back', repeat: 1 },
+      { step: 3, kind: 'system', text: 'power lost', repeat: 1 },
+    ]);
+    expect(da!.log).toEqual([]);
+    expect(plantBoard(s.world).log).toEqual([]);
+  });
+
+  it("logs the power of a board that sleeps, and not that of a board that is destroyed or being rebuilt: it isn't running", () => {
+    const s = calm(0); // nothing is generated: every board that draws power is shed
+    const [, da, db] = s.world.boards;
+    da!.status = 'asleep';
+    runPower(s.ctx, 0);
+    expect(da!.log.map((l) => l.text)).toEqual(['power lost']);
+    expect(db!.log.map((l) => l.text)).toEqual(['power lost']);
+    for (const status of ['destroyed', 'rebuilding'] as const) {
+      db!.status = status; // it draws nothing now, and the grid has no one to cut off
+      runPower(s.ctx, 1);
+      expect(
+        db!.log.map((l) => l.text),
+        status,
+      ).toEqual(['power lost']);
+    }
+  });
+
   it('does not tick a board whose facility was shed', () => {
     const host = new FakeHost();
     const src = host.program('noop', () => ({}));

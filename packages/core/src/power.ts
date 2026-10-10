@@ -1,4 +1,5 @@
 import { clearFlag, raiseOnce } from './alerts.ts';
+import { appendLog } from './boards.ts';
 import { mulDiv } from './fixed.ts';
 import { type BoardState, manhattan, type SimContext, type WorldState } from './world.ts';
 
@@ -55,7 +56,11 @@ export function runPower(ctx: SimContext, step: number): void {
   }
   plant.powered = true;
   order.forEach((b, i) => {
+    const was = b.powered;
     b.powered = powered[i]!;
+    // A board that works finds out its power was cut or came back from its log (a destroyed one has no one to tell).
+    if (was !== b.powered && (b.status === 'running' || b.status === 'asleep'))
+      appendLog(b, step, 'system', b.powered ? 'power back' : 'power lost');
   });
   w.plant.generation = generation;
   w.plant.demand = plantDraw + demands.reduce((a, b) => a + b, 0);
