@@ -13,7 +13,19 @@ const kv = (pairs: Array<[string, string]>): HTMLElement =>
     pairs.flatMap(([k, v]) => [el('span', { class: 'dim' }, [k]), el('span', {}, [v])]),
   );
 
+const SCROLL_KEY = 'data-scroll';
+
+/** The scroll offsets of the panel's scrollable blocks, by their keys. */
+function scrollOffsets(root: HTMLElement): Map<string, number> {
+  const offsets = new Map<string, number>();
+  for (const pre of root.querySelectorAll<HTMLElement>(`pre[${SCROLL_KEY}]`))
+    offsets.set(pre.getAttribute(SCROLL_KEY) ?? '', pre.scrollTop);
+  return offsets;
+}
+
 export function renderPanel(root: HTMLElement, store: Store, net: Connection): void {
+  // The panel is rebuilt on every change, so a block the player scrolled would jump back to its top: put each one back.
+  const scrolled = scrollOffsets(root);
   clear(root);
   const s = store.snapshot;
   const board = s?.boards.find((b) => b.id === store.selected);
@@ -83,7 +95,7 @@ export function renderPanel(root: HTMLElement, store: Store, net: Connection): v
     ),
     section(
       '로그',
-      el('pre', {}, [
+      el('pre', { [SCROLL_KEY]: `${board.id}/log` }, [
         [...inspection.logs]
           .reverse()
           .map((l) => `${l.day}일 ${l.clock}  ${l.kind === 'log' ? '' : `[${l.kind}] `}${l.text}${l.repeat > 1 ? ` ×${l.repeat}` : ''}`)
@@ -92,7 +104,10 @@ export function renderPanel(root: HTMLElement, store: Store, net: Connection): v
     ),
     section(
       `펌웨어${inspection.firmware ? ` v${inspection.firmware.version}` : ''} (읽기 전용)`,
-      el('pre', {}, [inspection.firmware?.source ?? '(없음)']),
+      el('pre', { [SCROLL_KEY]: `${board.id}/firmware` }, [inspection.firmware?.source ?? '(없음)']),
     ),
   );
+  // Only now are the blocks in the page with a layout, which setting scrollTop needs. Another board's blocks have other keys.
+  for (const pre of root.querySelectorAll<HTMLElement>(`pre[${SCROLL_KEY}]`))
+    pre.scrollTop = scrolled.get(pre.getAttribute(SCROLL_KEY) ?? '') ?? 0;
 }
