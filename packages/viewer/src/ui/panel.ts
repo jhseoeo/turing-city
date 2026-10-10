@@ -43,12 +43,15 @@ export function renderPanel(root: HTMLElement, store: Store, net: Connection): v
     ]),
   );
   if (board.status === 'destroyed') {
+    // The server refuses a rebuild the money cannot pay for, and the game screen shows no refusal: do not offer the click.
+    const tooPoor = s.money < s.rebuild.cost;
     root.append(
       section(
         '재건',
-        el('button', { class: 'primary', onclick: () => net.send({ type: 'rebuild', board: board.id }) }, [
+        el('button', { class: 'primary', disabled: tooPoor, onclick: () => net.send({ type: 'rebuild', board: board.id }) }, [
           `재건 (${moneyLabel(s.rebuild.cost)} · ${s.rebuild.hours}시간)`,
         ]),
+        tooPoor ? el('p', { class: 'dim' }, ['자금이 모자라서 재건할 수 없어요']) : '',
       ),
     );
   } else if (board.status === 'rebuilding') {

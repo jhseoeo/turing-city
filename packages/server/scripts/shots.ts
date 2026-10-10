@@ -71,6 +71,13 @@ async function clickOn(selector: string, text = ''): Promise<void> {
 
 const textOf = (selector: string): Promise<string> => page.evaluate((s) => document.querySelector(s)?.textContent ?? '', selector);
 
+/** The first button that matches the selector: its text, and whether it is disabled. Null when there is none. */
+const buttonOf = (selector: string): Promise<{ text: string; disabled: boolean } | null> =>
+  page.evaluate((s) => {
+    const button = document.querySelector<HTMLButtonElement>(s);
+    return button ? { text: button.textContent ?? '', disabled: button.disabled } : null;
+  }, selector);
+
 /** How many snapshots the page's socket has received: proof that the page was being re-rendered during a press. */
 let snapshotFrames = 0;
 page.on('websocket', (ws) => {
@@ -299,6 +306,12 @@ try {
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => document.querySelector('#topbar b')?.textContent?.startsWith('1일차 00:00') === true);
   };
+  const alertKinds = async (): Promise<string[]> => ((await agent.call('get_alerts')) as Array<{ kind: string }>).map((a) => a.kind);
+  // What a rebuild costs and takes, from the scenario file: the button's label shows these two numbers.
+  const scenario = parseScenario(JSON.parse(readFileSync('scenarios/m1-power.json', 'utf8')));
+  const rebuildCost = scenario.tuning.rebuild.cost;
+  const rebuildHours = Math.floor((scenario.tuning.rebuild.seconds * 24) / scenario.time.secondsPerDay);
+  const rebuildLabel = `재건 (${rebuildCost.toLocaleString('en-US')} · ${rebuildHours}시간)`;
   const careful =
     'function tick(io, mem) if io.temp > 70 then io.cool(3) end if io.temp < 82 then io.process() end io.log("t", io.temp) end';
   const deployHealthy = async (): Promise<void> => {
@@ -499,6 +512,22 @@ try {
     overlayText,
   );
   await shot('10-season-ended');
+  check('the overlay\'s "새 시즌" is enabled while an agent is connected', (await buttonOf('#overlay button'))?.disabled === false);
+
+  // With no agent, the server would refuse a new season and this screen would not show it, so the button waits for one.
+  await agent.disconnect();
+  check(
+    'with no agent the overlay\'s "새 시즌" is disabled, and the overlay says why',
+    await waitUntil(
+      async () => (await buttonOf('#overlay button'))?.disabled === true && (await textOf('#overlay')).includes('에이전트가 연결되면'),
+    ),
+  );
+  await shot('10-season-ended-no-agent');
+  agent = await connectAgent('shots-3');
+  check(
+    'the overlay\'s "새 시즌" is enabled again when an agent connects',
+    await waitUntil(async () => (await buttonOf('#overlay button'))?.disabled === false),
+  );
   await clickOn('#overlay button', '새 시즌');
   check(
     'the overlay\'s "새 시즌" starts a season',
@@ -528,7 +557,6 @@ try {
   await agent.call('dev_run_until', { seconds: 60 }); // the first raid comes at 68 s
   await page.keyboard.press('3');
   await page.keyboard.press('Space');
-  const alertKinds = async (): Promise<string[]> => ((await agent.call('get_alerts')) as Array<{ kind: string }>).map((a) => a.kind);
   const raided = await waitUntil(async () => (await alertKinds()).includes('raid'), 20_000);
   check('the raid pauses the game by itself', raided && (await waitUntil(async () => (await status()).run.paused, 2000)));
   check('the page shows the pause', await waitUntil(async () => (await textOf('#topbar .speed button')) === '▶'));
@@ -542,19 +570,46 @@ try {
 
   // The alert names the board; clicking it opens the board's panel, where a destroyed board offers its rebuild.
   await clickOn('#feed .item', '부서졌어요');
-  const scenario = parseScenario(JSON.parse(readFileSync('scenarios/m1-power.json', 'utf8')));
-  const rebuild = scenario.tuning.rebuild;
-  const label = `재건 (${rebuild.cost.toLocaleString('en-US')} · ${Math.floor((rebuild.seconds * 24) / scenario.time.secondsPerDay)}시간)`;
   check(
     'clicking an alert in the feed opens the destroyed board, with its rebuild button',
-    await waitUntil(async () => (await textOf('#panel button')) === label),
-    `wanted "${label}", got "${await textOf('#panel button')}"`,
+    await waitUntil(async () => (await textOf('#panel button')) === rebuildLabel),
+    `wanted "${rebuildLabel}", got "${await textOf('#panel button')}"`,
+  );
+  const affordable = await status();
+  check(
+    'the rebuild button is enabled while the money covers it',
+    affordable.money >= rebuildCost && (await buttonOf('#panel button'))?.disabled === false,
+    `money ${affordable.money}, cost ${rebuildCost}`,
   );
   await shot('13-board-destroyed');
   await clickOn('#panel button');
   await agent.call('dev_run_until', { seconds: 1 });
   check('the rebuild button starts the rebuild', await waitUntil(async () => (await textOf('#panel')).includes('재건 중…')));
   await shot('14-rebuilding');
+
+  // The same button with too little money. A plant that acts every tick and burns the most fuel draws the raid (at 102 s, seed 3)
+  // while the money runs out (below zero at 106 s); the first smashed board is P, at 124 s, and the season is still on.
+  await newSeason();
+  await agent.call('deploy_firmware', { board: 'P', code: 'function tick(io) io.set_thermal(300) end' });
+  await agent.call('dev_run_until', { seconds: 100 });
+  for (let seconds = 0; seconds < 60 && !(await alertKinds()).includes('boardDestroyed'); seconds++)
+    await agent.call('dev_run_until', { seconds: 1 });
+  const poor = await status();
+  check(
+    'a board is smashed while the money is below the rebuild cost, and the season goes on',
+    (await alertKinds()).includes('boardDestroyed') && poor.money < rebuildCost && poor.ended === null,
+    `money ${poor.money}, cost ${rebuildCost}`,
+  );
+  await clickOn('#feed .item', '부서졌어요');
+  check(
+    'with too little money the rebuild button is disabled, and the panel says why',
+    await waitUntil(
+      async () =>
+        (await buttonOf('#panel button'))?.disabled === true && (await textOf('#panel')).includes('자금이 모자라서 재건할 수 없어요'),
+    ),
+    `the button: ${JSON.stringify(await buttonOf('#panel button'))}`,
+  );
+  await shot('15-rebuild-unaffordable');
 } finally {
   for (const agent of agents) await agent.disconnect().catch(() => undefined);
   await browser.close();
