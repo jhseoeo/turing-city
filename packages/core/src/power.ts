@@ -38,6 +38,27 @@ export function priorityOrder(world: WorldState): BoardState[] {
   return [...first, ...consumers.filter((b) => !first.includes(b))];
 }
 
+/**
+ * What a board's own log says of its power. A cut is logged as it happens, so a plant that flickers leaves one folded "power lost" line
+ * and not a line a step; "power back" comes only once the board has had power, unbroken, for the quiet time since its last cut, so it
+ * never interleaves with a flicker. A board that is smashed or being rebuilt owes no "power back" (its own lines say what happened),
+ * and one that is rebuilt starts fresh.
+ */
+function logPower(ctx: SimContext, board: BoardState, wasPowered: boolean, step: number): void {
+  if (board.status !== 'running' && board.status !== 'asleep') {
+    board.lastCutStep = null;
+    return;
+  }
+  const quietSeconds = ctx.scenario.tuning.shortageQuietSeconds;
+  if (!board.powered) {
+    if (wasPowered) appendLog(board, step, 'system', 'power lost');
+    board.lastCutStep = step;
+  } else if (board.lastCutStep !== null && step - board.lastCutStep >= stepsForSeconds(ctx.scenario.time, quietSeconds)) {
+    appendLog(board, step, 'system', quietSeconds > 0 ? `power back (steady for ${quietSeconds} s)` : 'power back');
+    board.lastCutStep = null;
+  }
+}
+
 /** Phase 3: generation, demand, and shedding. */
 export function runPower(ctx: SimContext, step: number): void {
   const w = ctx.world;
@@ -59,9 +80,7 @@ export function runPower(ctx: SimContext, step: number): void {
   order.forEach((b, i) => {
     const was = b.powered;
     b.powered = powered[i]!;
-    // A board that works finds out its power was cut or came back from its log (a destroyed one has no one to tell).
-    if (was !== b.powered && (b.status === 'running' || b.status === 'asleep'))
-      appendLog(b, step, 'system', b.powered ? 'power back' : 'power lost');
+    logPower(ctx, b, was, step);
   });
   w.plant.generation = generation;
   w.plant.demand = plantDraw + demands.reduce((a, b) => a + b, 0);
@@ -71,7 +90,7 @@ export function runPower(ctx: SimContext, step: number): void {
     raiseOnce(w, 'shortage', step, 'powerShortage', null, `전력 부족: ${w.plant.shed.join(', ')} 정전`);
   } else if (
     w.plant.lastShedStep !== null &&
-    step - w.plant.lastShedStep >= stepsForSeconds(ctx.scenario.time, ctx.scenario.tuning.shortageAlertQuietSeconds)
+    step - w.plant.lastShedStep >= stepsForSeconds(ctx.scenario.time, ctx.scenario.tuning.shortageQuietSeconds)
   ) {
     // The episode ends only after the grid has been quiet for a while: a plant that sheds and re-powers again and again would
     // otherwise raise an alert at every turn, flood get_alerts and push the older alerts out of the buffer.

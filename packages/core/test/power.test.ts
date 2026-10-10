@@ -21,6 +21,36 @@ function calm(wind: number): Session {
   );
 }
 
+/**
+ * A grid that sheds DB while the thermal setting is 250 and covers every facility at 300: the wind is 100, and both datacenters
+ * have a job running for ever. The quiet time can be retuned.
+ */
+function sheddable(quietSeconds?: number): Session {
+  const s = new Session(
+    m1Scenario((j) => {
+      j.tuning.wind.start = 100;
+      j.tuning.wind.maxChangePerSecond = 0;
+      if (quietSeconds !== undefined) j.tuning.shortageQuietSeconds = quietSeconds;
+    }),
+    1,
+    new FakeHost(),
+  );
+  for (const id of ['DA', 'DB']) {
+    s.world.datacenters[id]!.jobFrom = 0;
+    s.world.datacenters[id]!.jobUntil = 100_000;
+  }
+  return s;
+}
+
+/** Runs the power phase over the steps from..to (inclusive) with the grid shedding DB or not. */
+function run(s: Session, from: number, to: number, shedding: boolean): void {
+  s.world.plant.thermalSetting = shedding ? 250 : 300;
+  for (let step = from; step <= to; step++) runPower(s.ctx, step);
+}
+
+const shortages = (s: Session) => s.world.alerts.filter((a) => a.kind === 'powerShortage');
+const texts = (b: { log: ReadonlyArray<{ text: string }> }): string[] => b.log.map((l) => l.text);
+
 describe('power', () => {
   it("adds 2% per cell from the plant to a facility's draw", () => {
     const s = calm(120);
@@ -97,44 +127,91 @@ describe('power', () => {
     expect(s.world.alerts.filter((a) => a.kind === 'powerShortage')).toHaveLength(1);
   });
 
-  it('logs "power lost" and "power back" in the log of a board whose power flips, once per flip, and in nobody else\'s', () => {
-    const s = calm(100);
-    for (const id of ['DA', 'DB']) {
-      s.world.datacenters[id]!.jobFrom = 0;
-      s.world.datacenters[id]!.jobUntil = 10;
-    }
-    const [, da, db] = s.world.boards;
-    s.world.plant.thermalSetting = 250; // generation 350 against a demand of 379: DB is shed
-    runPower(s.ctx, 0);
-    runPower(s.ctx, 1); // still shed: nothing flipped
-    s.world.plant.thermalSetting = 300;
-    runPower(s.ctx, 2);
-    s.world.plant.thermalSetting = 250;
-    runPower(s.ctx, 3);
-    expect(db!.log).toEqual([
-      { step: 0, kind: 'system', text: 'power lost', repeat: 1 },
-      { step: 2, kind: 'system', text: 'power back', repeat: 1 },
-      { step: 3, kind: 'system', text: 'power lost', repeat: 1 },
-    ]);
-    expect(da!.log).toEqual([]);
-    expect(plantBoard(s.world).log).toEqual([]);
-  });
+  describe("a board's log of an outage", () => {
+    const dbOf = (s: Session) => s.world.boards[2]!;
 
-  it("logs the power of a board that sleeps, and not that of a board that is destroyed or being rebuilt: it isn't running", () => {
-    const s = calm(0); // nothing is generated: every board that draws power is shed
-    const [, da, db] = s.world.boards;
-    da!.status = 'asleep';
-    runPower(s.ctx, 0);
-    expect(da!.log.map((l) => l.text)).toEqual(['power lost']);
-    expect(db!.log.map((l) => l.text)).toEqual(['power lost']);
-    for (const status of ['destroyed', 'rebuilding'] as const) {
-      db!.status = status; // it draws nothing now, and the grid has no one to cut off
-      runPower(s.ctx, 1);
-      expect(
-        db!.log.map((l) => l.text),
-        status,
-      ).toEqual(['power lost']);
-    }
+    it('folds the cuts of a flickering board into one "power lost" line, and logs "power back" only once it has been steady', () => {
+      const s = sheddable();
+      for (let step = 0; step < 100; step++) run(s, step, step, step % 2 === 0); // cut at 0, 2, ..., 98, with power at the odd steps between
+      expect(dbOf(s).log).toEqual([{ step: 98, kind: 'system', text: 'power lost', repeat: 50 }]);
+      run(s, 99, 98 + QUIET_STEPS - 1, false); // power since step 99: one step short of the quiet time since the last cut
+      expect(texts(dbOf(s))).toEqual(['power lost']);
+      run(s, 98 + QUIET_STEPS, 98 + QUIET_STEPS, false);
+      expect(dbOf(s).log).toEqual([
+        { step: 98, kind: 'system', text: 'power lost', repeat: 50 },
+        { step: 98 + QUIET_STEPS, kind: 'system', text: 'power back (steady for 10 s)', repeat: 1 },
+      ]);
+      run(s, 99 + QUIET_STEPS, 98 + 3 * QUIET_STEPS, false);
+      expect(dbOf(s).log).toHaveLength(2); // exactly one "power back"
+      expect(s.world.boards[1]!.log).toEqual([]); // DA kept its power
+      expect(plantBoard(s.world).log).toEqual([]);
+    });
+
+    it('logs each outage on its own: the cut, the steady return, and the next cut', () => {
+      const s = sheddable();
+      run(s, 0, 0, true);
+      run(s, 1, QUIET_STEPS, false);
+      run(s, QUIET_STEPS + 1, QUIET_STEPS + 1, true);
+      run(s, QUIET_STEPS + 2, 2 * QUIET_STEPS + 1, false);
+      expect(dbOf(s).log.map((l) => [l.step, l.text])).toEqual([
+        [0, 'power lost'],
+        [QUIET_STEPS, 'power back (steady for 10 s)'],
+        [QUIET_STEPS + 1, 'power lost'],
+        [2 * QUIET_STEPS + 1, 'power back (steady for 10 s)'],
+      ]);
+    });
+
+    it('counts the quiet time from the last step the board was without power, however long the outage was', () => {
+      const s = sheddable();
+      run(s, 0, 150, true); // an outage longer than the quiet time itself
+      run(s, 151, 150 + QUIET_STEPS - 1, false);
+      expect(texts(dbOf(s))).toEqual(['power lost']);
+      run(s, 150 + QUIET_STEPS, 150 + QUIET_STEPS, false);
+      expect(dbOf(s).log.at(-1)).toMatchObject({ step: 150 + QUIET_STEPS, text: 'power back (steady for 10 s)' });
+    });
+
+    it('logs the outage of a board that sleeps', () => {
+      const s = calm(0); // nothing is generated: every board that draws power is shed
+      const [, da, db] = s.world.boards;
+      da!.status = 'asleep';
+      runPower(s.ctx, 0);
+      expect(texts(da!)).toEqual(['power lost']);
+      expect(texts(db!)).toEqual(['power lost']);
+    });
+
+    it.each(['destroyed', 'rebuilding'] as const)(
+      'owes no "power back" to a board that is %s in the middle of an outage, nor to the one rebuilt',
+      (status) => {
+        const s = sheddable();
+        run(s, 0, 4, true); // DB is cut at step 0 and stays cut
+        dbOf(s).status = status; // it draws nothing now, so the grid has no one to cut off
+        run(s, 5, 5 + QUIET_STEPS + 50, false);
+        expect(texts(dbOf(s))).toEqual(['power lost']);
+        expect(dbOf(s).lastCutStep).toBeNull(); // nothing is owed
+        dbOf(s).status = 'running'; // rebuilt: it starts fresh, with power
+        run(s, 6 + QUIET_STEPS + 50, 6 + 3 * QUIET_STEPS, false);
+        expect(texts(dbOf(s))).toEqual(['power lost']);
+      },
+    );
+
+    it('takes the time to be steady from the scenario, in the words of its log too', () => {
+      const s = sheddable(3); // 3 seconds are 60 steps
+      run(s, 0, 0, true);
+      run(s, 1, 59, false);
+      expect(texts(dbOf(s))).toEqual(['power lost']);
+      run(s, 60, 60, false);
+      expect(dbOf(s).log.at(-1)).toMatchObject({ step: 60, kind: 'system', text: 'power back (steady for 3 s)' });
+    });
+
+    it('logs "power back" at once, with no delay to explain, when the quiet time is zero', () => {
+      const s = sheddable(0);
+      run(s, 0, 0, true);
+      run(s, 1, 1, false);
+      expect(dbOf(s).log.map((l) => [l.step, l.text])).toEqual([
+        [0, 'power lost'],
+        [1, 'power back'],
+      ]);
+    });
   });
 
   it('does not tick a board whose facility was shed', () => {
@@ -253,27 +330,11 @@ describe('power', () => {
     expect(shortages()).toHaveLength(2);
   });
 
-  describe('the shortage alert quiet time', () => {
-    /** A grid that sheds DB while the thermal setting is 250 and covers every facility at 300. */
-    function sheddable(): Session {
-      const s = calm(100);
-      for (const id of ['DA', 'DB']) {
-        s.world.datacenters[id]!.jobFrom = 0;
-        s.world.datacenters[id]!.jobUntil = 100_000;
-      }
-      return s;
-    }
-    const shortages = (s: Session) => s.world.alerts.filter((a) => a.kind === 'powerShortage');
-    /** Runs the power phase over the steps from..to (inclusive) with the grid shedding or not. */
-    const run = (s: Session, from: number, to: number, shedding: boolean): void => {
-      s.world.plant.thermalSetting = shedding ? 250 : 300;
-      for (let step = from; step <= to; step++) runPower(s.ctx, step);
-    };
-
+  describe('the quiet time of a shortage', () => {
     it('is 10 seconds in the milestone-1 scenario, which is the 200 steps these tests count', () => {
       const { time, tuning } = calm(100).scenario;
-      expect(tuning.shortageAlertQuietSeconds).toBe(10);
-      expect(stepsForSeconds(time, tuning.shortageAlertQuietSeconds)).toBe(QUIET_STEPS);
+      expect(tuning.shortageQuietSeconds).toBe(10);
+      expect(stepsForSeconds(time, tuning.shortageQuietSeconds)).toBe(QUIET_STEPS);
     });
 
     it('raises no new alert for a plant that sheds and re-powers again and again', () => {
@@ -319,7 +380,7 @@ describe('power', () => {
     it('is a tuning value of the scenario: zero ends the episode as soon as nothing is shed', () => {
       const s = new Session(
         m1Scenario((j) => {
-          j.tuning.shortageAlertQuietSeconds = 0;
+          j.tuning.shortageQuietSeconds = 0;
           j.tuning.wind.start = 100;
           j.tuning.wind.maxChangePerSecond = 0;
         }),

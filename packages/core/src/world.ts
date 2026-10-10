@@ -34,6 +34,11 @@ export interface BoardState {
   status: BoardStatus;
   /** Whether the board's facility got power this step (set by the power phase). */
   powered: boolean;
+  /**
+   * The last step at which the board was without power while it worked, kept until its "power back" line is logged (that comes only
+   * after the quiet time) or until it is smashed. Null when no such line is owed.
+   */
+  lastCutStep: number | null;
   vmBooted: boolean;
   bootCount: number;
   firmware: FirmwareImage | null;
@@ -180,6 +185,7 @@ export function createWorld(scenario: Scenario): WorldState {
       phase: index % period,
       status: 'running',
       powered: true,
+      lastCutStep: null,
       vmBooted: false,
       bootCount: 0,
       firmware: null,

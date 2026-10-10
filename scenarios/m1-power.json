@@ -50,7 +50,7 @@
   ],
   "tuning": {
     "transmissionLossPctPerCell": 2,
-    "shortageAlertQuietSeconds": 10,
+    "shortageQuietSeconds": 10,
     "wind": { "max": 220, "start": 120, "maxChangePerSecond": 8 },
     "thermal": { "max": 300 },
     "fuelPrice": { "start": 7, "min": 5, "max": 9 },

@@ -231,7 +231,7 @@ These events raise alerts:
 
 The core raises no alert for the agent disconnecting: it knows nothing of the connection. A disconnect shows as the pause, the connection state in the top bar, and the overlay (§7.2, §8.2).
 
-A power shortage is one alert per episode, naming the facilities that were shed when it began. The episode ends only after the grid has had no shed facility for `tuning.shortageAlertQuietSeconds` (10 s), so a plant that sheds and re-powers a facility again and again raises one alert, not one at every turn, and the 500 alerts the world keeps are not all one shortage. A board's own log still records every flip (§6.7). The time the grid was last short is part of the world state, so it is in the state hash.
+A power shortage is one alert per episode, naming the facilities that were shed when it began. The episode ends only after the grid has had no shed facility for `tuning.shortageQuietSeconds` (10 s), so a plant that sheds and re-powers a facility again and again raises one alert, not one at every turn, and the 500 alerts the world keeps are not all one shortage. The same quiet time governs a board's own "power back" line (§6.7). The time the grid was last short, and the step each board was last cut off, are part of the world state, so they are in the state hash.
 
 The player chooses which alert types pause the game. A disconnect always pauses it (§7.2).
 
@@ -332,8 +332,10 @@ Every board's Lua must behave the same in every run. The order of `pairs` follow
   - **Hot reload:** `mem` survives a deploy; the firmware's globals and its `io` table start fresh (each install gets a new `io`), so only `mem` carries over.
 - **Errors:** a runtime error, a CPU cap hit, or running out of RAM fails that tick only. The tick is logged, and the next tick runs normally.
   - **A deploy that fails to install:** the firmware's main chunk runs on the install tick, and an error at its top level (a runtime error, the CPU cap, or running out of RAM) fails that tick with its error. If the chunk never got to define `tick`, the board has none, and each tick after the install tick says `noTick: the last deploy failed to install: <the error of the install tick>` until the next deploy installs. A firmware that never defined `tick`, or took it away itself after its main chunk ran through, still gets "firmware defines no tick(io, mem) function". A main chunk that fails after defining `tick` leaves the board running it.
-- **Logs:** 200 lines per board, stamped with game time. They hold `io.log` output (each line cut at 200 bytes, about 66 Korean characters), errors, and system events: deploys, sleep, destruction, rebuilds, and "power lost" and "power back" on a board that runs or sleeps whenever the grid cuts its facility off or restores it (a destroyed or rebuilding board draws nothing and gets none).
-  - **Repeats:** identical lines that follow one another fold into one line with a repeat count (×N), for errors and every other kind. An identical line that is not next to its twin is a new line, so lines that alternate (power lost, power back, ...) do not fold.
+- **Logs:** 200 lines per board, stamped with game time. They hold `io.log` output (each line cut at 200 bytes, about 66 Korean characters), errors, and system events: deploys, sleep, destruction, rebuilds, and the outages of a board that runs or sleeps:
+  - **"power lost"** when the grid cuts the board's facility off. A plant that sheds and re-powers it again and again leaves one folded line ("power lost ×N") as long as nothing else is logged between the cuts.
+  - **"power back (steady for 10 s)"** only once the board has had power, unbroken, for the quiet time (`tuning.shortageQuietSeconds`, the number in the line) since its last cut, so it never interleaves with a flicker. A board that is smashed, or starts rebuilding, in the middle of an outage owes no "power back" (its own line says what happened), and a rebuilt board starts fresh.
+  - **Repeats:** identical lines that follow one another fold into one line with a repeat count (×N), for errors and every other kind. An identical line that is not next to its twin is a new line, so a board's own lines between two cuts keep its "power lost" lines apart.
 - **The datasheet** describes a board fully enough to write its firmware without the game's code:
   - the facility, and its parts (clock, cap, RAM, sensors);
   - its `io` fields and actions, with their meanings and units;
@@ -507,7 +509,7 @@ The game's values are starting values to tune. They live in the scenario file, s
 | Day length at 1× / season length | 40 s / 30 days |
 | Starting money | 5,000 |
 | Transmission loss | 2% per cell from the plant |
-| Power shortage alert quiet time | 10 s with no facility shed, before a new shortage raises a new alert (§5.10) |
+| Quiet time (`shortageQuietSeconds`) | 10 s: a new shortage alert needs the grid shed-free this long, and a board's "power back" needs its power unbroken this long (§5.10, §6.7) |
 | Thermal module maximum / fuel price | 300 / a seeded series around 7 per unit per day |
 | Crop ripening / rot after ripe | 3 days / 1 day |
 | Farm outbox capacity / harvest yield | 50 / 24 |

@@ -82,18 +82,18 @@ describe('parseScenario', () => {
   });
 
   it('reads the shortage alert quiet time as whole seconds, zero or more', () => {
-    expect(parseScenario(m1).tuning.shortageAlertQuietSeconds).toBe(10);
+    expect(parseScenario(m1).tuning.shortageQuietSeconds).toBe(10);
     const zero = m1Copy();
-    zero.tuning.shortageAlertQuietSeconds = 0;
-    expect(parseScenario(zero).tuning.shortageAlertQuietSeconds).toBe(0);
+    zero.tuning.shortageQuietSeconds = 0;
+    expect(parseScenario(zero).tuning.shortageQuietSeconds).toBe(0);
     for (const bad of [-1, 2.5]) {
       const s = m1Copy();
-      s.tuning.shortageAlertQuietSeconds = bad;
-      expect(problems(s), String(bad)).toContain('tuning.shortageAlertQuietSeconds');
+      s.tuning.shortageQuietSeconds = bad;
+      expect(problems(s), String(bad)).toContain('tuning.shortageQuietSeconds');
     }
     const missing = m1Copy() as Record<string, unknown>;
-    delete (missing.tuning as Record<string, unknown>).shortageAlertQuietSeconds;
-    expect(problems(missing)).toContain('tuning.shortageAlertQuietSeconds');
+    delete (missing.tuning as Record<string, unknown>).shortageQuietSeconds;
+    expect(problems(missing)).toContain('tuning.shortageQuietSeconds');
   });
 
   it('names the path of a missing tuning value', () => {
