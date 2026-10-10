@@ -308,7 +308,8 @@ try {
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => document.querySelector('#topbar b')?.textContent?.startsWith('1일차 00:00') === true);
   };
-  const alertKinds = async (): Promise<string[]> => ((await agent.call('get_alerts')) as Array<{ kind: string }>).map((a) => a.kind);
+  const alertKinds = async (): Promise<string[]> =>
+    ((await agent.call('get_alerts')) as { alerts: Array<{ kind: string }> }).alerts.map((a) => a.kind);
   // What a rebuild costs and takes, from the scenario file: the button's label shows these two numbers.
   const scenario = parseScenario(JSON.parse(readFileSync('scenarios/m1-power.json', 'utf8')));
   const rebuildCost = scenario.tuning.rebuild.cost;

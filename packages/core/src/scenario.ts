@@ -34,6 +34,8 @@ const FacilitySchema = z.object({
 
 const TuningSchema = z.object({
   transmissionLossPctPerCell: int(0),
+  /** A power shortage alert is raised again only after the grid has had no shed facility for this long. */
+  shortageAlertQuietSeconds: int(0),
   wind: z.object({ max: int(0), start: int(0), maxChangePerSecond: int(0) }),
   thermal: z.object({ max: int(0) }),
   fuelPrice: z.object({ start: int(0), min: int(0), max: int(0) }),

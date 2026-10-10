@@ -57,6 +57,8 @@ export interface PlantState {
   /** Power requested this step, transmission loss included. */
   demand: number;
   shed: string[];
+  /** The last step at which a facility was shed, or null before the first: the shortage alert's quiet time counts from it. */
+  lastShedStep: number | null;
 }
 
 export interface DatacenterState {
@@ -196,7 +198,16 @@ export function createWorld(scenario: Scenario): WorldState {
     belowZeroSince: null,
     ended: null,
     boards,
-    plant: { wind: t.wind.start, thermalSetting: 0, fuelPrice: t.fuelPrice.start, priority: null, generation: 0, demand: 0, shed: [] },
+    plant: {
+      wind: t.wind.start,
+      thermalSetting: 0,
+      fuelPrice: t.fuelPrice.start,
+      priority: null,
+      generation: 0,
+      demand: 0,
+      shed: [],
+      lastShedStep: null,
+    },
     datacenters,
     jobPrice: t.jobPrice.start,
     emf: new Array<number>(scenario.grid.width * scenario.grid.height).fill(0),

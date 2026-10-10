@@ -32,6 +32,22 @@ export interface GameApi {
   alerts(sinceSeconds: number | undefined): Promise<AlertView[]>;
 }
 
+/**
+ * How many alerts get_alerts shows when it is asked for no time: the newest. The log holds 500, which are some 70 KB of JSON,
+ * and an agent that polls would read them all again at every call.
+ */
+export const ALERTS_SHOWN = 50;
+
+/** What get_alerts returns. */
+export interface AlertsReply {
+  /** Oldest first. */
+  readonly alerts: readonly AlertView[];
+  /** How many older alerts the log holds that are not in `alerts`; present only when the answer was cut short. */
+  readonly olderNotShown?: number;
+  /** How to read them; present with olderNotShown. */
+  readonly note?: string;
+}
+
 /** A tool call the game refuses (an unknown board, for instance); the server reports it as a tool error. */
 export class ToolError extends Error {}
 
@@ -111,10 +127,19 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
   },
   {
     name: 'get_alerts',
-    description:
-      'Recent alerts: raids, Luddites approaching, destroyed boards, fires, overheating, power shortages, firmware errors, money below zero. The game does not push alerts to you; poll this.',
+    description: `Alerts: raids, Luddites approaching, destroyed boards, fires, overheating, power shortages, firmware errors, money below zero. Without since, the newest ${ALERTS_SHOWN}, oldest first, and how many older ones the log holds; with since, every alert after that time. The game does not push alerts to you; poll this.`,
     inputSchema: { since },
-    run: (api, args) => api.alerts(args.since as number | undefined),
+    run: async (api, args): Promise<AlertsReply> => {
+      const since = args.since as number | undefined;
+      const all = await api.alerts(since);
+      if (since !== undefined || all.length <= ALERTS_SHOWN) return { alerts: all };
+      const older = all.length - ALERTS_SHOWN;
+      return {
+        alerts: all.slice(-ALERTS_SHOWN),
+        olderNotShown: older,
+        note: `${older} older alerts are not shown; pass since (game seconds into the season) to read the alerts after that time.`,
+      };
+    },
   },
 ];
 

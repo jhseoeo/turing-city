@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
+import { stateHash } from '../src/hash.ts';
 import { facilityDemand, plantBoard, priorityOrder, runPower } from '../src/power.ts';
 import { Session } from '../src/session.ts';
+import { stepsForSeconds } from '../src/time.ts';
 import { FakeHost } from './helpers/fake-host.ts';
 import { m1Scenario } from './helpers/scenarios.ts';
+
+/** The shortage alert's quiet time in steps: 10 seconds of the milestone-1 scenario, at 20 steps a second. */
+const QUIET_STEPS = 200;
 
 /** A session with a steady wind, for exact power arithmetic. */
 function calm(wind: number): Session {
@@ -227,7 +232,7 @@ describe('power', () => {
     const s = calm(100);
     for (const id of ['DA', 'DB']) {
       s.world.datacenters[id]!.jobFrom = 0;
-      s.world.datacenters[id]!.jobUntil = 10;
+      s.world.datacenters[id]!.jobUntil = 1000; // through the quiet time that the test waits out
     }
     const shortages = () => s.world.alerts.filter((a) => a.kind === 'powerShortage');
     s.world.plant.thermalSetting = 250; // generation 350 against a demand of 379: DB is shed
@@ -239,8 +244,97 @@ describe('power', () => {
     runPower(s.ctx, 2);
     expect(s.world.plant.shed).toEqual([]);
     s.world.plant.thermalSetting = 250;
-    runPower(s.ctx, 3);
+    runPower(s.ctx, 3); // a flicker, not a second shortage: the quiet time has not passed (the tests below)
+    expect(shortages()).toHaveLength(1);
+    s.world.plant.thermalSetting = 300;
+    for (let step = 4; step <= 3 + QUIET_STEPS; step++) runPower(s.ctx, step);
+    s.world.plant.thermalSetting = 250;
+    runPower(s.ctx, 4 + QUIET_STEPS);
     expect(shortages()).toHaveLength(2);
+  });
+
+  describe('the shortage alert quiet time', () => {
+    /** A grid that sheds DB while the thermal setting is 250 and covers every facility at 300. */
+    function sheddable(): Session {
+      const s = calm(100);
+      for (const id of ['DA', 'DB']) {
+        s.world.datacenters[id]!.jobFrom = 0;
+        s.world.datacenters[id]!.jobUntil = 100_000;
+      }
+      return s;
+    }
+    const shortages = (s: Session) => s.world.alerts.filter((a) => a.kind === 'powerShortage');
+    /** Runs the power phase over the steps from..to (inclusive) with the grid shedding or not. */
+    const run = (s: Session, from: number, to: number, shedding: boolean): void => {
+      s.world.plant.thermalSetting = shedding ? 250 : 300;
+      for (let step = from; step <= to; step++) runPower(s.ctx, step);
+    };
+
+    it('is 10 seconds in the milestone-1 scenario, which is the 200 steps these tests count', () => {
+      const { time, tuning } = calm(100).scenario;
+      expect(tuning.shortageAlertQuietSeconds).toBe(10);
+      expect(stepsForSeconds(time, tuning.shortageAlertQuietSeconds)).toBe(QUIET_STEPS);
+    });
+
+    it('raises no new alert for a plant that sheds and re-powers again and again', () => {
+      const s = sheddable();
+      for (let step = 0; step < 100; step++) run(s, step, step, step % 2 === 0); // a flicker every step
+      expect(shortages(s)).toHaveLength(1);
+      expect(s.world.boards[2]!.log.filter((l) => l.text === 'power lost').reduce((n, l) => n + l.repeat, 0)).toBe(50); // each flip is still logged
+    });
+
+    it('ends the episode only after the grid has had no shed facility for the whole quiet time', () => {
+      const s = sheddable();
+      run(s, 0, 0, true);
+      expect(shortages(s)).toHaveLength(1);
+      run(s, 1, QUIET_STEPS - 1, false); // one step short of the quiet time
+      run(s, QUIET_STEPS, QUIET_STEPS, true);
+      expect(shortages(s)).toHaveLength(1);
+      run(s, QUIET_STEPS + 1, 2 * QUIET_STEPS, false); // the quiet time, in full
+      run(s, 2 * QUIET_STEPS + 1, 2 * QUIET_STEPS + 1, true);
+      expect(shortages(s)).toHaveLength(2);
+    });
+
+    it('counts the quiet time from the last step something was shed, not from the first', () => {
+      const s = sheddable();
+      run(s, 0, 150, true); // a long shortage, longer than the quiet time itself
+      run(s, 151, 150 + QUIET_STEPS - 1, false);
+      run(s, 150 + QUIET_STEPS, 150 + QUIET_STEPS, true);
+      expect(shortages(s)).toHaveLength(1);
+    });
+
+    it('keeps the last step of a shed in the world state, so that it enters the state hash', () => {
+      const s = sheddable();
+      expect(s.world.plant.lastShedStep).toBeNull();
+      run(s, 0, 0, true);
+      expect(s.world.plant.lastShedStep).toBe(0);
+      const hash = stateHash(s.world);
+      run(s, 1, 1, false);
+      expect(s.world.plant.lastShedStep).toBe(0); // clear steps do not move it
+      run(s, 2, 2, true);
+      expect(s.world.plant.lastShedStep).toBe(2);
+      expect(stateHash(s.world)).not.toBe(hash);
+    });
+
+    it('is a tuning value of the scenario: zero ends the episode as soon as nothing is shed', () => {
+      const s = new Session(
+        m1Scenario((j) => {
+          j.tuning.shortageAlertQuietSeconds = 0;
+          j.tuning.wind.start = 100;
+          j.tuning.wind.maxChangePerSecond = 0;
+        }),
+        1,
+        new FakeHost(),
+      );
+      for (const id of ['DA', 'DB']) {
+        s.world.datacenters[id]!.jobFrom = 0;
+        s.world.datacenters[id]!.jobUntil = 100;
+      }
+      run(s, 0, 0, true);
+      run(s, 1, 1, false);
+      run(s, 2, 2, true);
+      expect(shortages(s)).toHaveLength(2);
+    });
   });
 
   it('puts the listed consumers first and the unlisted after them, and ignores ids that are not consumers', () => {

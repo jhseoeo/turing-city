@@ -1,6 +1,7 @@
 import { clearFlag, raiseOnce } from './alerts.ts';
 import { appendLog } from './boards.ts';
 import { mulDiv } from './fixed.ts';
+import { stepsForSeconds } from './time.ts';
 import { type BoardState, manhattan, type SimContext, type WorldState } from './world.ts';
 
 export function plantBoard(world: WorldState): BoardState {
@@ -66,8 +67,14 @@ export function runPower(ctx: SimContext, step: number): void {
   w.plant.demand = plantDraw + demands.reduce((a, b) => a + b, 0);
   w.plant.shed = order.filter((_, i) => !powered[i] && demands[i]! > 0).map((b) => b.id);
   if (w.plant.shed.length > 0) {
+    w.plant.lastShedStep = step;
     raiseOnce(w, 'shortage', step, 'powerShortage', null, `전력 부족: ${w.plant.shed.join(', ')} 정전`);
-  } else {
+  } else if (
+    w.plant.lastShedStep !== null &&
+    step - w.plant.lastShedStep >= stepsForSeconds(ctx.scenario.time, ctx.scenario.tuning.shortageAlertQuietSeconds)
+  ) {
+    // The episode ends only after the grid has been quiet for a while: a plant that sheds and re-powers again and again would
+    // otherwise raise an alert at every turn, flood get_alerts and push the older alerts out of the buffer.
     clearFlag(w, 'shortage');
   }
 }

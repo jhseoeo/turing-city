@@ -81,6 +81,21 @@ describe('parseScenario', () => {
     expect(() => parseScenario(edges)).not.toThrow();
   });
 
+  it('reads the shortage alert quiet time as whole seconds, zero or more', () => {
+    expect(parseScenario(m1).tuning.shortageAlertQuietSeconds).toBe(10);
+    const zero = m1Copy();
+    zero.tuning.shortageAlertQuietSeconds = 0;
+    expect(parseScenario(zero).tuning.shortageAlertQuietSeconds).toBe(0);
+    for (const bad of [-1, 2.5]) {
+      const s = m1Copy();
+      s.tuning.shortageAlertQuietSeconds = bad;
+      expect(problems(s), String(bad)).toContain('tuning.shortageAlertQuietSeconds');
+    }
+    const missing = m1Copy() as Record<string, unknown>;
+    delete (missing.tuning as Record<string, unknown>).shortageAlertQuietSeconds;
+    expect(problems(missing)).toContain('tuning.shortageAlertQuietSeconds');
+  });
+
   it('names the path of a missing tuning value', () => {
     const s = m1Copy() as Record<string, unknown>;
     delete (s.tuning as Record<string, unknown>).bankruptcyDays;

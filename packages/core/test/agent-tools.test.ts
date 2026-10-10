@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { AGENT_INSTRUCTIONS, AGENT_TOOLS, type GameApi, type StatusWithRun, ToolError } from '../src/agent-tools.ts';
+import { AGENT_INSTRUCTIONS, AGENT_TOOLS, ALERTS_SHOWN, type GameApi, type StatusWithRun, ToolError } from '../src/agent-tools.ts';
 import { LOG_LIMIT } from '../src/boards.ts';
+import type { AlertView } from '../src/queries.ts';
 
 // The session does not know the clock; the game API adds `run` from the server's controller.
 const STATUS: StatusWithRun = {
@@ -48,7 +49,11 @@ function recordingApi(): { api: GameApi; calls: unknown[][] } {
     logs: method('logs'),
     map: method('map'),
     status: method('status'),
-    alerts: method('alerts'),
+    // The tool reads a list from it, as it reads one from the real game.
+    alerts: async (...args: unknown[]) => {
+      calls.push(['alerts', ...args]);
+      return [];
+    },
   };
   return { api, calls };
 }
@@ -125,7 +130,7 @@ describe('agent tools', () => {
       calls.length = 0;
       const answer = await tool(name).run(api, args);
       expect(calls, name).toEqual([call]);
-      expect(answer, name).toEqual({ answered: call[0] });
+      expect(answer, name).toEqual(name === 'get_alerts' ? { alerts: [] } : { answered: call[0] });
     }
   });
 
@@ -166,11 +171,62 @@ describe('agent tools', () => {
   });
 
   it('puts no tuning number in a description: the datasheet carries them, from the scenario', () => {
-    // The one number is the length of a board's log, which is the board's own limit.
-    for (const t of AGENT_TOOLS)
-      expect(t.description.match(/\d+/g) ?? [], t.name).toEqual(t.name === 'read_logs' ? [String(LOG_LIMIT)] : []);
+    // The numbers are the length of a board's log, which is the board's own limit, and how many alerts get_alerts shows.
+    for (const t of AGENT_TOOLS) {
+      const named = t.name === 'read_logs' ? [String(LOG_LIMIT)] : t.name === 'get_alerts' ? [String(ALERTS_SHOWN)] : [];
+      expect(t.description.match(/\d+/g) ?? [], t.name).toEqual(named);
+    }
     expect(AGENT_INSTRUCTIONS).not.toMatch(/\d/);
     expect(tool('get_map').description).toContain('datasheet');
+  });
+
+  describe('get_alerts', () => {
+    const alert = (id: number): AlertView => ({
+      day: 1,
+      clock: '00:00',
+      seconds: id,
+      id,
+      kind: 'powerShortage',
+      facility: null,
+      message: `alert ${id}`,
+    });
+    /** A game whose log holds alerts 1..n, one a second, as get_alerts' since filters them. */
+    const holding = (n: number): GameApi => ({
+      ...fakeApi(),
+      alerts: async (since) => Array.from({ length: n }, (_, i) => alert(i + 1)).filter((a) => since === undefined || a.seconds > since),
+    });
+    const ids = (reply: unknown): number[] => (reply as { alerts: AlertView[] }).alerts.map((a) => a.id);
+
+    it('shows the newest alerts, oldest first, and says how many older ones the log holds and how to read them', async () => {
+      const reply = (await tool('get_alerts').run(holding(120), {})) as { olderNotShown: number; note: string };
+      expect(ids(reply)).toEqual(Array.from({ length: ALERTS_SHOWN }, (_, i) => 120 - ALERTS_SHOWN + 1 + i));
+      expect(reply.olderNotShown).toBe(120 - ALERTS_SHOWN);
+      expect(reply.note).toBe(
+        `${120 - ALERTS_SHOWN} older alerts are not shown; pass since (game seconds into the season) to read the alerts after that time.`,
+      );
+    });
+
+    it('shows every alert, and says nothing of older ones, when the log holds no more than it shows', async () => {
+      for (const n of [0, 1, ALERTS_SHOWN]) {
+        const reply = await tool('get_alerts').run(holding(n), {});
+        expect(reply, String(n)).toEqual({ alerts: Array.from({ length: n }, (_, i) => alert(i + 1)) });
+      }
+      const over = (await tool('get_alerts').run(holding(ALERTS_SHOWN + 1), {})) as { olderNotShown: number };
+      expect(over.olderNotShown).toBe(1);
+      expect(ids(over)[0]).toBe(2);
+    });
+
+    it('gives every alert after the time it is asked for, however many, with no cut and no note', async () => {
+      const reply = await tool('get_alerts').run(holding(120), { since: 10 });
+      expect(ids(reply)).toEqual(Array.from({ length: 110 }, (_, i) => 11 + i));
+      expect(Object.keys(reply as object)).toEqual(['alerts']);
+    });
+
+    it('says in its description how many it shows and how to read more', () => {
+      const { description } = tool('get_alerts');
+      expect(description).toContain(`newest ${ALERTS_SHOWN}`);
+      expect(description).toContain('since');
+    });
   });
 
   it("takes the log length it names from the board's own limit", async () => {
