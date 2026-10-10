@@ -83,7 +83,19 @@ export async function startGameServer(
       res.end();
     });
   });
-  await new Promise<void>((resolve) => http.listen(options.port ?? config.port, '127.0.0.1', resolve));
+  try {
+    // A port that is taken or not a port is the caller's to hear of: the server's 'error' event would otherwise end the process.
+    await new Promise<void>((resolve, reject) => {
+      http.once('error', reject);
+      http.listen(options.port ?? config.port, '127.0.0.1', () => {
+        http.off('error', reject);
+        resolve();
+      });
+    });
+  } catch (error) {
+    controller.close();
+    throw error;
+  }
   const port = (http.address() as AddressInfo).port;
   const portConfig = () => ({ ...config, port });
   const hello = (): ServerToViewer => ({ type: 'hello', connect: connectCommand(portConfig()), port });

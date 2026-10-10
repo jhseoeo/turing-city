@@ -13,6 +13,12 @@ const TYPES: Record<string, string> = {
   '.wasm': 'application/wasm',
 };
 
+/**
+ * Nothing the server sends may be put in a frame: a page that framed the game would sit over it, and its own /ws works from the same
+ * origin, so the player's clicks could be redirected (clickjacking).
+ */
+const NO_FRAMING = { 'x-frame-options': 'DENY', 'content-security-policy': "frame-ancestors 'none'" };
+
 /** Serves the built viewer. Paths outside the directory are refused; unknown paths get index.html. */
 export async function serveStatic(root: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
   let path: string;
@@ -20,12 +26,12 @@ export async function serveStatic(root: string, req: IncomingMessage, res: Serve
     path = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname);
   } catch {
     // A malformed escape such as "/%" throws here, and any web page can make the browser request one.
-    res.writeHead(400).end();
+    res.writeHead(400, NO_FRAMING).end();
     return;
   }
   let file = normalize(join(root, path === '/' ? 'index.html' : path));
   if (!file.startsWith(root + sep) && file !== root) {
-    res.writeHead(403).end();
+    res.writeHead(403, NO_FRAMING).end();
     return;
   }
   try {
@@ -35,8 +41,8 @@ export async function serveStatic(root: string, req: IncomingMessage, res: Serve
   }
   try {
     const body = await readFile(file);
-    res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream' }).end(body);
+    res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream', ...NO_FRAMING }).end(body);
   } catch {
-    res.writeHead(404).end('viewer not built: run pnpm start, which builds it');
+    res.writeHead(404, NO_FRAMING).end('viewer not built: run pnpm start, which builds it');
   }
 }

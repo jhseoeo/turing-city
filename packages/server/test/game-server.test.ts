@@ -1,5 +1,6 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { connect, type Socket } from 'node:net';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import { type AddressInfo, connect, type Socket } from 'node:net';
 import { networkInterfaces, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -215,6 +216,22 @@ describe('game server', () => {
     expect((await fetch(`${server.url}/`)).status).toBe(200);
   });
 
+  it('refuses to start, with the error of the failed listen, when the port is taken, and leaves nothing running', async () => {
+    const taken = createServer();
+    await new Promise<void>((resolve) => taken.listen(0, '127.0.0.1', resolve));
+    closers.push(() => new Promise((resolve) => taken.close(resolve)));
+    const { port } = taken.address() as AddressInfo;
+    const configDir = mkdtempSync(join(tmpdir(), 'tc-server-'));
+    closers.push(() => rmSync(configDir, { recursive: true, force: true }));
+    const failure = await Promise.race([
+      startGameServer({ port, configDir, viewerDist: null }).catch((error: unknown) => error),
+      new Promise((resolve) => setTimeout(resolve, 3000, 'still waiting')),
+    ]);
+    expect(failure).toMatchObject({ code: 'EADDRINUSE', port });
+    // A port that is not one is refused at once as well.
+    await expect(startGameServer({ port: Number.NaN, configDir, viewerDist: null })).rejects.toMatchObject({ code: 'ERR_SOCKET_BAD_PORT' });
+  });
+
   it('refuses a WebSocket from another website', async () => {
     const server = await startGameServer({ port: 0, configDir: mkdtempSync(join(tmpdir(), 'tc-server-')), viewerDist: null });
     stop = server.close;
@@ -343,6 +360,31 @@ describe('game server', () => {
     // An escaped slash is a slash once decoded, and would climb out of the directory, into a sibling whose name starts like it too.
     for (const path of ['/..%2fsecret.txt', '/assets/..%2f..%2fsecret.txt', '/..%2fdist-old%2fkey.txt'])
       expect(await get(path), path).toEqual({ status: 403, type: null, body: '' });
+  });
+
+  it('forbids framing every page and refusal of the viewer server, so that no website can overlay the game and redirect clicks', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'tc-viewer-'));
+    const dist = join(base, 'dist');
+    mkdirSync(join(dist, 'assets'), { recursive: true });
+    writeFileSync(join(dist, 'index.html'), '<!doctype html><title>viewer</title>');
+    writeFileSync(join(dist, 'assets', 'app.js'), 'export {};');
+    writeFileSync(join(base, 'secret.txt'), 'outside the build directory');
+    const { server } = await start({ viewerDist: dist });
+    const { server: unbuilt } = await start({ viewerDist: mkdtempSync(join(tmpdir(), 'tc-viewer-')) });
+    const framing = async (url: string): Promise<[number, string | null, string | null]> => {
+      const res = await fetch(url);
+      return [res.status, res.headers.get('x-frame-options'), res.headers.get('content-security-policy')];
+    };
+    const forbidden = ['DENY', "frame-ancestors 'none'"] as const;
+    const cases: Array<[string, number]> = [
+      [`${server.url}/`, 200], // the page
+      [`${server.url}/assets/app.js`, 200], // a file
+      [`${server.url}/nope`, 200], // the page again, for a path that names no file
+      [`${server.url}/..%2fsecret.txt`, 403], // a refusal
+      [`${server.url}/%`, 400], // a malformed escape
+      [`${unbuilt.url}/`, 404], // the viewer has not been built
+    ];
+    for (const [url, status] of cases) expect(await framing(url), url).toEqual([status, ...forbidden]);
   });
 
   it('says what to do when the viewer has not been built, and has nothing at / when it is told to serve none', async () => {
