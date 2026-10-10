@@ -85,7 +85,8 @@ export function runTransitions(ctx: SimContext, step: number): void {
     const dc = ctx.world.datacenters[facility.id];
     if (dc) dc.tempMilli = ctx.scenario.tuning.datacenter.ambientMilli;
     stopDatacenter(ctx, facility.id);
-    // A repaired farm starts a new crop: whatever grew before the wreck is lost.
+    // A repaired farm starts a new crop: whatever grew before the wreck is lost. The food already in its outbox is not: it was
+    // harvested before the wreck, and a wreck does not touch it.
     const farm = ctx.world.farms[facility.id];
     if (farm) farm.plantedAt = step;
   }

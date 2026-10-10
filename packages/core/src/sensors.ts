@@ -1,3 +1,5 @@
+import { ripeness } from './farm.ts';
+import type { SensorValue } from './firmware-host.ts';
 import { MILLI } from './fixed.ts';
 import type { SensorName } from './scenario.ts';
 import { gameTime } from './time.ts';
@@ -30,7 +32,7 @@ function nearestLudditeDistance(ctx: SimContext, board: BoardState): number | un
   return best;
 }
 
-function read(ctx: SimContext, board: BoardState, sensor: SensorName): number | undefined {
+function read(ctx: SimContext, board: BoardState, sensor: SensorName): SensorValue {
   const w = ctx.world;
   switch (sensor) {
     case 'wind':
@@ -49,21 +51,24 @@ function read(ctx: SimContext, board: BoardState, sensor: SensorName): number | 
       return (w.emf[cellIndex(ctx.scenario, board.x, board.y)] ?? 0) / MILLI;
     case 'ludditeDist':
       return nearestLudditeDistance(ctx, board);
-    // Farms and the warehouse have no rules yet: their sensors read nil until Task 7 (farms) and Task 8 (the warehouse).
-    case 'ripeness':
+    case 'ripeness': {
+      const farm = w.farms[board.id];
+      return farm ? ripeness(ctx, farm, w.step) : undefined;
+    }
     case 'outbox':
+      return w.farms[board.id]?.outbox;
     case 'stock':
     case 'farms':
     case 'housing':
     case 'trucks':
-      return undefined;
+      return undefined; // the warehouse's readings come with its trucks (Task 8)
   }
 }
 
 /** What the board's firmware sees in io this tick: its mounted sensors, plus the day and the clock. */
-export function sensorFrame(ctx: SimContext, board: BoardState): Record<string, number | undefined> {
+export function sensorFrame(ctx: SimContext, board: BoardState): Record<string, SensorValue> {
   const time = gameTime(ctx.scenario.time, ctx.world.step);
-  const frame: Record<string, number | undefined> = { day: time.day, clock: time.seconds };
+  const frame: Record<string, SensorValue> = { day: time.day, clock: time.seconds };
   for (const sensor of board.spec.sensors) frame[SENSOR_KEYS[sensor]] = read(ctx, board, sensor);
   return frame;
 }

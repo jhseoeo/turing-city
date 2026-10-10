@@ -1,3 +1,4 @@
+import type { SensorValue } from '@turing-city/core';
 import { clear, el } from '../dom.ts';
 import { firmwareLabel, KIND_LABELS, LED_LABELS, ledOf, moneyLabel } from '../format.ts';
 import type { Connection } from '../net.ts';
@@ -21,6 +22,14 @@ function scrollOffsets(root: HTMLElement): Map<string, number> {
   for (const pre of root.querySelectorAll<HTMLElement>(`pre[${SCROLL_KEY}]`))
     offsets.set(pre.getAttribute(SCROLL_KEY) ?? '', pre.scrollTop);
   return offsets;
+}
+
+/** A reading on one line: a number to two decimals, nil for none, and a list or a record as JSON. */
+function readingText(v: SensorValue): string {
+  if (v === undefined) return 'nil';
+  if (typeof v === 'number') return String(Math.round(v * 100) / 100);
+  if (typeof v === 'string') return v;
+  return JSON.stringify(v);
 }
 
 export function renderPanel(root: HTMLElement, store: Store, net: Connection): void {
@@ -87,15 +96,7 @@ export function renderPanel(root: HTMLElement, store: Store, net: Connection): v
         ['기본 전자파', String(inspection.datasheet.baseEmfPerSecond)],
       ]),
     ),
-    section(
-      '실시간 센서',
-      kv(
-        Object.entries(inspection.sensors).map(([k, v]): [string, string] => [
-          k,
-          v === undefined ? 'nil' : String(Math.round(v * 100) / 100),
-        ]),
-      ),
-    ),
+    section('실시간 센서', kv(Object.entries(inspection.sensors).map(([k, v]): [string, string] => [k, readingText(v)]))),
     section(
       '로그',
       el('pre', { [SCROLL_KEY]: `${board.id}/log` }, [

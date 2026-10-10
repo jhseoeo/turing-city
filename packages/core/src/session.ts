@@ -3,6 +3,7 @@ import { deployFirmware, runTransitions } from './boards.ts';
 import { runDatacenters, runFires } from './datacenter.ts';
 import { checkEnd, installPart, refuseNotStanding, runEconomy, startRebuild, startRepair } from './economy.ts';
 import { runEmf } from './emf.ts';
+import { harvestProblem, runFarms } from './farm.ts';
 import type { FacilityAction, FirmwareHost } from './firmware-host.ts';
 import { runLuddites, runRumour } from './luddites.ts';
 import { runPower } from './power.ts';
@@ -89,6 +90,7 @@ export class Session {
     const ticked = runBoardTicks(this.ctx, s);
     applyActions(this.ctx, s, ticked);
     runDatacenters(this.ctx, s);
+    runFarms(this.ctx, s);
     runEmf(this.ctx, ticked);
     runRumour(this.ctx, s);
     runLuddites(this.ctx, s);
@@ -146,6 +148,12 @@ export class Session {
     const problem = kindProblem(facility, action);
     if (problem !== null) {
       return { ok: false, reason: `${facilityId}: ${problem}`, refusal: { code: 'cannotAct', facility: facilityId, detail: problem } };
+    }
+    if (action.kind === 'harvest') {
+      const problem = harvestProblem(this.ctx, facilityId, this.world.step);
+      if (problem !== null) {
+        return { ok: false, reason: `${facilityId}: ${problem}`, refusal: { code: 'cannotAct', facility: facilityId, detail: problem } };
+      }
     }
     this.record.inputs.push({ step: this.world.step, kind: 'hand', facilityId, action });
     this.world.stats.handActions += 1;

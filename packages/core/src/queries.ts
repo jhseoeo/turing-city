@@ -1,5 +1,6 @@
 import { isCooling, isProcessing } from './datacenter.ts';
 import { type Datasheet, datasheet } from './datasheet.ts';
+import type { SensorValue } from './firmware-host.ts';
 import { idiv, MICRO, MILLI } from './fixed.ts';
 import { pathTo } from './luddites.ts';
 import { facilityDemand, plantFacility, priorityOrder } from './power.ts';
@@ -268,7 +269,7 @@ export interface BoardInspection {
   readonly firmware: { readonly version: number; readonly source: string } | null;
   readonly pending: FirmwareView['pending'];
   readonly logs: readonly LogView[];
-  readonly sensors: Readonly<Record<string, number | undefined>>;
+  readonly sensors: Readonly<Record<string, SensorValue>>;
 }
 
 export function inspectBoard(ctx: SimContext, boardId: string): BoardInspection | null {
