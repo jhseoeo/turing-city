@@ -88,6 +88,15 @@ export function cellCaption(f: FacilityView, overheatC: number): { text: string;
   return null;
 }
 
+/**
+ * What a consumer of the plant says on the map while the plant is selected, in two lines, one over the other: what it draws (loss
+ * included) or, while it is shed, that it is cut off, and its priority. A line is shorter than a cell, so that consumers in
+ * neighbouring cells never run into each other.
+ */
+export function consumerLabel(c: { demand: number; rank: number; shed: boolean }): readonly [string, string] {
+  return [c.shed ? '정전' : `−${c.demand}`, `${c.rank}순위`];
+}
+
 /** The temperature from which the map shows a datacenter in amber: the scenario's overheat alert, in whole degrees. */
 export function overheatCelsius(scenario: Scenario | null): number {
   return scenario ? Math.floor(scenario.tuning.datacenter.overheatAlertMilli / 1000) : 85;

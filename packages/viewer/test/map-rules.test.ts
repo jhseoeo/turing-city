@@ -13,6 +13,7 @@ import townJson from '../../../scenarios/m2-town.json' with { type: 'json' };
 import {
   type Cell,
   cellCaption,
+  consumerLabel,
   FACILITY_COLORS,
   legOf,
   overheatCelsius,
@@ -200,6 +201,17 @@ describe('map rules: what a cell says', () => {
   it('takes the overheat threshold from the scenario, in whole degrees, and 85 before the scenario is known', () => {
     expect(overheatCelsius({ tuning: { datacenter: { overheatAlertMilli: 80_500 } } } as unknown as Scenario)).toBe(80);
     expect(overheatCelsius(null)).toBe(85);
+  });
+});
+
+describe("map rules: what the plant's consumers say", () => {
+  it('says what a consumer draws and its priority, one line each', () => {
+    expect(consumerLabel({ demand: 77, rank: 1, shed: false })).toEqual(['−77', '1순위']);
+    expect(consumerLabel({ demand: 163, rank: 12, shed: false })).toEqual(['−163', '12순위']);
+  });
+
+  it('says a shed consumer is cut off in place of its draw, and still gives its priority', () => {
+    expect(consumerLabel({ demand: 77, rank: 4, shed: true })).toEqual(['정전', '4순위']);
   });
 });
 

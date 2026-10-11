@@ -1,13 +1,13 @@
 import type { Snapshot } from '@turing-city/core';
 import Phaser from 'phaser';
 import { consumersOf, heatAlpha, LED_COLORS, ledOf } from '../format.ts';
-import { cellCaption, FACILITY_COLORS, routesFor, type Tone, truckLabel, trucksByCell } from '../map-rules.ts';
+import { cellCaption, consumerLabel, FACILITY_COLORS, routesFor, type Tone, truckLabel, trucksByCell } from '../map-rules.ts';
 
 export const CELL = 34;
 
 const TONE_COLORS: Record<Tone, string> = { normal: '#d7dde4', warn: '#ffb020', good: '#7fe08a' };
 const TRUCK_COLOR = 0xff9f43;
-/** How far the caption of every other column sits below the first line. */
+/** How far the caption of every other column sits below the first line: the map keeps this much room under its last row for it. */
 const CAPTION_LINE = 11;
 
 /** The town: drawn from scratch on every snapshot, selection change, and blink. */
@@ -52,15 +52,15 @@ export class MapScene extends Phaser.Scene {
     this.redraw();
   }
 
-  private text(x: number, y: number, value: string, color: string, size = 11, background = '#0c0f13cc'): void {
-    this.labels.push(
-      this.add.text(x, y, value, {
-        fontFamily: 'ui-monospace, Menlo, monospace',
-        fontSize: `${size}px`,
-        color,
-        backgroundColor: background,
-      }),
-    );
+  private text(x: number, y: number, value: string, color: string, size = 11, background = '#0c0f13cc'): Phaser.GameObjects.Text {
+    const text = this.add.text(x, y, value, {
+      fontFamily: 'ui-monospace, Menlo, monospace',
+      fontSize: `${size}px`,
+      color,
+      backgroundColor: background,
+    });
+    this.labels.push(text);
+    return text;
   }
 
   /** A line through the centres of the cells. */
@@ -116,12 +116,12 @@ export class MapScene extends Phaser.Scene {
       if (consumer) {
         g.lineStyle(2, consumer.shed ? 0x59636f : 0xf2c14e, 1);
         g.strokeRect(px, py, CELL, CELL);
-        this.text(
-          px + CELL + 2,
-          py + 2,
-          `−${consumer.demand} · ${consumer.rank}순위${consumer.shed ? ' · 정전' : ''}`,
-          consumer.shed ? '#9aa3ad' : '#f2c14e',
-        );
+        // Over its cell, in two short lines that never run wider than the cell, so that neighbours' labels (a row of farms) do not run
+        // into each other. A cell in the top row has no room over it: its label is pushed down onto the cell, inside the map.
+        const color = consumer.shed ? '#9aa3ad' : '#f2c14e';
+        const label = this.text(px + 1, py - 2, consumerLabel(consumer).join('\n'), color, 10).setOrigin(0, 1);
+        if (label.width > CELL - 2) label.setScale((CELL - 2) / label.width);
+        label.y = Math.max(label.y, label.displayHeight);
       }
       const down = f.condition !== 'ok';
       g.fillStyle(down ? 0x2a2f36 : FACILITY_COLORS[f.kind], down || !f.powered ? 0.55 : 1);
@@ -204,7 +204,7 @@ export function mountMap(parent: HTMLElement, snapshot: Snapshot, onSelect: (id:
     type: Phaser.AUTO,
     parent,
     width: snapshot.grid.width * CELL + 140,
-    height: snapshot.grid.height * CELL + 14,
+    height: snapshot.grid.height * CELL + 14 + CAPTION_LINE,
     backgroundColor: '#11151a',
     scene,
   });
