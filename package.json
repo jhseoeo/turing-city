@@ -16,6 +16,9 @@
     "start": "pnpm --filter @turing-city/viewer build && node --disable-warning=ExperimentalWarning packages/server/src/main.ts",
     "start:dev": "pnpm --filter @turing-city/viewer build && node --disable-warning=ExperimentalWarning packages/server/src/main.ts --dev",
     "viewer": "pnpm --filter @turing-city/viewer dev",
+    "dev": "pnpm run \"/^dev:/\"",
+    "dev:server": "node --disable-warning=ExperimentalWarning --watch-path=packages/core/src --watch-path=packages/firmware/src --watch-path=packages/server/src --watch-path=scenarios packages/server/src/main.ts --dev",
+    "dev:viewer": "pnpm --filter @turing-city/viewer dev",
     "shots": "pnpm --filter @turing-city/viewer build && node --disable-warning=ExperimentalWarning packages/server/scripts/shots.ts"
   },
   "devDependencies": {
