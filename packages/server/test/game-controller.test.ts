@@ -822,7 +822,7 @@ describe('GameController: events', () => {
     expect(await c.hand('DA', { kind: 'cool' })).toEqual({ ok: true });
     expect(dc()).toMatchObject({ cooling: true, processing: false });
     expect(await c.hand('DA', { kind: 'process' })).toEqual({ ok: true });
-    expect(dc()).toMatchObject({ cooling: true, processing: true });
+    expect(dc()).toMatchObject({ cooling: true, processing: false }); // one thing at a time: a press during the cycle does nothing
     expect(await c.hand('F1', { kind: 'harvest' })).toMatchObject({
       ok: false,
       refusal: { code: 'cannotAct', facility: 'F1', detail: 'nothing is ripe' },

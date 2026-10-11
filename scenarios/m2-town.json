@@ -98,7 +98,7 @@
       "heatMilliPerSecond": 2000,
       "passiveCoolingPermillePerSecond": 3,
       "jobMs": 500,
-      "coolingCycleMs": 4000,
+      "coolingCycleMs": 3000,
       "coolingDropMilli": 15000,
       "coolingPower": 250,
       "overheatAlertMilli": 85000,

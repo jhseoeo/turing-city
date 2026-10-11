@@ -121,6 +121,7 @@ export function renderControls(s: Snapshot, f: FacilityView, store: Store, net: 
           {
             class: `primary${f.datacenter?.processing ? ' busy' : ''}`,
             disabled: process.disabled,
+            title: process.reason ?? '',
             onclick: () => hand({ kind: 'process' }),
           },
           ['처리'],

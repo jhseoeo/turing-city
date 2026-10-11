@@ -97,7 +97,7 @@ describe('facility actions from the hand and from firmware', () => {
     const s = quiet(host);
     s.deploy('DA', both);
     steps(s, 4); // DA's first beat is step 3
-    expect(windows(s, 'DA')).toEqual({ busy: [4, 14], cool: [4, 84] });
+    expect(windows(s, 'DA')).toEqual({ busy: [4, 14], cool: [-1, -1] }); // one thing at a time: the cool during the job does nothing
   });
 
   it('lets the last writer win, in the order things happen: the hand after a tick, and the next tick after the hand', () => {

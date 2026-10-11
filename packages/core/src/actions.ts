@@ -48,6 +48,8 @@ export function applyFacilityAction(ctx: SimContext, facility: FacilityState, ac
       // that covers the step before startStep is still running: firmware acts after the power phase charged that step and before
       // the datacenter phase pays and heats it, so the press goes on with the job, and no step is lost.
       const dc = w.datacenters[facility.id]!;
+      // One thing at a time (the user, 2026-10-11): a press during a cooling cycle does nothing.
+      if (dc.coolFrom <= startStep && startStep < dc.coolUntil) break;
       const running = dc.busyFrom < startStep && startStep <= dc.busyUntil;
       if (!running) dc.busyFrom = startStep;
       dc.busyUntil = Math.max(dc.busyUntil, startStep + jobSteps(ctx));
@@ -57,7 +59,9 @@ export function applyFacilityAction(ctx: SimContext, facility: FacilityState, ac
       // A cooling cycle runs to its end: a press while one runs does nothing. A press on the step after its last goes on with it,
       // for the same reason as a job's: that last step is still to be cooled, so the new cycle extends the window.
       const dc = w.datacenters[facility.id]!;
+      // One thing at a time: a press while a job runs does nothing either, so a datacenter never works and cools at once.
       if (dc.coolFrom <= startStep && startStep < dc.coolUntil) break;
+      if (dc.busyFrom <= startStep && startStep < dc.busyUntil) break;
       const continues = dc.coolFrom < startStep && startStep <= dc.coolUntil;
       if (!continues) dc.coolFrom = startStep;
       dc.coolUntil = startStep + coolSteps(ctx);

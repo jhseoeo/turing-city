@@ -63,13 +63,17 @@ export function harvestButton(f: FacilityView): ButtonState {
 
 /** Each press runs the datacenter for a short job; mashing it keeps it running (10-10 spec §4.3). */
 export function processButton(f: FacilityView): ButtonState {
-  return f.condition !== 'ok' ? disabled('처리', downReason(f)) : enabled('처리');
+  if (f.condition !== 'ok') return disabled('처리', downReason(f));
+  // One thing at a time (the user, 2026-10-11): a press during a cooling cycle would do nothing.
+  if (f.datacenter?.cooling) return disabled('처리', '냉각이 끝나야 처리할 수 있어요');
+  return enabled('처리');
 }
 
 /** One cooling cycle at a time: a press during one would do nothing, so the button waits for its end. */
 export function coolButton(f: FacilityView): ButtonState {
   if (f.condition !== 'ok') return disabled('냉각', downReason(f));
   if (f.datacenter?.cooling) return disabled('냉각 중…', '냉각이 끝나면 다시 누를 수 있어요');
+  if (f.datacenter?.processing) return disabled('냉각', '처리가 끝나야 냉각할 수 있어요');
   return enabled('냉각');
 }
 
@@ -199,10 +203,10 @@ export function readings(s: Snapshot, f: FacilityView): Array<[string, string]> 
 export function datacenterStatus(s: Snapshot, f: FacilityView, jobSeconds: number): { text: string; tone: 'ok' | 'bad' | 'dim' } {
   if (f.condition !== 'ok') return { text: downReason(f), tone: 'bad' };
   const dc = f.datacenter;
-  if (dc?.processing) return { text: `처리 중 · 초당 +${s.jobPrice}${dc.cooling ? ' · 냉각 중' : ''}`, tone: 'ok' };
+  if (dc?.processing) return { text: `처리 중 · 초당 +${s.jobPrice} · 냉각은 처리가 끝난 뒤에`, tone: 'ok' };
   if (f.demand > 0 && !f.powered)
     return { text: `전력이 모자라 멈췄어요. 발전소에서 화력을 올리거나 공급 순서에서 ${f.id}를 올리세요.`, tone: 'bad' };
-  if (dc?.cooling) return { text: '냉각 중… 끝나면 다시 누를 수 있어요', tone: 'dim' };
+  if (dc?.cooling) return { text: '냉각 중… 끝나야 처리할 수 있어요', tone: 'dim' };
   return { text: `누를 때마다 ${jobSeconds}초 처리해요 · 지금 단가 ${s.jobPrice}/초`, tone: 'dim' };
 }
 

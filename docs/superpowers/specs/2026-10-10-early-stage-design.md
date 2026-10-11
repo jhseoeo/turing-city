@@ -111,7 +111,7 @@ A facility always works by hand. A board automates it.
 - `process()` runs the datacenter for `datacenter.jobMs` from now, without stacking. A firmware that calls it on every beat of a 5 Hz clock keeps the datacenter running.
 - `cool()` starts a cooling cycle, or does nothing while one runs. It replaces the 10-09 `cool(level)` and its levels.
 - Power, pay, heat, and processing EMF follow the time the datacenter runs, whoever pressed or called.
-- Processing and a cooling cycle can run at the same time.
+- A datacenter does one thing at a time (the user, 2026-10-11): a press of [처리] during a cooling cycle, or of [냉각] during a job, does nothing, and the panel disables that button with its reason. Firmware's `process()` and `cool()` follow the same rule.
 
 ## 5. EMF
 
@@ -310,7 +310,7 @@ These rules change 10-09 §8.
 | Comm module price (T2), `install.commPrice` | 300 |
 | Comm module base EMF, `install.commBaseEmfPerSecond` | +5 per second |
 | Datacenter job per press or `process()`, `datacenter.jobMs` | 500 ms from that moment, no stacking |
-| Cooling cycle, `datacenter.coolingCycleMs` / `coolingDropMilli` / `coolingPower` | 4 s / 15 °C over the cycle, about 15 presses of heat at +2 °C per second / 250 while it runs |
+| Cooling cycle, `datacenter.coolingCycleMs` / `coolingDropMilli` / `coolingPower` | 3 s (the user, 2026-10-11) / 15 °C over the cycle, about 15 presses of heat at +2 °C per second / 250 while it runs |
 | Passive cooling, `datacenter.passiveCoolingPermillePerSecond` | 0.3% of (temperature − 25 °C) per second (10-09: 2%), so a datacenter left alone cools very slowly |
 | Facility repair, `repair.cost` / `repair.seconds` | farm 150, warehouse 300, power plant 300, datacenter 500 / half a day (20 s); the board's rebuild after it is the 10-09 rebuild (500, half a day) |
 | Datacenter processing EMF, `emf.processingPerSecond` | 50 per second of processing (what 10 per action at 5 Hz gave in milestone 1) |

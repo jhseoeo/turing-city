@@ -185,9 +185,17 @@ describe('panel rules: the hand', () => {
     });
   });
 
-  it('lets a datacenter cool while it processes, and process while it cools: the two run side by side', () => {
-    expect(coolButton(facility({ datacenter: { tempC: 70, processing: true, cooling: false } })).disabled).toBe(false);
-    expect(processButton(facility({ datacenter: { tempC: 70, processing: false, cooling: true } })).disabled).toBe(false);
+  it("does one thing at a time: each button waits while the other one's work runs", () => {
+    expect(coolButton(facility({ datacenter: { tempC: 70, processing: true, cooling: false } }))).toEqual({
+      label: '냉각',
+      disabled: true,
+      reason: '처리가 끝나야 냉각할 수 있어요',
+    });
+    expect(processButton(facility({ datacenter: { tempC: 70, processing: false, cooling: true } }))).toEqual({
+      label: '처리',
+      disabled: true,
+      reason: '냉각이 끝나야 처리할 수 있어요',
+    });
   });
 
   it("moves a facility up or down the plant's supply order, and leaves the order alone at its ends", () => {
@@ -519,11 +527,11 @@ describe("panel rules: the datacenter's status line", () => {
     expect(status(facility({ datacenter: dc() }))).toEqual({ text: '누를 때마다 0.5초 처리해요 · 지금 단가 40/초', tone: 'dim' });
   });
 
-  it('says the job runs and what it earns, cooling too', () => {
-    expect(status(facility({ demand: 153, datacenter: dc({ processing: true }) }))).toEqual({ text: '처리 중 · 초당 +40', tone: 'ok' });
-    expect(status(facility({ demand: 408, datacenter: dc({ processing: true, cooling: true }) })).text).toBe(
-      '처리 중 · 초당 +40 · 냉각 중',
-    );
+  it('says the job runs, what it earns, and that cooling waits for it', () => {
+    expect(status(facility({ demand: 153, datacenter: dc({ processing: true }) }))).toEqual({
+      text: '처리 중 · 초당 +40 · 냉각은 처리가 끝난 뒤에',
+      tone: 'ok',
+    });
   });
 
   it('says why a press did nothing when the grid sheds the job, and where to fix it', () => {
@@ -534,7 +542,7 @@ describe("panel rules: the datacenter's status line", () => {
   });
 
   it('says a cooling cycle is under way, and why a facility that is down takes no press', () => {
-    expect(status(facility({ demand: 255, datacenter: dc({ cooling: true }) })).text).toBe('냉각 중… 끝나면 다시 누를 수 있어요');
+    expect(status(facility({ demand: 255, datacenter: dc({ cooling: true }) })).text).toBe('냉각 중… 끝나야 처리할 수 있어요');
     expect(status(facility({ condition: 'wrecked', datacenter: dc() }))).toEqual({
       text: '시설이 부서져 있어요. 먼저 복구하세요.',
       tone: 'bad',

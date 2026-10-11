@@ -145,11 +145,11 @@ function actionDocs(scenario: Scenario): Record<BoardKind | 'any', readonly Acti
     datacenter: [
       {
         call: 'io.process()',
-        meaning: `지금부터 ${milli(dc.jobMs)}초 동안 데이터센터를 돌린다. 이미 돌고 있으면 끝나는 시각을 지금부터 ${milli(dc.jobMs)}초 뒤로 다시 잡는다(쌓이지 않는다)`,
+        meaning: `지금부터 ${milli(dc.jobMs)}초 동안 데이터센터를 돌린다. 이미 돌고 있으면 끝나는 시각을 지금부터 ${milli(dc.jobMs)}초 뒤로 다시 잡는다(쌓이지 않는다). 냉각 중이면 아무 일도 없다`,
       },
       {
         call: 'io.cool()',
-        meaning: `냉각을 한 번 돌린다: ${milli(dc.coolingCycleMs)}초에 걸쳐 ${milli(dc.coolingDropMilli)}°C를 낮춘다. 냉각 중이면 아무 일도 없지만 행동 전자파는 낸다`,
+        meaning: `냉각을 한 번 돌린다: ${milli(dc.coolingCycleMs)}초에 걸쳐 ${milli(dc.coolingDropMilli)}°C를 낮춘다. 냉각 중이거나 처리 중이면 아무 일도 없지만 행동 전자파는 낸다`,
       },
     ],
     power: [
@@ -231,7 +231,8 @@ function facilityRules(scenario: Scenario, f: FacilitySpec, kind: BoardKind, boa
           `처리하는 1초마다 그때의 단가(${code('price')})만큼 번다.`,
           `처리하는 동안 ${dc.processPower}의 전력을 더 쓰고, 초당 ${milli(dc.heatMilliPerSecond)}°C씩 뜨거워지고, 초당 ${t.emf.processingPerSecond}의 전자파를 낸다.`,
           `가만히 두면 매초 (온도 − ${milli(dc.ambientMilli)}°C)의 ${permille(dc.passiveCoolingPermillePerSecond)}%씩만 식는다. 아주 느리다.${leakStops}`,
-          `${code('io.cool()')}과 손의 [냉각]은 같은 일을 한다: ${milli(dc.coolingCycleMs)}초에 걸쳐 고르게 ${milli(dc.coolingDropMilli)}°C를 낮추고, 그동안 ${dc.coolingPower}의 전력을 쓴다. 냉각 중에 다시 부르면 아무 일도 없다. 처리와 냉각은 함께 돌 수 있다.`,
+          `${code('io.cool()')}과 손의 [냉각]은 같은 일을 한다: ${milli(dc.coolingCycleMs)}초에 걸쳐 고르게 ${milli(dc.coolingDropMilli)}°C를 낮추고, 그동안 ${dc.coolingPower}의 전력을 쓴다. 냉각 중에 다시 부르면 아무 일도 없다.`,
+          '데이터센터는 한 번에 하나만 한다: 처리하는 동안 부른 냉각도, 냉각하는 동안 부른 처리도 아무 일도 하지 않는다. 뜨거우면 처리를 멈추고 냉각을 돌린 뒤 다시 처리한다.',
           '전력이 끊기면 처리도 냉각도 멈춘다. 시작해 둔 작업과 냉각의 시간은 그동안에도 흘러서, 놓친 만큼은 채워지지 않는다.',
           `${milli(dc.overheatAlertMilli)}°C에 닿으면 과열 알림이 뜬다. ${milli(dc.fireThresholdMilli)}°C를 넘으면 매초, 넘은 1°C마다 ${permille(dc.firePermillePerDegreePerSecond)}%의 확률로 불이 나서 데이터센터가 보드째 부서진다.`,
           '데이터센터는 그 자체로 기계다. 보드가 없어도 일한 칸의 전자파가 감지되면 러다이트가 찾아와 부순다.',

@@ -238,16 +238,24 @@ describe('datacenters', () => {
     expect(dc.tempMilli).toBe(25_000);
   });
 
-  it('runs work and a cooling cycle at the same time', () => {
-    const s = holding();
-    const dc = s.world.datacenters.DA!;
-    dc.tempMilli = 80_000;
-    s.hand('DA', { kind: 'process' });
-    s.hand('DA', { kind: 'cool' });
-    steps(s, 10); // both act at step 0; steps 0 to 9 work and cool
-    // +100 a step of work, and the cycle's first ten parts: 15,000 x 10 / 80 = 1,875
-    expect(dc.tempMilli).toBe(80_000 + 1_000 - 1_875);
-    expect(s.world.ledger.datacenterIncome).toBe(20 * MICRO);
+  it('does one thing at a time: a press of the other button while a job or a cycle runs does nothing', () => {
+    const working = holding();
+    const a = working.world.datacenters.DA!;
+    a.tempMilli = 80_000;
+    working.hand('DA', { kind: 'process' });
+    working.hand('DA', { kind: 'cool' }); // during the job: nothing
+    steps(working, 10); // the job's steps 0 to 9
+    expect(a.tempMilli).toBe(80_000 + 1_000); // +100 a step of work, and no cooling
+    expect(working.world.ledger.datacenterIncome).toBe(20 * MICRO);
+
+    const cooling = holding();
+    const b = cooling.world.datacenters.DA!;
+    b.tempMilli = 80_000;
+    cooling.hand('DA', { kind: 'cool' });
+    cooling.hand('DA', { kind: 'process' }); // during the cycle: nothing
+    steps(cooling, 10);
+    expect(b.tempMilli).toBe(80_000 - ((15_000 * 10) / cooling.scenario.tuning.datacenter.coolingCycleMs) * 50); // the cycle's first ten parts
+    expect(cooling.world.ledger.datacenterIncome).toBe(0);
   });
 
   it('draws processing power on the steps of its job and cooling power on the steps of its cycle', () => {
