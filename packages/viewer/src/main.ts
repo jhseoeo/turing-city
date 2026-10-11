@@ -1,6 +1,7 @@
 import './style.css';
 import { bindKeys } from './keys.ts';
 import { type MapScene, mountMap } from './map/map-scene.ts';
+import { overheatCelsius } from './map-rules.ts';
 import { Connection, gameSocketUrl } from './net.ts';
 import { Store } from './store.ts';
 import { renderFeed } from './ui/feed.ts';
@@ -40,7 +41,7 @@ function render(): void {
   renderPanel($('#panel'), store, net);
   if (store.snapshot) {
     map ??= mountMap($('#map'), store.snapshot, (id) => store.select(id));
-    map.show(store.snapshot, store.selected, store.heatmap);
+    map.show(store.snapshot, store.selected, store.heatmap, overheatCelsius(store.scenario));
   }
 }
 
