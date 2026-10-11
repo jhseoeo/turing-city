@@ -71,8 +71,13 @@ export class Store {
   manualFor: string | 'index' | null = null;
   /** The board whose firmware the editor window edits, or null (closed). */
   editorFor: string | null = null;
-  /** The server's answer to the editor's last deploy. */
+  /**
+   * The answer to the editor's last deploy: the server's, or, when the server refused the deploy and so sent an error and no
+   * deployResult, or the socket closed before the answer came, a failed outcome that says why.
+   */
   deployResult: { board: string; outcome: DeployOutcome } | null = null;
+  /** The board whose deploy was sent and not yet answered, so that the next error is read as its refusal. */
+  deployInFlight: string | null = null;
   /** The text an editor held when it was closed without a deploy, by board: reopening it brings the text back. */
   editorDrafts: Record<string, string> = {};
   dispatchDraft: DispatchDraft = NO_DRAFT;
@@ -113,27 +118,32 @@ export class Store {
         break;
       case 'deploy':
         this.push({ kind: 'deploy', board: message.board, version: message.version, time: message.time, by: message.by });
+        // The agent's firmware is now the board's own: a draft of the player's would hide it, and [배포] would overwrite it unseen.
+        if (message.by === 'agent') this.dropDraft(message.board);
         break;
       case 'inspection':
         this.inspection = { board: message.board, inspection: message.inspection };
         break;
       case 'deployResult':
+        this.deployInFlight = null;
         this.deployResult = { board: message.board, outcome: message.outcome };
         // The server took the code: what the editor would bring back is now the board's own firmware, not a draft.
-        if (message.outcome.ok) {
-          const { [message.board]: _taken, ...rest } = this.editorDrafts;
-          this.editorDrafts = rest;
-        }
+        if (message.outcome.ok) this.dropDraft(message.board);
         break;
-      case 'error':
-        this.showError(refusalText(message.message, message.refusal));
+      case 'error': {
+        const text = refusalText(message.message, message.refusal);
+        // The hub answers a deploy the game refuses (no board, no season) with an error and no deployResult.
+        this.failDeploy(text);
+        this.showError(text);
         break;
+      }
     }
     this.notify();
   }
 
   setSocketOpen(open: boolean): void {
     this.socketOpen = open;
+    if (!open) this.failDeploy('연결이 끊겨서 배포 결과를 받지 못했어요. 다시 배포하세요.');
     this.notify();
   }
 
@@ -190,6 +200,13 @@ export class Store {
     this.notify();
   }
 
+  /** The editor sent a deploy of this board: the last answer no longer describes the code on screen, and the next word is about this. */
+  startDeploy(board: string): void {
+    this.deployInFlight = board;
+    this.deployResult = null;
+    this.notify();
+  }
+
   setDispatchDraft(patch: Partial<DispatchDraft>): void {
     this.dispatchDraft = { ...this.dispatchDraft, ...patch };
     this.notify();
@@ -203,9 +220,23 @@ export class Store {
     this.feed = [];
     this.editorFor = null;
     this.deployResult = null;
+    this.deployInFlight = null;
     this.editorDrafts = {};
     this.dispatchDraft = NO_DRAFT;
-    if (!this.guideDismissed()) this.guideOpen = true;
+    // A start that failed shows the crash overlay, and the card would open behind it.
+    if (this.status?.state !== 'crashed' && !this.guideDismissed()) this.guideOpen = true;
+  }
+
+  /** Ends the deploy in flight, if there is one, with a failed answer that says why; nothing waits for one that will not come. */
+  private failDeploy(text: string): void {
+    if (this.deployInFlight === null) return;
+    this.deployResult = { board: this.deployInFlight, outcome: { ok: false, error: text } };
+    this.deployInFlight = null;
+  }
+
+  private dropDraft(board: string): void {
+    const { [board]: _dropped, ...rest } = this.editorDrafts;
+    this.editorDrafts = rest;
   }
 
   private guideDismissed(): boolean {

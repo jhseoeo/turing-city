@@ -322,3 +322,133 @@ main {
 #panel .prio-row button {
   padding: 1px 0;
 }
+
+/* The manual and the editor (10-10 spec §10.4): over the map, the manual on the left and the editor on the right. The container lets
+   clicks through where no window is, so the map stays usable beside a single open window. */
+#windows {
+  position: fixed;
+  top: 40px;
+  left: 0;
+  right: 340px;
+  bottom: 32px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 8px;
+  pointer-events: none;
+}
+.window {
+  pointer-events: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+.window[hidden] {
+  display: none;
+}
+#manual-window {
+  grid-column: 1;
+}
+#editor-window {
+  grid-column: 2;
+}
+#windows .window header {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+#windows .window header b {
+  margin-right: auto;
+  color: #fff;
+}
+#windows .window header .close {
+  padding: 2px 9px;
+}
+#windows .window nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+}
+#windows .window nav button {
+  padding: 2px 8px;
+}
+#windows .window nav button.on {
+  background: var(--accent);
+  color: #fff;
+}
+#windows .window .body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 14px;
+}
+#windows .window .cm-host {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+#windows .window .result {
+  padding: 7px 10px;
+  border-top: 1px solid var(--line);
+  min-height: 30px;
+  white-space: pre-wrap;
+}
+/* The manual's markdown. */
+#windows .md h1 {
+  font-size: 18px;
+  margin: 4px 0 10px;
+  color: #fff;
+}
+#windows .md h2 {
+  font-size: 15px;
+  margin: 18px 0 6px;
+  color: #fff;
+}
+#windows .md h3 {
+  font-size: 13px;
+  margin: 14px 0 4px;
+}
+#windows .md p,
+#windows .md li {
+  line-height: 1.55;
+}
+#windows .md table {
+  border-collapse: collapse;
+  margin: 6px 0 10px;
+}
+#windows .md th,
+#windows .md td {
+  border: 1px solid var(--line);
+  padding: 3px 7px;
+  text-align: left;
+  vertical-align: top;
+}
+#windows .md code {
+  font:
+    11px ui-monospace,
+    Menlo,
+    monospace;
+  background: #0d1116;
+  border-radius: 3px;
+  padding: 0 3px;
+}
+#windows .md pre {
+  background: #0d1116;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 6px 0 10px;
+}
+#windows .md pre code {
+  background: none;
+  padding: 0;
+}

@@ -324,6 +324,108 @@ describe('Store: a new season', () => {
     store.apply(status('crashed', 2));
     expect(store.feed).toEqual([]);
     expect(store.editorDrafts).toEqual({});
+    // The crash overlay is on screen: the guide card does not open behind it.
+    expect(store.guideOpen).toBe(false);
+  });
+
+  it('forgets a deploy in flight: the old season will not answer it', () => {
+    const store = new Store(null);
+    store.apply(status('running', 1));
+    store.openEditor('DA');
+    store.startDeploy('DA');
+    store.apply(status('paused', 2));
+    expect(store.deployInFlight).toBeNull();
+  });
+});
+
+describe('Store: a deploy in flight', () => {
+  const refusal = (): ServerToViewer => ({
+    type: 'error',
+    message: "no board on 'DA'",
+    refusal: { code: 'noBoard', facility: 'DA' },
+  });
+
+  it('remembers the board from the moment the editor sends, and drops the answer to an earlier deploy', () => {
+    const store = new Store(null);
+    store.openEditor('DA');
+    store.apply({ type: 'deployResult', board: 'DA', outcome: { ok: false, error: 'a syntax error' } });
+    expect(store.deployInFlight).toBeNull();
+    store.startDeploy('DA');
+    expect(store.deployInFlight).toBe('DA');
+    expect(store.deployResult).toBeNull();
+  });
+
+  it("ends with the server's answer, a syntax error included", () => {
+    const store = new Store(null);
+    store.startDeploy('DA');
+    store.apply({ type: 'deployResult', board: 'DA', outcome: { ok: false, error: "firmware:1: ')' expected near 'end'" } });
+    expect(store.deployInFlight).toBeNull();
+    expect(store.deployResult?.outcome.ok).toBe(false);
+  });
+
+  it("turns the server's refusal into the board's answer, in Korean, so the editor does not wait for one that never comes", () => {
+    const store = new Store(null);
+    store.startDeploy('DA');
+    store.apply(refusal());
+    expect(store.deployInFlight).toBeNull();
+    expect(store.deployResult).toEqual({
+      board: 'DA',
+      outcome: { ok: false, error: "'DA'에는 보드가 없어요. 먼저 보드를 설치하세요." },
+    });
+  });
+
+  it('leaves the answer alone when the refusal is of a command that was not a deploy', () => {
+    const store = new Store(null);
+    store.apply(refusal());
+    expect(store.deployResult).toBeNull();
+  });
+
+  it('takes only the first refusal after a deploy for its answer', () => {
+    const store = new Store(null);
+    store.startDeploy('DA');
+    store.apply(refusal());
+    store.apply({ type: 'error', message: 'later', refusal: { code: 'noSeason' } });
+    expect(store.deployResult?.board).toBe('DA');
+    expect(store.deployResult?.outcome).toEqual({ ok: false, error: "'DA'에는 보드가 없어요. 먼저 보드를 설치하세요." });
+  });
+
+  it('gives up on an answer when the socket closes: it will not come over a new one', () => {
+    const store = new Store(null);
+    store.setSocketOpen(true);
+    store.startDeploy('DA');
+    store.setSocketOpen(false);
+    expect(store.deployInFlight).toBeNull();
+    expect(store.deployResult?.board).toBe('DA');
+    expect(store.deployResult?.outcome.ok).toBe(false);
+  });
+
+  it('does not touch the answer to a deploy that was over when the socket closed', () => {
+    const store = new Store(null);
+    store.apply({ type: 'deployResult', board: 'DA', outcome: { ok: true, version: 2, installsAt: "the board's next tick" } });
+    store.setSocketOpen(false);
+    expect(store.deployResult?.outcome.ok).toBe(true);
+  });
+});
+
+describe('Store: the agent deploys over the player', () => {
+  const time = { day: 1, clock: '00:00', seconds: 0 };
+
+  it("drops that board's draft, so the editor opens on the agent's firmware and [배포] cannot overwrite it unseen", () => {
+    const store = new Store(null);
+    store.openEditor('DA');
+    store.closeEditor('-- mine, DA');
+    store.openEditor('DB');
+    store.closeEditor('-- mine, DB');
+    store.apply({ type: 'deploy', board: 'DA', version: 4, time, by: 'agent' });
+    expect(store.editorDrafts).toEqual({ DB: '-- mine, DB' });
+  });
+
+  it("keeps the draft when the player's own deploy comes back as a feed item", () => {
+    const store = new Store(null);
+    store.openEditor('DA');
+    store.closeEditor('-- mine');
+    store.apply({ type: 'deploy', board: 'DA', version: 4, time, by: 'player' });
+    expect(store.editorDrafts).toEqual({ DA: '-- mine' });
   });
 });
 
