@@ -87,7 +87,7 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
   {
     name: 'list_boards',
     description:
-      "Every facility of the town that can take a board: its kind, its position, and its tier (0: no board, the player works it by hand; 1: a board the player programs in the game; 2: a board with a comm module, which you can program), whether the facility stands (ok, wrecked, or being repaired), and its board's state (running, asleep, destroyed, rebuilding), power, firmware version, and latest error.",
+      "Every facility of the town that can take a board: its kind, its position, and its tier (0: no board, the player works it by hand; 1: a board the player programs in the game; 2: a board with a comm module, which you can program), whether the facility stands (ok, wrecked, or repairing), and its board's state (running, asleep, destroyed, rebuilding), power, firmware version, and latest error.",
     inputSchema: {},
     run: (api) => api.listBoards(),
   },

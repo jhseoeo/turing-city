@@ -111,7 +111,7 @@ describe('agent tools', () => {
     expect(description).toContain('0: no board, the player works it by hand');
     expect(description).toContain('1: a board the player programs in the game');
     expect(description).toContain('2: a board with a comm module, which you can program');
-    expect(description).toContain('ok, wrecked, or being repaired');
+    expect(description).toContain('ok, wrecked, or repairing');
   });
 
   it('deploys through the game API', async () => {
@@ -281,7 +281,7 @@ describe('agent tools', () => {
 
   it('names the states of a facility and of its board that list_boards reports', () => {
     const boards: Record<BoardStatus, string> = { running: 'running', asleep: 'asleep', destroyed: 'destroyed', rebuilding: 'rebuilding' };
-    const facilities: Record<FacilityCondition, string> = { ok: 'ok', wrecked: 'wrecked', repairing: 'being repaired' };
+    const facilities: Record<FacilityCondition, string> = { ok: 'ok', wrecked: 'wrecked', repairing: 'repairing' };
     const { description } = tool('list_boards');
     for (const phrase of [...Object.values(boards), ...Object.values(facilities)]) expect(description, phrase).toContain(phrase);
   });

@@ -166,6 +166,7 @@ async function handle(message: WorkerRequest): Promise<void> {
     }
     case 'deploy':
       reply(message.id, () => {
+        if (s.world.ended) throw new ToolError('the season has ended', { code: 'seasonEnded' });
         const board = deployTarget(s, message.board, message.by);
         const result = s.deploy(message.board, message.code, message.by);
         send({ type: 'snapshot', snapshot: snapshot(s.ctx) });

@@ -166,7 +166,10 @@ export function createMcpEndpoint(options: McpOptions): {
       );
       mcp.registerTool(
         'dev_rebuild',
-        { description: 'DEV: rebuild a destroyed board.', inputSchema: { board: z.string() } },
+        {
+          description: 'DEV: rebuild a destroyed board. The facility must stand again first, so dev_repair it before.',
+          inputSchema: { board: z.string() },
+        },
         async ({ board }) => run(() => dev.rebuild(board)),
       );
       mcp.registerTool(

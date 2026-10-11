@@ -82,7 +82,7 @@ export type ServerToViewer =
   | { readonly type: 'deploy'; readonly board: string; readonly version: number; readonly time: TimeView; readonly by: DeployedBy }
   /**
    * The answer to this viewer's deploy: accepted, with when it installs, or the syntax error with its line. A deploy the game
-   * refuses (no board, no season) gets no deployResult: its answer is an `error` message below, with the refusal.
+   * refuses (no board, no season, a season that has ended) gets no deployResult: its answer is an `error` message below, with the refusal.
    */
   | { readonly type: 'deployResult'; readonly board: string; readonly outcome: DeployOutcome }
   | { readonly type: 'inspection'; readonly board: string; readonly inspection: BoardInspection | null }

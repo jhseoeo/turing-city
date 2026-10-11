@@ -294,6 +294,22 @@ describe('gameApi', () => {
     expect(await gameApi(c).status()).toMatchObject({ ended: { kind: 'completed' }, run: { paused: true, speed: 1 } });
   });
 
+  it('refuses a deploy once the season has ended, as every other command does, and tells nobody of one', async () => {
+    const c = makeFor(withTime({ stepsPerSecond: 20, secondsPerDay: 1, seasonDays: 1 }));
+    await c.startSeason(1);
+    await c.runUntil({});
+    expect(c.status().state).toBe('ended');
+    const events: string[] = [];
+    c.onEvent((event) => events.push(line(event)));
+    for (const by of ['player', 'agent'] as const) {
+      const refusal = await c.deploy('DA', 'function tick() end', by).catch((error: unknown) => error);
+      expect(refusal).toBeInstanceOf(ToolError);
+      expect((refusal as ToolError).message).toBe('the season has ended');
+      expect((refusal as ToolError).refusal).toEqual({ code: 'seasonEnded' });
+    }
+    expect(events.filter((e) => e.startsWith('deploy'))).toEqual([]);
+  });
+
   it('refuses a deploy to a board that does not exist with a tool error naming it, and the season goes on', async () => {
     const c = make();
     c.setAgent(AGENT);

@@ -9,6 +9,8 @@ const TONE_COLORS: Record<Tone, string> = { normal: '#d7dde4', warn: '#ffb020', 
 const TRUCK_COLOR = 0xff9f43;
 /** How far the caption of every other column sits below the first line: the map keeps this much room under its last row for it. */
 const CAPTION_LINE = 11;
+/** The distance between the labels of the trucks that share a cell. */
+const TRUCK_LABEL_LINE = 10;
 
 /** The town: drawn from scratch on every snapshot, selection change, and blink. */
 export class MapScene extends Phaser.Scene {
@@ -167,8 +169,11 @@ export class MapScene extends Phaser.Scene {
       }
     }
 
-    // The trucks, at their cells, side by side when two share one; an idle one waits in its warehouse's cell.
+    // The trucks, at their cells, side by side when two share one; an idle one waits in its warehouse's cell. The labels of the
+    // trucks on the road are wider than the icons are apart, and the line under the cell is the facilities' captions: a cell's labels
+    // stack at its right, one line each, from the icons' height.
     for (const [, trucks] of trucksByCell(s)) {
+      let labels = 0;
       trucks.forEach((t, k) => {
         const tx = t.x * CELL + CELL - 13 - k * 11;
         const ty = t.y * CELL + CELL - 12;
@@ -177,7 +182,7 @@ export class MapScene extends Phaser.Scene {
         // Outlined, so that a truck waiting in its warehouse's cell shows against the warehouse's own colour.
         g.lineStyle(1, 0x0c0f13, 1);
         g.strokeRect(tx, ty, 10, 7);
-        if (t.status !== 'idle') this.text(tx, ty + 8, truckLabel(t), '#ffcf99', 9);
+        if (t.status !== 'idle') this.text(t.x * CELL + CELL + 2, ty + labels++ * TRUCK_LABEL_LINE, truckLabel(t), '#ffcf99', 9);
       });
     }
 

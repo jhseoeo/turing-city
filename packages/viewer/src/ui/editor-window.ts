@@ -37,7 +37,7 @@ export function renderEditorWindow(root: HTMLElement, store: Store, net: Connect
     clear(root);
     const host = el('div', { class: 'cm-host' }, [el('p', { class: 'dim' }, ['불러오는 중…'])]);
     const result = el('div', { class: 'result' }, []);
-    const deployReason = el('span', { class: 'dim reason' }, []);
+    const deployReason = el('p', { class: 'dim reason' }, []);
     const deployBtn = el('button', { class: 'primary', onclick: () => deploy() }, ['배포']);
     const frame: Mounted = { board, host, result, deployButton: deployBtn, deployReason, editor: null };
     const deploy = (): void => {
@@ -50,11 +50,11 @@ export function renderEditorWindow(root: HTMLElement, store: Store, net: Connect
     root.append(
       el('header', {}, [
         el('b', {}, [`${board} 펌웨어`]),
-        deployReason,
         deployBtn,
         el('button', { onclick: () => store.openManual(board) }, ['매뉴얼']),
         el('button', { class: 'close', title: '닫기', onclick: () => closeEditorWindow(store) }, ['×']),
       ]),
+      deployReason, // on a line of its own under the header: beside the buttons it squeezes them
       host,
       result,
     );

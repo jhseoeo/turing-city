@@ -371,6 +371,15 @@ main {
 #windows .window header .close {
   padding: 2px 9px;
 }
+#windows .window .reason {
+  margin: 0;
+  padding: 4px 10px;
+  font-size: 11px;
+  border-bottom: 1px solid var(--line);
+}
+#windows .window .reason:empty {
+  display: none;
+}
 #windows .window nav {
   display: flex;
   flex-wrap: wrap;

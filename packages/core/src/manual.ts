@@ -125,7 +125,7 @@ function sensorDocs(scenario: Scenario): Record<SensorName, SensorDoc> {
       range: `주거지 ${ofKind(scenario, 'housing').length}곳, 지도 순서`,
     },
     trucks: {
-      meaning: `트럭마다 ${code('{ id, status, x, y, load, target }')}: status는 "idle"(창고에서 대기), "outbound"(가는 중), "returning"(돌아오는 중). x와 y는 지금 칸, load는 실은 식량, target은 가는 곳의 id(대기 중이면 nil)`,
+      meaning: `트럭마다 ${code('{ id, status, x, y, load, target }')}: status는 "idle"(창고에서 대기), "outbound"(가는 중), "returning"(돌아오는 중). x와 y는 지금 칸, load는 실은 식량, target은 가는 곳의 id(돌아오는 중이면 다녀온 곳, 대기 중이면 nil)`,
       unit: '목록',
       range: `트럭 ${t.warehouse.trucks}대, id 1~${t.warehouse.trucks}`,
     },
@@ -149,7 +149,7 @@ function actionDocs(scenario: Scenario): Record<BoardKind | 'any', readonly Acti
       },
       {
         call: 'io.cool()',
-        meaning: `냉각을 한 번 돌린다: ${milli(dc.coolingCycleMs)}초에 걸쳐 ${milli(dc.coolingDropMilli)}°C를 낮춘다. 냉각 중이면 아무 일도 없다`,
+        meaning: `냉각을 한 번 돌린다: ${milli(dc.coolingCycleMs)}초에 걸쳐 ${milli(dc.coolingDropMilli)}°C를 낮춘다. 냉각 중이면 아무 일도 없지만 행동 전자파는 낸다`,
       },
     ],
     power: [
@@ -163,13 +163,13 @@ function actionDocs(scenario: Scenario): Record<BoardKind | 'any', readonly Acti
     farm: [
       {
         call: 'io.harvest()',
-        meaning: `익은 작물을 거둬 ${t.farm.yield}의 식량을 출고함에 넣고 바로 다시 심는다. 익지 않았으면 아무 일도 없다`,
+        meaning: `익은 작물을 거둬 ${t.farm.yield}의 식량을 출고함에 넣고 바로 다시 심는다. 익지 않았으면 아무 일도 없지만 행동 전자파는 낸다`,
       },
     ],
     warehouse: [
       {
         call: 'io.dispatch(truck, from, to, amount)',
-        meaning: `트럭 하나를 보낸다. 회수는 from이 밭, to가 이 창고. 배달은 from이 이 창고, to가 주거지. amount는 1~${t.warehouse.truckCapacity}. 대기 중인 트럭만 떠나고, 맞지 않는 요청은 아무 일도 없다. 모르는 id는 그 틱을 에러로 끝낸다`,
+        meaning: `트럭 하나를 보낸다. 회수는 from이 밭, to가 이 창고. 배달은 from이 이 창고, to가 주거지. amount는 1~${t.warehouse.truckCapacity}. 대기 중인 트럭만 떠나고, 맞지 않는 요청은 아무 일도 없지만 행동 전자파는 낸다. 모르는 id는 그 틱을 에러로 끝낸다`,
       },
     ],
     any: [
@@ -482,7 +482,7 @@ function commonSections(scenario: Scenario): Section[] {
       blocks: [
         list([
           `깨어 있고 전력을 받는 보드는 아무 일을 안 해도 초당 기본 전자파(부품 표)를 낸다. 통신 모듈이 있으면 ${t.install.commBaseEmfPerSecond} 더 낸다.`,
-          `틱마다: 명령어 ${e.instructionsPerUnit}개마다 1, 그리고 펌웨어가 시킨 기계의 행동(${code('harvest')}, ${code('dispatch')}, ${code('set_thermal')}, ${code('set_priority')}, ${code('cool')}) 하나마다 ${e.perAction}. ${code('process')}, ${code('sleep')}, ${code('log')}는 행동으로 세지 않는다.`,
+          `틱마다: 명령어 ${e.instructionsPerUnit}개마다 1, 그리고 펌웨어가 시킨 기계의 행동(${code('harvest')}, ${code('dispatch')}, ${code('set_thermal')}, ${code('set_priority')}, ${code('cool')}) 하나마다 ${e.perAction}. 아무 일도 하지 않은 행동도 전자파로 센다(익지 않은 밭의 ${code('harvest')}, 맞지 않는 ${code('dispatch')}, 냉각 중의 ${code('cool')}). ${code('process')}, ${code('sleep')}, ${code('log')}는 행동으로 세지 않는다.`,
           `데이터센터는 처리하는 동안 초당 ${e.processingPerSecond}의 전자파를 낸다. 손으로 [처리]를 눌렀든 펌웨어가 시켰든 같다.`,
           '사람이 손으로 하는 일(수확, 트럭 보내기, 화력과 공급 순서 정하기)은 전자파가 없다.',
           `전자파는 그 시설의 칸에 쌓인다. 매초 각 칸이 이웃 네 칸에 ${e.diffusionPctPerSecond}%씩 나눠 주고, 지도 전체가 매초 ${e.decayPctPerSecond}%씩 줄어든다.`,
