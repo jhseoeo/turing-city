@@ -58,7 +58,7 @@ describe('refusalText', () => {
 
   it('says what the refusals the player meets most say: too little money, a wrecked facility, the season over, a bad message', () => {
     expect(refusalText('x', SAMPLES.tooPoor)).toBe('자금이 모자라요.');
-    expect(refusalText('x', SAMPLES.wrecked)).toBe("'W' 시설이 부서졌거나 복구 중이에요. 복구가 끝난 뒤에 해보세요.");
+    expect(refusalText('x', SAMPLES.wrecked)).toBe("'W' 시설이 부서졌거나 복구 중이라서 지금은 할 수 없어요.");
     expect(refusalText('x', SAMPLES.repairFirst)).toBe("'DA' 시설을 먼저 복구해야 보드를 재건할 수 있어요.");
     expect(refusalText('x', SAMPLES.seasonEnded)).toBe('시즌이 이미 끝나서 할 수 없어요.');
     expect(refusalText('x', SAMPLES.badCommand)).toBe('서버가 알아듣지 못하는 명령이에요 (speed: Invalid input).');

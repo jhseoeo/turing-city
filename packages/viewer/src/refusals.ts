@@ -40,8 +40,9 @@ export function refusalText(message: string, refusal: Refusal | undefined): stri
     case 'boardDown':
       return `'${refusal.facility}' 보드가 부서져 있어서 통신 모듈을 달 수 없어요.`;
     case 'wrecked':
-      // One code covers a wreck and a repair under way, and says nothing of which: so the text names both, and does not say to repair.
-      return `'${refusal.facility}' 시설이 부서졌거나 복구 중이에요. 복구가 끝난 뒤에 해보세요.`;
+      // One code covers a wreck and a repair under way, and says nothing of which: so the text names both, and neither says to repair
+      // (it may be under way) nor promises that waiting helps (a wreck nobody repairs does not end).
+      return `'${refusal.facility}' 시설이 부서졌거나 복구 중이라서 지금은 할 수 없어요.`;
     case 'notWrecked':
       return `'${refusal.facility}' 시설은 부서지지 않았어요.`;
     case 'repairFirst':

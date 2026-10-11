@@ -286,3 +286,39 @@ main {
   justify-content: flex-end;
   gap: 14px;
 }
+
+/* The panel's hand controls (10-10 spec §4.3). */
+#panel .controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+#panel .choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+#panel .choices button {
+  padding: 4px 8px;
+}
+#panel .choices button.on {
+  background: var(--accent);
+  color: #fff;
+}
+#panel .reason {
+  margin: 2px 0 0;
+  font-size: 11px;
+}
+#panel .thermal input[type="range"] {
+  width: 100%;
+  margin-top: 4px;
+}
+#panel .prio-row {
+  display: grid;
+  grid-template-columns: 1fr 70px 28px 28px;
+  gap: 4px;
+  align-items: center;
+}
+#panel .prio-row button {
+  padding: 1px 0;
+}
