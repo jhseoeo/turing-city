@@ -53,7 +53,7 @@ It succeeds when the user plays full seasons and finds this progression worth bu
 - The board manual (§9) and the firmware editor (§10.4).
 - The agent connection, as what T2 opens (§8).
 - A first-season guide card (§10.2).
-- The 10-09 spec's remaining viewer work for the new facilities: their panels, the trucks on the map, and the selection rules of 10-09 §8.2.
+- The 10-09 spec's remaining viewer work for the new facilities: their panels, the trucks on the map (drawn at their cells; a smooth tween between cells is a later decision), and the selection rules of 10-09 §8.2.
 
 **Out:**
 - **Firmware at T0** (the design doc's sensing-only T0 board): the user ruled that T0 has no firmware.
@@ -84,9 +84,9 @@ A facility always works by hand. A board automates it.
 ### 4.2 Hand and firmware on one facility
 
 - **Manual controls stay at every tier.** A manual action is the same facility method a firmware action calls.
-  - It applies in the next step's phase 5.
-  - It is recorded with its step, like a deploy, so replays stay deterministic.
-- **Settings belong to the facility.** These are the thermal output and the priority list. Whoever set one last wins.
+  - It applies at once, between steps, so a paused game shows its effect. A job or a cooling cycle started by hand covers the coming step; one that firmware starts in phase 5 of a step covers the step after.
+  - It is recorded with the step it came before, like a deploy, so replays stay deterministic.
+- **Settings belong to the facility.** These are the thermal output and the priority list. Whoever set one last wins, in real order: firmware that acts in the coming step wins over a hand action made before it.
 - **The board can stop; the facility doesn't.** When a board sleeps or is shed, only its firmware stops, and the facility goes on by hand. Only a wrecked facility stops entirely: Luddites and fire wreck the facility they hit, board and all (§6). This changes the 10-09 rules in three ways:
   - `io.sleep` no longer stops the facility.
   - The plant's thermal module keeps the town's setting whatever its board is doing (10-09 §5.8 stopped it).
@@ -104,11 +104,11 @@ A facility always works by hand. A board automates it.
 | Farm | **[수확] (harvest):** harvests a ripe crop into the outbox and replants (`harvest()`). Disabled while nothing is ripe. |
 | Warehouse | **[트럭 보내기] (send a truck):** pick an idle truck, a trip, and an amount. A trip collects from a farm's outbox or delivers to a housing block, as `dispatch(truck, from, to, amount)` allows (10-09 §5.5). |
 | Power plant | **Thermal:** a slider for the thermal output from 0 to the module's maximum (`set_thermal`). **Supply order:** up and down buttons on the priority list (`set_priority`). |
-| Datacenter | **[처리] (process):** each press runs the datacenter for `jobSeconds` from that moment. Presses don't stack: a press while it runs restarts the span from now, so keeping it running means pressing again and again. Mashing it keeps the money coming, at the risk of power shortage, heat, fire, and EMF. **[냉각] (cool):** starts a cooling cycle. It lasts `coolingCycleSeconds` and takes `coolingCycleDrop` off the temperature in even steps across the cycle, about as much heat as 15 presses add. It draws `coolingCyclePower` while it runs, far more than processing. A press during a cycle does nothing (the button is disabled). Left alone, a datacenter cools very slowly (`passiveCoolingPctPerSecond`). |
+| Datacenter | **[처리] (process):** each press runs the datacenter for `datacenter.jobMs` from that moment. Presses don't stack: a press while it runs restarts the span from now, so keeping it running means pressing again and again. Mashing it keeps the money coming, at the risk of power shortage, heat, fire, and EMF. **[냉각] (cool):** starts a cooling cycle. It lasts `datacenter.coolingCycleMs` and takes `datacenter.coolingDropMilli` off the temperature in even steps across the cycle, about as much heat as 15 presses add. It draws `datacenter.coolingPower` while it runs, more than processing. A press during a cycle does nothing (the button is disabled). Left alone, a datacenter cools very slowly (`datacenter.passiveCoolingPermillePerSecond`). |
 | Housing | None. Housing has no board; it eats, uses power, and pays tax (10-09 §5.6). |
 
 **Hand and firmware share the datacenter's methods.** The buttons and the firmware call the same two:
-- `process()` runs the datacenter for `jobSeconds` from now, without stacking. A firmware that calls it on every beat of a 5 Hz clock keeps the datacenter running.
+- `process()` runs the datacenter for `datacenter.jobMs` from now, without stacking. A firmware that calls it on every beat of a 5 Hz clock keeps the datacenter running.
 - `cool()` starts a cooling cycle, or does nothing while one runs. It replaces the 10-09 `cool(level)` and its levels.
 - Power, pay, heat, and processing EMF follow the time the datacenter runs, whoever pressed or called.
 - Processing and a cooling cycle can run at the same time.
@@ -121,9 +121,9 @@ These rules change 10-09 §5.7.
 - **Boards:**
   - base EMF while awake and powered;
   - `a × instructions`;
-  - `b × actions`, for the actions their firmware applies: harvest, dispatch, `set_thermal`, `set_priority`, `cool`. Those actions are machine labor. A cooling cycle emits nothing beyond that: its cost is power.
-- **A datacenter at work:** `processingEmfPerSecond` while it processes, whoever started the job. Its servers are a machine. `process()` is not counted as an action, so firmware and hand pay the same for the same running time.
-- **A comm module:** adds `commBaseEmf` to its board's base EMF.
+  - `b × actions`, for the actions their firmware asks for: harvest, dispatch, `set_thermal`, `set_priority`, `cool`. Those actions are machine labor. Every action the firmware asks for counts, whether or not it did anything: a machine that tries makes noise, so firmware that checks before it acts is quieter. A cooling cycle emits nothing beyond that: its cost is power.
+- **A datacenter at work:** `emf.processingPerSecond` while it processes, whoever started the job. Its servers are a machine. `process()` is not counted as an action, so firmware and hand pay the same for the same running time.
+- **A comm module:** adds `install.commBaseEmfPerSecond` to its board's base EMF.
 - **The player's hands:** nothing. A harvest, a truck sent, or a thermal setting changed by hand emits no EMF.
 
 **A town at T0 with idle datacenters is silent.** Pressing [처리] makes noise.
@@ -137,8 +137,10 @@ These rules change 10-09 §5.8.
 **What Luddites target.** They walk toward the strongest EMF they detect, as now. Every EMF source sits at a facility: a board, or a datacenter at work. At their target they wreck the whole facility, its board with it if it has one.
 
 **What a wreck costs.** A wrecked facility stops entirely, by hand too. Getting it back takes two separate payments:
-1. **[시설 복구] (repair the facility)** costs `facilityRepairCost` for its kind and takes `facilityRepairSeconds`. Then it works by hand again. A repaired datacenter comes back at ambient temperature.
+1. **[시설 복구] (repair the facility)** costs `repair.cost` for its kind and takes `repair.seconds`. Then it works by hand again. A repaired datacenter comes back at ambient temperature, and a repaired farm replants its field.
 2. **[보드 재건] (rebuild the board)** costs the 10-09 rebuild cost and takes the 10-09 time. It is offered once the facility stands again, and brings the board back with its parts, comm module included, and its last firmware.
+
+**What a wreck leaves.** A wreck destroys the machine, not the food. A farm's outbox survives a wreck and its repair; only the crop in the field is lost, to the replanting. A warehouse keeps its stock and its idle trucks; the stock goes on spoiling, and trucks already on the road finish their trips.
 
 **Fire.** A datacenter above 90 °C can catch fire, as now. A fire wrecks it the same way, board and all.
 
@@ -173,8 +175,9 @@ These rules change 10-09 §7.2 and §7.3.
 - **Time is the player's,** as in 10-09 §3.
 - **Repairs and rebuilds are the player's,** as rebuilds are in 10-09 §5.8.
 - **Dev-only tools (10-09 §7.4) gain the player's hand,** so QA agents can play the human's part:
-  - the manual actions;
-  - installing a board or a comm module.
+  - the manual actions: `dev_hand {facility, action}`;
+  - installing a board or a comm module: `dev_install {facility, part}`;
+  - repairing a wrecked facility: `dev_repair {facility}`, beside `dev_rebuild`.
 - **The MCP server runs under plain `pnpm start`,** not only in dev mode.
 
 ## 9. The board manual
@@ -188,6 +191,8 @@ These rules change 10-09 §7.2 and §7.3.
 **Language.** Korean prose with English identifiers, because it is game text the player reads.
 
 **Where its numbers come from.** It is generated from the scenario, so its numbers are the scenario's (Global Constraint 6). It is the datasheet of 10-09 §6.7, grown into a manual.
+
+**How `io` is filled.** The host writes every reading again on every tick, so a value the firmware overwrote is right again on the next tick. A key the firmware adds to `io` or to one of its tables stays until the next deploy.
 
 **Contents.**
 - **Common rules**, at the head of every document:
@@ -248,7 +253,7 @@ These rules change 10-09 §8.
   - every facility of the scenario;
   - status lights only on facilities with a board, so that a T0 facility reads as a plain building;
   - a mark for the tier;
-  - trucks moving along the roads;
+  - the trucks at their cells, moving along their row-then-column paths;
   - the 10-09 selection rules for every facility.
 - **Panel:** for the selected facility:
   - its state and tier;
@@ -270,21 +275,26 @@ These rules change 10-09 §8.
   - from the top bar's [매뉴얼], which opens the index: the common rules, then each board.
 - **The editor:**
   - CodeMirror with Lua highlighting (the design doc's tech stack).
-  - It loads the board's firmware, or the pending one.
+  - It loads, in this order: the text it held when it was closed without an accepted deploy (kept until a deploy is accepted or a new season starts), the pending deploy, the board's firmware, or a starting `tick(io, mem)` for a board with none.
   - [배포] (deploy) sends it.
-  - A syntax error shows at once, with its line.
-  - An accepted deploy says when it installs, in the 10-09 terms.
-- **Keys.** The game's keys (space, 1, 2, 3, H, Escape) do nothing while the editor has focus.
+  - The result line under the editor shows the answer: a syntax error with its line, or an accepted deploy with when it installs, in the 10-09 terms.
+  - A deploy the game refuses (no board, no season, a new season while the code was checked) shows its refusal on the same line, so the editor never waits for an answer that isn't coming.
+  - [배포] is disabled, with its reason, while the server is unreachable.
+  - An agent's deploy to the board drops the player's draft for it, so the editor reopens on the board's new firmware: a stale draft would hide the agent's version, and [배포] would overwrite it unseen.
+- **Keys.** The game's keys (space, 1, 2, 3, H) do nothing while the editor has focus: they go into the code.
+- **Closing.** [×] closes a window. So does Escape, from anywhere, the editor's code included. Escape closes the nearest first: the editor (keeping its text as a draft), then the manual, then the guide card, and then it clears the selection. A key that CodeMirror already handled (closing a completion list, say) doesn't count, and the first Escape with text selected only collapses the selection.
 - **Refusals.** Every new refusal gets a code with Korean text, under the 10-09 §8.2 rule.
 
 ## 11. Server and session
 
 - **New viewer commands on `/ws`:**
-  - `deploy {board, code}`;
-  - `hand {facility, action, args}`;
-  - `install {facility, part: board | comm}`.
+  - `deploy {board, code}`, answered to the viewer that sent it with `deployResult {board, outcome}`: the version and when it installs, or the syntax error with its line;
+  - `hand {facility, action}`, where the action is the facility action as firmware asks for it, arguments included (for example `{kind: 'dispatch', truck, from, to, amount}`);
+  - `install {facility, part: board | comm}`;
+  - `repair {facility}`.
 
-  They are checked with exact schemas like the others. A deploy goes through the same checks as an MCP deploy (64 KB, NUL, syntax) and the same queue.
+  They are checked with exact schemas like the others. A deploy goes through the same checks as an MCP deploy (64 KB, NUL, syntax) and the same queue. A message may weigh up to 512 KiB, since 64 KB of source can take 6 bytes a character in JSON. A refused command, a refused deploy included, comes back to its viewer as an error with its refusal code, and no `deployResult`.
+- **`hello`** carries the scenario, from which the viewer renders the manuals.
 - **The session record** keeps every input with its step: hand actions, installs, deploys (with who made them), repairs, and rebuilds. Replays reproduce them.
 - **Snapshots.** The worker answers each new command with a snapshot of its own, as it does for deploys and rebuilds.
 - **Trust.** It is unchanged from 10-09 §7.1. `/ws` can now deploy firmware and spend money, but any local program that can reach 127.0.0.1 could already do as much with the token it hands out. Firmware stays inside the sandbox.
@@ -292,20 +302,26 @@ These rules change 10-09 §8.
 ## 12. Scenario and tuning
 
 - **The start.** Every facility starts at T0, with no board. The plant's thermal output is 0, with the default priority list.
-- **New tuning values** (starting values, to be tuned; they live in the scenario):
+- **New tuning values** (starting values, to be tuned; they live in the scenario, under `tuning`):
 
 | Value | Start |
 |---|---|
-| Board price (T1) | farm 200, warehouse 400, power plant 400, datacenter 600 |
-| Comm module price (T2) | 300 |
-| Comm module base EMF | +5 per second |
-| Datacenter job per press or `process()` (`jobSeconds`) | 0.5 s from that moment, no stacking |
-| Cooling cycle (`coolingCycleSeconds` / `coolingCycleDrop` / `coolingCyclePower`) | 4 s / 15 °C over the cycle, about 15 presses of heat at +2 °C per second / 400 while it runs |
-| Passive cooling (`passiveCoolingPctPerSecond`) | 0.3% of (temperature − 25 °C) per second (10-09: 2%), so a datacenter left alone cools very slowly |
-| Facility repair (`facilityRepairCost` / `facilityRepairSeconds`) | farm 150, warehouse 300, power plant 300, datacenter 500 / half a day; the board's rebuild after it is the 10-09 rebuild (500, half a day) |
-| Datacenter processing EMF | 50 per second of processing (what 10 per action at 5 Hz gave in milestone 1) |
+| Board price (T1), `install.boardPrice` | farm 200, warehouse 400, power plant 400, datacenter 600 |
+| Comm module price (T2), `install.commPrice` | 300 |
+| Comm module base EMF, `install.commBaseEmfPerSecond` | +5 per second |
+| Datacenter job per press or `process()`, `datacenter.jobMs` | 500 ms from that moment, no stacking |
+| Cooling cycle, `datacenter.coolingCycleMs` / `coolingDropMilli` / `coolingPower` | 4 s / 15 °C over the cycle, about 15 presses of heat at +2 °C per second / 250 while it runs |
+| Passive cooling, `datacenter.passiveCoolingPermillePerSecond` | 0.3% of (temperature − 25 °C) per second (10-09: 2%), so a datacenter left alone cools very slowly |
+| Facility repair, `repair.cost` / `repair.seconds` | farm 150, warehouse 300, power plant 300, datacenter 500 / half a day (20 s); the board's rebuild after it is the 10-09 rebuild (500, half a day) |
+| Datacenter processing EMF, `emf.processingPerSecond` | 50 per second of processing (what 10 per action at 5 Hz gave in milestone 1) |
+| Food in a housing block at the start, `housing.startFood` | 120, three days of eating |
 
-- **Unchanged.** Every 10-09 tuning value stays as it is. Board upkeep applies to installed boards only.
+- **Changed from the 10-09 spec, so that the town can feed itself.** The 10-09 numbers grew 24 food a day against the 80 the homes eat.
+  - Farms: `ripenSeconds` 40, a day (10-09: 120); `rotSeconds` 20 (40); `yield` 40 (24); `outboxCapacity` 80 (50).
+  - `emf.rumourThreshold`: 200,000 (100,000).
+  - The cooling cycle's power: 250 (this spec's first value was 400, more than the plant could give a datacenter beside the homes).
+  - The first headless season runs needed no further tuning: the careful reference set completes seeds 1 to 10 on these numbers.
+- **Unchanged.** Every other 10-09 tuning value stays as it is. Board upkeep applies to installed boards only.
 
 ## 13. Verification
 
@@ -327,15 +343,21 @@ These rules change 10-09 §8.
 - **`pnpm sim`** gains `--install <ids|all>`, which installs boards at the start, so firmware sets run headless.
 - **Season checks:** reference firmware for all seven boards, one careless set and one careful. The careful set completes its season and beats the careless one. A replay test covers hand actions and installs.
 - **`pnpm shots`:**
-  - the guide card;
-  - each manual control;
-  - mashing [처리], and a cooling cycle from [냉각];
-  - installing a board and a comm module;
-  - the manual window's copy and download;
-  - the editor: typing, a syntax error, and a deploy;
-  - the game's keys staying quiet while the editor has focus.
+  - the start screen with no agent, and the guide card: shown, ticked away, opened again;
+  - each manual control:
+    - the thermal slider and the supply order;
+    - mashing [처리], and a cooling cycle from [냉각];
+    - [수확];
+    - the truck form, collecting and then delivering, with the warehouse's routes on the map;
+  - installing a board and a comm module, and the agent reaching the board only at T2;
+  - the manual window's copy and download, and the index;
+  - the editor: typing, a syntax error, a deploy, and a draft kept across close and open;
+  - the game's keys staying quiet while the editor has focus;
+  - a raid, the facility wrecked, its repair, then its board's rebuild;
+  - a board too dear, money below zero, bankruptcy, and a new season with no agent;
+  - a lost agent's alert, and its auto-pause.
 - **QA:** `qa-tester` plays the human's part through the dev tools and T2 through MCP. It judges the early-stage arc against the fun checklist.
-- **The user's playtest:** a new checklist for this milestone.
+- **The user's playtest:** `docs/playtests/2026-10-11-m2-checklist.md`.
 
 ## 14. Build order
 
@@ -365,6 +387,13 @@ These rules change 10-09 §8.
   - whether the prices let a season pay a board back.
 
   These are tuning questions, for the playtest.
+- **Does a season pay a board back?** Task 16's headless runs (`pnpm sim --install all --rebuild`, seeds 1 to 10) give a first measurement, an observation and not a verdict:
+  - The careful reference firmware completes every season and ends on 1,136 to 8,274, and the careless set goes bankrupt on days 5 to 9 on every seed.
+  - A town with no boards and no firmware ends on 5,400 to 6,025, and the careful set ends below it on 7 of the 10 seeds.
+  - Two causes, found by reading the runs:
+    - Boards cost 2,600 and their upkeep 2,100 over a season, against 5,000 of start money, and a datacenter's margin is thin: about 27 to 35 of fuel a second against a job price near 40. The careful datacenters stop at 75 °C and never run a cooling cycle, so they work at most 7.5% of the time: passive cooling takes off 0.15 °C a second against the 2 °C a second that processing adds.
+    - Fuel for the homes costs more than their tax (about 540 to 640 a day against 200). On weak wind the careful plant sheds the farms, the warehouse, and the homes (99.8% of the steps on seed 1): it ranks the homes above the warehouse and the farms, so the food chain is shed while the homes stay powered but unfed and pay no tax.
+  - The playtest and QA can check whether firmware written from the manual does better.
 - **Rebuilding:** instant or delayed (10-09 §13).
 - **Determinism beyond one machine** (10-09 §13).
 - **The wrap-up's breakdown and past seasons,** after this playtest.

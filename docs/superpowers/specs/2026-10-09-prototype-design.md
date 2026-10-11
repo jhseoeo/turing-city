@@ -90,7 +90,7 @@ Tooling: TypeScript in strict mode, pnpm, Vite for the viewer, and Vitest.
 
 ### 4.3 Headless runner
 
-`pnpm sim [scenario.json] [--firmware <dir>] [--seed <n>] [--until <day>] [--rebuild]` runs a session from its start to its end, or to the given day, with no viewer and no MCP. Every argument is optional: without them it plays the milestone-1 scenario with no firmware, on seed 1, to the season's end. `--rebuild` stands in for the player and rebuilds each smashed board as soon as the money allows. It prints the result as JSON: how the season ended, the day, `money` in whole units, the `ledger` (each income and cost line) in micro-units, the stats (raids, boards lost, instructions, deploys), and a state hash. Tests, QA, and the depth check use it; the game itself never offers it.
+`pnpm sim [scenario.json] [--firmware <dir>] [--install all|<ids>] [--seed <n>] [--until <day>] [--rebuild]` runs a session from its start to its end, or to the given day, with no viewer and no MCP. Every argument is optional: without them it plays `scenarios/m2-town.json` (milestone 1's was `scenarios/m1-power.json`) with no firmware, on seed 1, to the season's end. Milestone 2: facilities start without boards, and firmware runs only on an installed board. `--install` installs and pays for boards at step 0 (`all`, or ids separated by commas); without it, the boards the firmware directory has files for are installed. `--rebuild` stands in for the player: it repairs each wrecked facility, then rebuilds its board, as soon as the money allows. It prints the result as JSON: how the season ended, the day, `money` in whole units, the `ledger` (each income and cost line) in micro-units, the stats (raids, boards lost, instructions, deploys), and a state hash. Tests, QA, and the depth check use it; the game itself never offers it.
 
 ### 4.4 Where WebAssembly is used
 
@@ -140,14 +140,13 @@ This refines the design doc's 틱 처리 순서, now called 스텝 처리 순서
 
 ### 5.3 Datacenter
 
-- **`process()`:** callable at most once per tick. Each call runs a job for the board's tick period, until its next tick (0.2 s at 5 Hz). Through those steps the datacenter draws its processing power and heats up. It earns the job price pro rata.
-  - Calling `process()` on every tick keeps the datacenter running.
-  - A `process()` while a job is still running continues it from that step, so a datacenter that processes on every beat is charged power, paid, and heated on every step, with no gap and no overlap.
-  - Every call is an action for EMF (§5.7).
+- **`process()`:** milestone 2 changed this (10-10 §4.3): a call, or a press of [처리] by hand, runs a job for `datacenter.jobMs` from that moment, with no stacking. Through those steps the datacenter draws its processing power and heats up. It earns the job price pro rata.
+  - Calling `process()` on every beat of a 5 Hz clock keeps the datacenter running, with no gap and no overlap.
+  - A call is not an action for EMF: the datacenter's processing makes the EMF (10-10 §5).
 - **Job price:** money per second of processing, following a seeded market series.
 - **Temperature:**
   - It falls slowly toward the ambient temperature (thermal inertia).
-  - Cooling (`cool(level)`, levels 0 to 3) speeds the fall and draws power by level.
+  - Cooling, `cool()` (milestone 2: milestone 1 had levels 0 to 3), starts a cooling cycle that takes `datacenter.coolingDropMilli` off the temperature over `datacenter.coolingCycleMs` and draws `datacenter.coolingPower` while it runs (10-10 §4.3).
   - Above 90 °C, each step carries a fire chance that grows with the temperature (§5.8).
 - **Sensors:** temperature, power headroom, job price, local EMF, and the distance to the nearest Luddite.
 
@@ -250,7 +249,7 @@ function tick(io, mem)
   end
   mem.peak = math.max(mem.peak or 0, io.price)
   if io.temp < 80 and io.price >= mem.peak * 0.7 then io.process() end
-  io.cool(io.temp > 70 and 2 or 0)
+  if io.temp > 70 then io.cool() end
 end
 ```
 
@@ -264,7 +263,7 @@ end
 | Facility | Reads | Actions |
 |---|---|---|
 | Power plant | wind output, total demand, fuel price | `set_thermal(output)`, `set_priority(list)` |
-| Datacenter | temperature, power headroom, job price, local EMF, nearest Luddite distance | `process()`, `cool(level)` |
+| Datacenter | temperature, power headroom, job price, local EMF, nearest Luddite distance | `process()`, `cool()` |
 | Farm | ripeness, outbox | `harvest()` |
 | Warehouse | stock, farms (outbox, distance), housing (food, population, distance), trucks (state, position, load) | `dispatch(truck, from, to, amount)` |
 | Every board | the season day and the game clock (`io.day`, and `io.clock` in game seconds since the season started) | `sleep(seconds)` |
@@ -370,7 +369,7 @@ A hostile-firmware test suite (§11) exercises all three layers.
   - a request that carries an `Origin` header is refused. This is the second wall: the token is what keeps web pages out. A page cannot put an `Authorization` header on a request without a CORS request, and a CORS request carries `Origin`. A browser does not always send `Origin` (a plain GET, or a `no-cors` request, may carry none), but such a request has no token and gets 401;
   - inputs are size-limited: the firmware source to 64 KB, counted in characters (UTF-16 units), and a source with a NUL byte is refused (§6.7).
 - **The other routes have rules of their own.** The viewer's socket, `/ws`, takes no token in its handshake: it checks the `Origin` only (see below), and its first message hands the token to the page. The built viewer is served at `/` as public files.
-- **Nothing a client sends may crash the server**, on any of its routes (MCP, the viewer's WebSocket, the built viewer): any web page the player visits can make the browser send requests to 127.0.0.1. A malformed request gets an error response. The viewer's socket accepts only the commands the viewer can send, with exact fields and values the game can take (a speed of 1, 2, or 3; auto-pause kinds from the alert kinds there are; a board id of bounded length), and answers anything else, non-JSON included, with an `error` message (code `badCommand`). A message over 64 KiB closes that viewer's connection. The built viewer's responses carry `X-Frame-Options: DENY` and `Content-Security-Policy: frame-ancestors 'none'`: a page that framed the game could sit over it, and `/ws` works from the game's own origin, so the player's clicks could be redirected. A server that cannot listen (the port is taken, or `--port` is not a whole number from 0 to 65535) says so in one line on stderr and exits with code 1.
+- **Nothing a client sends may crash the server**, on any of its routes (MCP, the viewer's WebSocket, the built viewer): any web page the player visits can make the browser send requests to 127.0.0.1. A malformed request gets an error response. The viewer's socket accepts only the commands the viewer can send, with exact fields and values the game can take (a speed of 1, 2, or 3; auto-pause kinds from the alert kinds there are; a board id of bounded length), and answers anything else, non-JSON included, with an `error` message (code `badCommand`). A message over 512 KiB closes that viewer's connection (milestone 1: 64 KiB; a 64 KB firmware source can take 6 bytes a character in JSON). The built viewer's responses carry `X-Frame-Options: DENY` and `Content-Security-Policy: frame-ancestors 'none'`: a page that framed the game could sit over it, and `/ws` works from the game's own origin, so the player's clicks could be redirected. A server that cannot listen (the port is taken, or `--port` is not a whole number from 0 to 65535) says so in one line on stderr and exits with code 1.
 - **The token** is generated once and stored in the server's local config, which lives in the user's config directory outside the repository. The start screen can reissue it. This differs from the design doc's token-per-launch: with a new token on every launch, the player would re-add the server to their agent every time they open the game.
 - **Who is kept out, and what is accepted.** Web pages are kept out, DNS rebinding included:
   - `/mcp` needs the token and refuses any request that carries an `Origin`;
@@ -417,7 +416,8 @@ These exist only when the server starts with a dev flag. QA agents use them, and
 - play, pause, and set the speed;
 - run until a game time or an alert: only alert kinds that exist are accepted, and it stops at the end of the batch in which the goal is met, up to 10 game seconds late (a batch is up to 200 steps);
 - start a new session with a given seed;
-- rebuild a board.
+- rebuild a board;
+- milestone 2, the player's hand (10-10 §8): repair a wrecked facility (`dev_repair`), install a board or a comm module (`dev_install`), and do a facility's work by hand (`dev_hand`).
 
 Like the other tools, they answer an error when there is no season to act on (`dev_play` too).
 
@@ -429,7 +429,7 @@ The approved mockups (v1 to v5, in the brainstorming session) shaped this sectio
 
 - The connect command with a copy button, and a token reissue button.
 - The agent's state: "waiting for an agent…" or "connected (client name)".
-- "Start season", enabled only while an agent is connected, and the scenario's name. There is no seed field: a QA agent sets a seed with `dev_new_season` (§7.4).
+- "Start season" (milestone 2: always enabled, 10-10 §10.1; milestone 1 enabled it only while an agent was connected) and the scenario's name. There is no seed field: a QA agent sets a seed with `dev_new_season` (§7.4).
 
 ### 8.2 Main screen
 
@@ -439,7 +439,7 @@ The approved mockups (v1 to v5, in the brainstorming session) shaped this sectio
 - **Map:** the grid, drawn with placeholder shapes until the art phase.
   - Every facility with a board shows a status light: green running, yellow asleep, grey unpowered, blinking red error, black destroyed.
   - Datacenters show their temperature.
-  - Trucks move smoothly along the grid lines, and Luddites step from cell to cell.
+  - Trucks and Luddites step from cell to cell. A truck is drawn at its cell, moving along its row-then-column path; a smooth tween between cells is a later decision.
   - The map draws no fire: a board that burns turns dark, like a smashed one, and the alert says why.
   - H toggles the EMF heatmap.
 - **What the map draws, by selection:**
@@ -515,19 +515,20 @@ The game's values are starting values to tune. They live in the scenario file, s
 | Transmission loss | 2% per cell from the plant |
 | Quiet time (`shortageQuietSeconds`) | 10 s: a new shortage alert needs the grid shed-free this long, and a board's "power back" needs its power unbroken this long (§5.10, §6.7) |
 | Thermal module maximum / fuel price | 300 / a seeded series around 7 per unit per day |
-| Crop ripening / rot after ripe | 3 days / 1 day |
-| Farm outbox capacity / harvest yield | 50 / 24 |
+| Crop ripening / rot after ripe | 3 days / 1 day (milestone 2: 1 day / half a day, 10-10 §12) |
+| Farm outbox capacity / harvest yield | 50 / 24 (milestone 2: 80 / 40) |
 | Trucks / capacity / speed / fuel | 2 / 40 / 2 cells per s / 1 per cell |
 | Warehouse spoilage | 2% of stock per day |
 | Housing: residents / food / power / tax | 40 / 1 per person per day / 70 per block / 5 per fed and powered person per day |
+| Housing: food at the start (`housing.startFood`) | 120, three days of eating (added in milestone 2) |
 | Datacenter: process power / job price | 150 / a seeded series around 40 per second of processing |
-| Datacenter heat | +2 °C per second while processing; passive cooling 2% of (temperature − 25 °C) per second; cooling level L takes off 0.8 × L °C per second and draws 20 × L power |
+| Datacenter heat | +2 °C per second while processing; passive cooling 2% of (temperature − 25 °C) per second; cooling level L takes off 0.8 × L °C per second and draws 20 × L power (milestone 2: passive cooling 0.3%, and a cooling cycle in place of levels, 10-10 §12) |
 | Fire | above 90 °C, a chance of (temperature − 90) × 0.5% per second |
 | Board upkeep | 10 per board per day |
 | EMF a, b | 1 per 100 instructions; 10 per action |
 | Base EMF (per second, awake) | farm 10, warehouse 15, power plant 20, datacenter 25 |
 | EMF field | each second, a cell passes 10% of its value to each of its four neighbours and the field decays 10% |
-| Rumour gauge / Luddite detection threshold | a raid each time the gauge collects 100,000 (the field's total, added every second) / 5 in a cell |
+| Rumour gauge / Luddite detection threshold | a raid each time the gauge collects 100,000 (milestone 2: 200,000; the field's total, added every second) / 5 in a cell |
 | Raid group / Luddite speed / give-up quiet time | 3 / 1 cell per s / 10 s |
 | Rebuild cost / time | 500 / half a day |
 | Bankruptcy | 3 days below zero |
@@ -559,15 +560,15 @@ The game's values are starting values to tune. They live in the scenario file, s
   - string, table, and memory bombs;
   - a pattern-function call (gone from the sandbox, so it errors);
   - builtins fed empty strings, negative or NaN ranges, overflowing counts, or a lying `__len`.
-- **Season checks** (`packages/server/test/seasons.test.ts`, part of `pnpm check`) play seasons the way `pnpm sim --rebuild` does, with reference firmware sets we write in `scenarios/firmware/m1/`: one careless and one careful.
-  - The careless set falls at its first raid (day 3, on every seed from 1 to 10), so only the careful set plays out the season.
-  - The checks: the careful set completes its season and beats the careless one by more than 1,000 on seeds 1 to 3; a second run of the careful set gives the same state hash and money on seeds 7, 3, and 8 (3 and 8 have raids, smashed boards, and rebuilds); and a recorded session on real Lua, with rebuilds, a pause, and a deploy after ten days, replays through a fresh runtime into the same state hash.
-  - The gap is not that wide everywhere: on seeds 6, 7, 9, and 10 the job price is at or above the careful set's lowest threshold (50) for 0 to 22 of the season's 1,200 seconds, so both datacenters sleep through 99 to 100% of it, and the careful set ends within 650 of the careless one. A firmware that does nothing but sleep ends every season on 4,100 (the start money less upkeep), and the careful set ends within 560 of that on those four seeds.
+- **Season checks** (`packages/server/test/seasons.test.ts`, part of `pnpm check`) play seasons the way `pnpm sim --install all --rebuild` does, with reference firmware sets we write: one careless and one careful. Milestone 1 wrote them in `scenarios/firmware/m1/`, for `scenarios/m1-power.json`; milestone 2 replaced them with `scenarios/firmware/m2/careless` and `careful`, a file for each of the seven boards of `scenarios/m2-town.json`, all installed (10-10 §13).
+  - The careless set goes bankrupt on days 5 to 9 on every seed from 1 to 10, so only the careful set plays out the season.
+  - The checks: the careful set completes its season and beats the careless one by more than 1,000 on seeds 1 to 3; a second run of the careful set gives the same state hash and money on seeds 1, 3, and 8 (3 and 8 have raids, wrecked facilities, repairs, and rebuilds); and two recorded sessions on real Lua (seed 3, with every kind of input, and seed 8, a whole season with a deploy after ten days) replay through a fresh runtime into the same state hash. A further check on seed 2 shows the careful firmware running the food chain: its trucks drive, and its homes pay more tax than their first stock of food could have earned.
+  - How the careful set compares with a town that does nothing is an open question (10-10 §15). Milestone 1 had the same question with its own numbers: a firmware that did nothing but sleep ended every season on 4,100 (the start money less upkeep).
 - **MCP tests:**
   - a missing or wrong token is refused, and so is a browser origin;
   - size limits hold;
   - the tool round trips work;
-  - a disconnect pauses the game and blocks play until an agent reconnects.
+  - a disconnect pauses the game and blocks play until an agent reconnects (milestone 2: a dropped agent raises an `agentLost` alert instead, and nothing blocks play, 10-10 §8).
 - **Viewer:** headless Playwright screenshots of the key states. Logic that can be separated from the screen, such as the selection rules of §8.2, gets unit tests.
 - **Depth check:** `qa-tester` plays two seasons through MCP, one with careless requests and one with careful ones, and reports the score gap and its fun checklist. The user's own playtest has the final say.
 

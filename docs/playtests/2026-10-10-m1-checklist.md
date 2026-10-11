@@ -1,5 +1,7 @@
 # Milestone 1 playtest (2026-10-10)
 
+> Kept as the record of milestone 1's playtest. Milestone 2 replaced what it plays: the game now runs the whole town of `scenarios/m2-town.json`, an agent is optional, and `scenarios/firmware/m1/` is gone, so the `pnpm sim` commands below no longer run. Milestone 2's checklist is `2026-10-11-m2-checklist.md`.
+
 You play in the browser with your own Claude Code. Milestone 1 is the power plant (P) and the two datacenters (DA, DB); the game's labels are in Korean, and they are quoted below as they appear on screen.
 
 ## Getting started
