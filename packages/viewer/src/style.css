@@ -97,8 +97,13 @@ pre {
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
 }
+#topbar > span {
+  flex: none;
+}
 #topbar b {
   color: #fff;
+  display: inline-block;
+  font-variant-numeric: tabular-nums;
 }
 /* #topbar b out-ranks .bad (an id beats a class), so without this the flagged money and power numbers would stay white. */
 #topbar b.bad {
@@ -460,4 +465,49 @@ main {
 #windows .md pre code {
   background: none;
   padding: 0;
+}
+
+/* Every value in the top bar and the panel keeps its width, so that a number that grows a digit, or a row that changes, moves
+   nothing beside or under it (the user's playtest, 2026-10-11). */
+#topbar .v-time {
+  min-width: 10.5em;
+}
+#topbar .v-money {
+  min-width: 5em;
+  text-align: right;
+}
+#topbar .v-food {
+  min-width: 3.5em;
+  text-align: right;
+}
+#topbar .v-pop {
+  min-width: 13em;
+}
+#topbar .v-power {
+  min-width: 5.5em;
+  text-align: right;
+}
+#topbar .v-num {
+  min-width: 2em;
+  text-align: right;
+}
+#topbar .speed button.play {
+  min-width: 2.4em;
+}
+#panel .kv span {
+  font-variant-numeric: tabular-nums;
+}
+#panel .dc-status {
+  margin: 4px 0 0;
+  min-height: 2.8em;
+  font-size: 12px;
+}
+#panel .dc-status.ok {
+  color: var(--ok);
+}
+#panel .dc-status.bad {
+  color: var(--bad);
+}
+#panel .choices button.busy {
+  box-shadow: 0 0 0 2px var(--ok);
 }

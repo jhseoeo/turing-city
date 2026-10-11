@@ -4,6 +4,7 @@ import {
   amountChoices,
   commButton,
   coolButton,
+  datacenterStatus,
   dispatchAction,
   harvestButton,
   idleTrucks,
@@ -52,6 +53,7 @@ const truck = (over: Partial<Truck>): Truck => ({ warehouse: 'W', id: 1, x: 11, 
 const snapshotWith = (money: number, facilities: FacilityView[] = [], trucks: Truck[] = []): Snapshot =>
   ({
     money,
+    jobPrice: 40,
     prices: {
       board: { farm: 200, warehouse: 400, power: 400, datacenter: 600 },
       comm: 300,
@@ -384,16 +386,30 @@ describe('panel rules: the readings', () => {
   it("reads a standing datacenter's temperature, ambient included, and what it is doing", () => {
     expect(read(facility({ datacenter: { tempC: 25, processing: false, cooling: false } }))).toEqual([
       ['온도', '25°C'],
+      ['단가', '40/초'],
       ['상태', '대기'],
+      ['전력', '0 사용'],
     ]);
-    expect(read(facility({ datacenter: { tempC: 70, processing: true, cooling: true } }))).toEqual([
+    expect(read(facility({ demand: 408, datacenter: { tempC: 70, processing: true, cooling: true } }))).toEqual([
       ['온도', '70°C'],
+      ['단가', '40/초'],
       ['상태', '처리 중 · 냉각 중'],
+      ['전력', '408 사용'],
     ]);
-    expect(read(facility({ datacenter: { tempC: 40, processing: true, cooling: false } }))).toEqual([
-      ['온도', '40°C'],
-      ['상태', '처리 중'],
-    ]);
+  });
+
+  it('says a job the grid does not power has stopped, not that the datacenter waits', () => {
+    // The press asked for power (demand) and the grid shed it: no income and no heat, which a plain 대기 would hide.
+    const shed = facility({ demand: 153, powered: false, datacenter: { tempC: 25, processing: false, cooling: false } });
+    expect(read(shed)).toContainEqual(['상태', '멈춤 (정전)']);
+    expect(read(shed)).toContainEqual(['전력', '153 사용 (끊김)']);
+  });
+
+  it('keeps the same rows whatever the datacenter does, so that nothing under them moves', () => {
+    const keys = (f: FacilityView) => read(f).map(([k]) => k);
+    const idle = keys(facility({ datacenter: { tempC: 25, processing: false, cooling: false } }));
+    expect(keys(facility({ demand: 153, datacenter: { tempC: 40, processing: true, cooling: false } }))).toEqual(idle);
+    expect(keys(facility({ demand: 153, powered: false, datacenter: { tempC: 40, processing: false, cooling: false } }))).toEqual(idle);
   });
 
   it("hides a datacenter's temperature while its facility is down, whatever the snapshot reads, and keeps what it is doing", () => {
@@ -401,7 +417,11 @@ describe('panel rules: the readings', () => {
     for (const condition of DOWN) {
       for (const tempC of [25, 70]) {
         const rows = read(facility({ condition, powered: false, datacenter: { tempC, processing: false, cooling: false } }));
-        expect(rows).toEqual([['상태', '대기']]);
+        expect(rows).toEqual([
+          ['단가', '40/초'],
+          ['상태', '대기'],
+          ['전력', '0 사용'],
+        ]);
       }
     }
   });
@@ -410,12 +430,13 @@ describe('panel rules: the readings', () => {
     expect(read(farm())).toEqual([
       ['익음', '64%'],
       ['출고함', '12'],
+      ['전력', '0 사용'],
     ]);
-    expect(read(farm({ farm: { ripeness: 100, ripe: true, outbox: 0 } }))).toEqual([
+    expect(read(farm({ farm: { ripeness: 100, ripe: true, outbox: 0 } })).slice(0, 2)).toEqual([
       ['익음', '100% (수확 가능)'],
       ['출고함', '0'],
     ]);
-    expect(read(farm({ farm: { ripeness: 0, ripe: false, outbox: 40 } }))).toEqual([
+    expect(read(farm({ farm: { ripeness: 0, ripe: false, outbox: 40 } })).slice(0, 2)).toEqual([
       ['익음', '0%'],
       ['출고함', '40'],
     ]);
@@ -427,7 +448,10 @@ describe('panel rules: the readings', () => {
         { ripeness: 0, ripe: false },
         { ripeness: 100, ripe: true },
       ]) {
-        expect(read(farm({ condition, powered: false, farm: { ...crop, outbox: 12 } }))).toEqual([['출고함', '12']]);
+        expect(read(farm({ condition, powered: false, farm: { ...crop, outbox: 12 } }))).toEqual([
+          ['출고함', '12'],
+          ['전력', '0 사용'],
+        ]);
       }
     }
   });
@@ -436,12 +460,14 @@ describe('panel rules: the readings', () => {
     for (const condition of ['ok', ...DOWN] as const) {
       expect(read(facility({ id: 'W', kind: 'warehouse', datacenter: null, condition, warehouse: { stock: 31 } }))).toEqual([
         ['재고', '31'],
+        ['전력', '0 사용'],
       ]);
       const home = facility({ id: 'H1', kind: 'housing', datacenter: null, condition, housing: { food: 7, residents: 40, fed: true } });
       expect(read({ ...home, powered: true })).toEqual([
         ['주민', '40명'],
         ['식량', '7'],
         ['상태', '먹음 · 전기 있음'],
+        ['전력', '0 사용'],
       ]);
     }
   });
@@ -455,7 +481,7 @@ describe('panel rules: the readings', () => {
       ['전력', '70 사용 (끊김)'],
     ]);
     expect(read({ ...home, powered: true, demand: 70 }).at(-1)).toEqual(['전력', '70 사용']);
-    expect(read(facility({ demand: 0 })).some(([k]) => k === '전력')).toBe(false);
+    expect(read(facility({ demand: 0 })).at(-1)).toEqual(['전력', '0 사용']); // there at 0 too, so that nothing under it moves
   });
 
   it("reads the plant's wind, thermal output, fuel price, and generation against demand, and no draw of its own", () => {
@@ -482,5 +508,36 @@ describe("panel rules: the board's RAM", () => {
 
   it('reads a running board that has not ticked yet as using none', () => {
     expect(ramLabel({ ...parts, ramUsedBytes: null }, board('running'))).toBe('64KB (사용 0.0KB)');
+  });
+});
+
+describe("panel rules: the datacenter's status line", () => {
+  const status = (f: FacilityView) => datacenterStatus(snapshotWith(0), f, 0.5);
+  const dc = (over: Partial<NonNullable<FacilityView['datacenter']>> = {}) => ({ tempC: 30, processing: false, cooling: false, ...over });
+
+  it('says what a press does and what it pays while the datacenter waits', () => {
+    expect(status(facility({ datacenter: dc() }))).toEqual({ text: '누를 때마다 0.5초 처리해요 · 지금 단가 40/초', tone: 'dim' });
+  });
+
+  it('says the job runs and what it earns, cooling too', () => {
+    expect(status(facility({ demand: 153, datacenter: dc({ processing: true }) }))).toEqual({ text: '처리 중 · 초당 +40', tone: 'ok' });
+    expect(status(facility({ demand: 408, datacenter: dc({ processing: true, cooling: true }) })).text).toBe(
+      '처리 중 · 초당 +40 · 냉각 중',
+    );
+  });
+
+  it('says why a press did nothing when the grid sheds the job, and where to fix it', () => {
+    expect(status(facility({ id: 'DA', demand: 153, powered: false, datacenter: dc() }))).toEqual({
+      text: '전력이 모자라 멈췄어요. 발전소에서 화력을 올리거나 공급 순서에서 DA를 올리세요.',
+      tone: 'bad',
+    });
+  });
+
+  it('says a cooling cycle is under way, and why a facility that is down takes no press', () => {
+    expect(status(facility({ demand: 255, datacenter: dc({ cooling: true }) })).text).toBe('냉각 중… 끝나면 다시 누를 수 있어요');
+    expect(status(facility({ condition: 'wrecked', datacenter: dc() }))).toEqual({
+      text: '시설이 부서져 있어요. 먼저 복구하세요.',
+      tone: 'bad',
+    });
   });
 });

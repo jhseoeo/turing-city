@@ -297,6 +297,7 @@ describe('views in detail', () => {
       priority: ['DB', 'DA'],
     });
     expect(snap.plant.fuelPrice).toBeGreaterThan(0);
+    expect(snap.jobPrice).toBe(s.world.jobPrice); // what a second of work pays: the panel shows it at T0, where no board reads it
     const running = { status: 'running', powered: true, hasFirmware: true, erroring: false };
     expect(snap.facilities.map((f) => [f.id, f.demand, f.board, f.datacenter])).toEqual([
       ['P', 5, running, null],

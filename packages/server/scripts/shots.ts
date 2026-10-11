@@ -669,22 +669,40 @@ try {
   const cold = await tempOf();
   await agent.call('dev_play');
   let processing = false;
+  // Where the [처리] button and the top bar's tools sit, press after press: the user's playtest found both jumping as rows and
+  // numbers came and went, which moved the button away from the pointer.
+  const places = new Set<string>();
+  const placeOf = (): Promise<string> =>
+    page.evaluate(() => {
+      const button = [...document.querySelectorAll<HTMLButtonElement>('#panel button')].find((b) => b.textContent === '처리');
+      const tools = document.querySelector('#topbar .tools');
+      const r = (e: Element | null | undefined) =>
+        e ? `${Math.round(e.getBoundingClientRect().x)},${Math.round(e.getBoundingClientRect().y)}` : '-';
+      return `${r(button)} ${r(tools)}`;
+    });
   for (let k = 0; k < 14; k++) {
     await clickOn('#panel button', '처리');
+    places.add(await placeOf());
     await page.waitForTimeout(150);
-    if ((await textOf('#panel')).includes('처리 중')) processing = true;
+    places.add(await placeOf());
+    if ((await textOf('#panel .dc-status')).includes('처리 중')) processing = true;
   }
   await agent.call('dev_pause');
   await page.waitForTimeout(300);
   const hot = await tempOf();
-  check('mashing [처리] keeps the datacenter processing, and it heats up', processing && hot > cold, `${cold} -> ${hot} °C`);
+  check(
+    'mashing [처리] keeps the datacenter processing, says so under the buttons, and it heats up',
+    processing && hot > cold,
+    `${cold} -> ${hot} °C`,
+  );
+  check('mashing [처리] moves neither the button nor the top bar', places.size === 1, [...places].join(' | '));
   await run(1); // the last press's job ends
   await clickOn('#panel button', '냉각');
   check(
-    '[냉각] starts a cycle, and the button waits for its end',
+    '[냉각] starts a cycle, and the button waits for its end, the line under it saying why',
     await waitUntil(async () => {
       const button = await buttonNamed('#panel', '냉각');
-      return button?.disabled === true && button.text === '냉각 중…';
+      return button?.disabled === true && (await textOf('#panel .dc-status')).includes('냉각 중');
     }),
     JSON.stringify(await buttonNamed('#panel', '냉각')),
   );

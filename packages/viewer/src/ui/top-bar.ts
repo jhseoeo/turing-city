@@ -15,22 +15,32 @@ export function renderTopBar(root: HTMLElement, store: Store, net: Connection): 
   const people = s.town.population;
   const agent = status.agent;
   root.append(
-    el('span', {}, [el('b', {}, [timeLabel(s.time, s.seasonDays)])]),
+    el('span', {}, [el('b', { class: 'v-time' }, [timeLabel(s.time, s.seasonDays)])]),
     el('span', { class: 'speed' }, [
-      el('button', { class: running ? '' : 'on', onclick: () => net.send({ type: running ? 'pause' : 'play' }) }, [running ? '⏸' : '▶']),
+      el('button', { class: running ? 'play' : 'play on', onclick: () => net.send({ type: running ? 'pause' : 'play' }) }, [
+        running ? '⏸' : '▶',
+      ]),
       speedButton(1),
       speedButton(2),
       speedButton(3),
     ]),
-    el('span', {}, ['자금 ', el('b', { class: s.money < 0 ? 'bad' : '' }, [moneyLabel(s.money)])]),
-    el('span', {}, ['식량 ', el('b', {}, [moneyLabel(s.town.food)])]),
-    el('span', {}, ['인구 ', el('b', { class: people.hungry > 0 || people.unpowered > 0 ? 'bad' : '' }, [populationLabel(people)])]),
+    el('span', {}, ['자금 ', el('b', { class: `v-money${s.money < 0 ? ' bad' : ''}` }, [moneyLabel(s.money)])]),
+    el('span', {}, ['식량 ', el('b', { class: 'v-food' }, [moneyLabel(s.town.food)])]),
+    el('span', {}, [
+      '인구 ',
+      el('b', { class: `v-pop${people.hungry > 0 || people.unpowered > 0 ? ' bad' : ''}` }, [populationLabel(people)]),
+    ]),
     el('span', {}, [
       '전력 ',
-      el('b', { class: short ? 'bad' : '' }, [`${s.plant.generation} / ${s.plant.demand}`]),
+      el('b', { class: `v-power${short ? ' bad' : ''}` }, [`${s.plant.generation} / ${s.plant.demand}`]),
       el('span', { class: 'dim' }, [' 발전/수요']),
     ]),
-    el('span', {}, ['풍력 ', el('b', {}, [String(s.plant.wind)]), ' · 화력 ', el('b', {}, [String(s.plant.thermal)])]),
+    el('span', {}, [
+      '풍력 ',
+      el('b', { class: 'v-num' }, [String(s.plant.wind)]),
+      ' · 화력 ',
+      el('b', { class: 'v-num' }, [String(s.plant.thermal)]),
+    ]),
     el('span', { class: 'tools' }, [
       el('button', { onclick: () => store.openManual('index') }, ['매뉴얼']),
       el('button', { onclick: () => store.openGuide() }, ['도움말']),

@@ -5,6 +5,7 @@ import {
   amountChoices,
   type ButtonState,
   coolButton,
+  datacenterStatus,
   dispatchAction,
   harvestButton,
   movedInPriority,
@@ -107,14 +108,28 @@ export function renderControls(s: Snapshot, f: FacilityView, store: Store, net: 
   const hand = (action: FacilityAction) => net.send({ type: 'hand', facility: f.id, action });
   let children: HTMLElement[];
   if (f.kind === 'farm') children = stateButton(harvestButton(f), () => hand({ kind: 'harvest' }), 'primary');
-  else if (f.kind === 'datacenter')
+  else if (f.kind === 'datacenter') {
+    // The buttons keep their place and their width whatever the datacenter does: what it is doing goes on the line under them.
+    const process = processButton(f);
+    const cool = coolButton(f);
+    const jobSeconds = (store.scenario?.tuning.datacenter.jobMs ?? 500) / 1000;
+    const status = datacenterStatus(s, f, jobSeconds);
     children = [
       el('div', { class: 'choices' }, [
-        ...stateButton(processButton(f), () => hand({ kind: 'process' }), 'primary'),
-        ...stateButton(coolButton(f), () => hand({ kind: 'cool' })),
+        el(
+          'button',
+          {
+            class: `primary${f.datacenter?.processing ? ' busy' : ''}`,
+            disabled: process.disabled,
+            onclick: () => hand({ kind: 'process' }),
+          },
+          ['처리'],
+        ),
+        el('button', { disabled: cool.disabled, title: cool.reason ?? '', onclick: () => hand({ kind: 'cool' }) }, ['냉각']),
       ]),
+      el('p', { class: `dc-status ${status.tone}` }, [status.text]),
     ];
-  else if (f.kind === 'power') children = plantControls(s, f, net);
+  } else if (f.kind === 'power') children = plantControls(s, f, net);
   else if (f.kind === 'warehouse') children = warehouseControls(s, f, store, net);
   else return null;
   return el('div', { class: 'controls' }, children);

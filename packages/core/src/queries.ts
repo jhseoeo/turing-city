@@ -331,6 +331,8 @@ export interface Snapshot {
   readonly time: TimeView;
   readonly seasonDays: number;
   readonly money: number;
+  /** What a second of a datacenter's work pays now, in whole money units: the market's job price. */
+  readonly jobPrice: number;
   readonly ended: WorldState['ended'];
   readonly grid: { readonly width: number; readonly height: number };
   /** What the player pays, in whole money units, and the game hours a repair and a rebuild take, rounded down. */
@@ -389,6 +391,7 @@ export function snapshot(ctx: SimContext): Snapshot {
     time: timeView(ctx.scenario, s),
     seasonDays: ctx.scenario.time.seasonDays,
     money: idiv(w.money, MICRO),
+    jobPrice: w.jobPrice,
     ended: w.ended,
     grid: { ...ctx.scenario.grid },
     prices: {

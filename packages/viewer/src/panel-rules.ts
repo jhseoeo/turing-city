@@ -173,7 +173,10 @@ export function readings(s: Snapshot, f: FacilityView): Array<[string, string]> 
   }
   if (f.datacenter) {
     if (stands) rows.push(['온도', `${f.datacenter.tempC}°C`]);
-    rows.push(['상태', [f.datacenter.processing ? '처리 중' : '대기', ...(f.datacenter.cooling ? ['냉각 중'] : [])].join(' · ')]);
+    rows.push(['단가', `${s.jobPrice}/초`]);
+    // A job that asks for power the grid does not give has stopped, not finished: say so, or a press looks as if it did nothing.
+    const work = f.datacenter.processing ? '처리 중' : f.demand > 0 && !f.powered ? '멈춤 (정전)' : '대기';
+    rows.push(['상태', [work, ...(f.datacenter.cooling ? ['냉각 중'] : [])].join(' · ')]);
   }
   if (f.farm) {
     if (stands) rows.push(['익음', `${f.farm.ripeness}%${f.farm.ripe ? ' (수확 가능)' : ''}`]);
@@ -184,8 +187,23 @@ export function readings(s: Snapshot, f: FacilityView): Array<[string, string]> 
     rows.push(['주민', `${f.housing.residents}명`], ['식량', String(f.housing.food)]);
     rows.push(['상태', `${f.housing.fed ? '먹음' : '굶주림'} · ${f.powered ? '전기 있음' : '정전'}`]);
   }
-  if (f.kind !== 'power' && f.demand > 0) rows.push(['전력', `${f.demand} 사용${f.powered ? '' : ' (끊김)'}`]);
+  // Always there, at 0 too: a row that came and went with each 0.5 s job would make every control under it jump.
+  if (f.kind !== 'power') rows.push(['전력', f.demand > 0 ? `${f.demand} 사용${f.powered ? '' : ' (끊김)'}` : '0 사용']);
   return rows;
+}
+
+/**
+ * The datacenter's line under its buttons, always there so the buttons never move: what the last press is doing, and when it does
+ * nothing, why (10-10 spec §4.3). A job the grid does not power earns and heats nothing, and the fix is at the plant.
+ */
+export function datacenterStatus(s: Snapshot, f: FacilityView, jobSeconds: number): { text: string; tone: 'ok' | 'bad' | 'dim' } {
+  if (f.condition !== 'ok') return { text: downReason(f), tone: 'bad' };
+  const dc = f.datacenter;
+  if (dc?.processing) return { text: `처리 중 · 초당 +${s.jobPrice}${dc.cooling ? ' · 냉각 중' : ''}`, tone: 'ok' };
+  if (f.demand > 0 && !f.powered)
+    return { text: `전력이 모자라 멈췄어요. 발전소에서 화력을 올리거나 공급 순서에서 ${f.id}를 올리세요.`, tone: 'bad' };
+  if (dc?.cooling) return { text: '냉각 중… 끝나면 다시 누를 수 있어요', tone: 'dim' };
+  return { text: `누를 때마다 ${jobSeconds}초 처리해요 · 지금 단가 ${s.jobPrice}/초`, tone: 'dim' };
 }
 
 /**

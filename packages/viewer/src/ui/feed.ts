@@ -10,6 +10,18 @@ const SEVERE: readonly AlertKind[] = ['raid', 'wrecked', 'fire', 'hunger', 'agen
 
 export function renderFeed(root: HTMLElement, store: Store, net: Connection): void {
   clear(root);
+  // The toggles first: under a list that grows they would move away from the pointer as alerts came in.
+  const auto = store.status?.autoPause ?? [];
+  const toggles = el('div', { class: 'toggles' }, ['자동 정지: ']);
+  for (const kind of TOGGLABLE) {
+    const box = el('input', { type: 'checkbox', checked: auto.includes(kind) });
+    box.addEventListener('change', () => {
+      const next = box.checked ? [...auto, kind] : auto.filter((k) => k !== kind);
+      net.send({ type: 'autoPause', kinds: next });
+    });
+    toggles.append(el('label', {}, [box, ` ${ALERT_LABELS[kind]}`]));
+  }
+  root.append(toggles);
   for (const item of store.feed.slice(0, 12)) {
     if (item.kind === 'deploy') {
       root.append(
@@ -30,15 +42,4 @@ export function renderFeed(root: HTMLElement, store: Store, net: Connection): vo
       );
     }
   }
-  const auto = store.status?.autoPause ?? [];
-  const toggles = el('div', { class: 'toggles' }, ['자동 정지: ']);
-  for (const kind of TOGGLABLE) {
-    const box = el('input', { type: 'checkbox', checked: auto.includes(kind) });
-    box.addEventListener('change', () => {
-      const next = box.checked ? [...auto, kind] : auto.filter((k) => k !== kind);
-      net.send({ type: 'autoPause', kinds: next });
-    });
-    toggles.append(el('label', {}, [box, ` ${ALERT_LABELS[kind]}`]));
-  }
-  root.append(toggles);
 }
