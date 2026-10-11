@@ -1,10 +1,15 @@
 import type { Connection } from './net.ts';
 import type { Store } from './store.ts';
 
-/** Space pauses or plays, 1-3 set the speed, H toggles the heatmap, Escape clears the selection. */
+/** Whether the key goes to something the player types in: a form field. */
+function typing(target: EventTarget | null): boolean {
+  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
+}
+
+/** Space pauses or plays, 1-3 set the speed, H toggles the heatmap, Escape closes the guide card or clears the selection. */
 export function bindKeys(store: Store, net: Connection): void {
   window.addEventListener('keydown', (event) => {
-    if (event.target instanceof HTMLInputElement) return;
+    if (typing(event.target)) return;
     if (event.code === 'Space') event.preventDefault(); // else the page scrolls
     // A held key repeats keydown, and a held Space would flip pause and play at the repeat rate. With Cmd, Ctrl or Alt down a key is the
     // system's or the browser's shortcut (Cmd+H, Ctrl+1), not a command to the game.
@@ -19,7 +24,8 @@ export function bindKeys(store: Store, net: Connection): void {
       // By position, not by character: with the Korean input source on, Chrome reports this key as 'Process', and only its code is KeyH.
       store.toggleHeatmap();
     } else if (event.key === 'Escape') {
-      store.select(null);
+      if (store.guideOpen) store.closeGuide(false);
+      else store.select(null);
     }
   });
 }

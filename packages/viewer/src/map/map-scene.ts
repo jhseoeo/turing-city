@@ -1,18 +1,18 @@
-import type { Snapshot } from '@turing-city/core';
+import type { FacilityKind, Snapshot } from '@turing-city/core';
 import Phaser from 'phaser';
 import { consumersOf, heatAlpha, LED_COLORS, ledOf } from '../format.ts';
 
 export const CELL = 34;
 
-const FACILITY_COLORS: Record<string, number> = {
+const FACILITY_COLORS: Record<FacilityKind, number> = {
   power: 0xf2c14e,
   datacenter: 0xc49bff,
-  farm: 0x7cc46a,
-  warehouse: 0xd39a5e,
-  housing: 0x6fa8dc,
+  farm: 0x7fc97f,
+  warehouse: 0xd9a066,
+  housing: 0x8fb8e0,
 };
 
-/** The town: drawn from scratch on every snapshot, selection change, and blink. An interim map: Task 18 replaces it. */
+/** The town: drawn from scratch on every snapshot, selection change, and blink. */
 export class MapScene extends Phaser.Scene {
   onSelect: (id: string | null) => void = () => {};
   private gfx: Phaser.GameObjects.Graphics | null = null;
@@ -93,7 +93,7 @@ export class MapScene extends Phaser.Scene {
       const px = f.x * CELL;
       const py = f.y * CELL;
       const led = ledOf(f);
-      const dim = !f.powered || led === 'unpowered' || led === 'destroyed';
+      const dim = f.condition !== 'ok' || !f.powered;
       const consumer = consumers?.find((c) => c.id === f.id);
       if (consumer) {
         g.lineStyle(2, consumer.shed ? 0x59636f : 0xf2c14e, 1);
@@ -105,9 +105,8 @@ export class MapScene extends Phaser.Scene {
           consumer.shed ? '#9aa3ad' : '#f2c14e',
         );
       }
-      g.fillStyle(FACILITY_COLORS[f.kind] ?? 0x9aa7b4, dim ? 0.45 : 1);
+      g.fillStyle(FACILITY_COLORS[f.kind], dim ? 0.45 : 1);
       g.fillRect(px + 2, py + 2, CELL - 4, CELL - 4);
-      // Only a facility with a board has a light.
       if (led !== null) {
         g.fillStyle(LED_COLORS[led], 1);
         g.fillCircle(px + CELL - 5, py + 5, 4);
@@ -117,10 +116,9 @@ export class MapScene extends Phaser.Scene {
         }
       }
       this.text(px + 6, py + 10, f.id, '#ffffff');
-      if (f.condition !== 'ok') this.text(px, py + CELL + 1, f.condition === 'wrecked' ? '부서짐' : '복구 중', '#ff4d4d', 10);
-      else if (f.datacenter) {
-        const dc = f.datacenter;
-        this.text(px, py + CELL + 1, `${dc.tempC}°C${dc.processing ? ' ▲' : ''}`, dc.tempC >= 85 ? '#ffb020' : '#d7dde4', 10);
+      if (f.datacenter) {
+        const temp = f.datacenter.tempC;
+        this.text(px, py + CELL + 1, `${temp}°C${f.datacenter.processing ? ' ▲' : ''}`, temp >= 85 ? '#ffb020' : '#d7dde4', 10);
       }
       if (f.id === this.selected) {
         g.lineStyle(2, 0xffffff, 1);

@@ -24,7 +24,7 @@ export function refusalText(message: string, refusal: Refusal | undefined): stri
     case 'notDestroyed':
       return `'${refusal.board}' 보드는 부서진 상태가 아니라서 재건할 수 없어요.`;
     case 'tooPoor':
-      return '자금이 모자라서 할 수 없어요.';
+      return '자금이 모자라요.';
     case 'badCommand':
       return `서버가 알아듣지 못하는 명령이에요 (${refusal.detail}).`;
     case 'unknownFacility':
@@ -34,14 +34,16 @@ export function refusalText(message: string, refusal: Refusal | undefined): stri
     case 'takesNoBoard':
       return `'${refusal.facility}'에는 보드를 달 수 없어요.`;
     case 'alreadyInstalled':
-      return `'${refusal.facility}'에는 이미 ${refusal.part === 'board' ? '보드가' : '통신 모듈이'} 있어요.`;
+      return refusal.part === 'board'
+        ? `'${refusal.facility}'에는 이미 보드가 있어요.`
+        : `'${refusal.facility}' 보드에는 이미 통신 모듈이 있어요.`;
     case 'boardDown':
-      return `'${refusal.facility}'의 보드가 부서져 있어서 통신 모듈을 달 수 없어요.`;
+      return `'${refusal.facility}' 보드가 부서져 있어서 통신 모듈을 달 수 없어요.`;
     case 'wrecked':
-      // One code covers a wreck and a repair under way, and says nothing of which: so the text names both, and tells nobody to repair.
-      return `'${refusal.facility}' 시설은 부서졌거나 복구 중이라서 지금은 할 수 없어요.`;
+      // One code covers a wreck and a repair under way, and says nothing of which: so the text names both, and does not say to repair.
+      return `'${refusal.facility}' 시설이 부서졌거나 복구 중이에요. 복구가 끝난 뒤에 해보세요.`;
     case 'notWrecked':
-      return `'${refusal.facility}' 시설은 부서진 상태가 아니에요.`;
+      return `'${refusal.facility}' 시설은 부서지지 않았어요.`;
     case 'repairFirst':
       return `'${refusal.facility}' 시설을 먼저 복구해야 보드를 재건할 수 있어요.`;
     case 'noComm':

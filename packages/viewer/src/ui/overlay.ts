@@ -3,7 +3,7 @@ import { endingLabel, moneyLabel } from '../format.ts';
 import type { Connection } from '../net.ts';
 import type { Store } from '../store.ts';
 
-/** A crashed session, or the season's end. Hidden otherwise. */
+/** A crashed session or the season's end; hidden otherwise. A new season needs no agent (10-10 spec §8). */
 export function renderOverlay(root: HTMLElement, store: Store, net: Connection): void {
   clear(root);
   const status = store.status;
@@ -20,7 +20,7 @@ export function renderOverlay(root: HTMLElement, store: Store, net: Connection):
     box = el('div', { class: 'box' }, [
       el('h2', {}, [endingLabel(s.ended.kind)]),
       el('p', {}, [`최종 자금 ${moneyLabel(s.money)}`]),
-      el('p', { class: 'dim' }, ['시즌 결산 화면(내역과 지난 시즌 목록)은 플레이테스트 뒤에 붙어요.']),
+      el('p', { class: 'dim' }, ['시즌 결산 화면(내역과 지난 시즌 목록)은 이번 플레이테스트 뒤에 붙어요.']),
       newSeason,
     ]);
   }

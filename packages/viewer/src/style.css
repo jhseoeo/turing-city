@@ -226,3 +226,63 @@ main {
 #notice p {
   margin: 8px 0;
 }
+/* The start screen's optional agent section (10-10 spec §10.1). */
+.agent-section {
+  margin-top: 28px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+#start .agent-section h2 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+#topbar .tools button {
+  padding: 2px 9px;
+  margin-right: 2px;
+}
+#feed .deploy {
+  color: #7fb6ff;
+}
+/* A list reading (farms, housing, trucks) comes as one item to a line: keep its line breaks, which HTML would fold into spaces. */
+#panel .kv span {
+  white-space: pre-line;
+}
+#panel .tier {
+  font-size: 11px;
+  color: #0c0f13;
+  background: #9aa7b4;
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+/* The guide card (10-10 spec §10.2): over the game, under the notice. */
+#guide {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 10, 13, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#guide[hidden] {
+  display: none;
+}
+#guide .card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 18px 22px;
+  max-width: 560px;
+}
+#guide .card h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  color: #fff;
+}
+#guide .card li {
+  margin: 6px 0;
+  line-height: 1.45;
+}
+#guide .card .row {
+  justify-content: flex-end;
+  gap: 14px;
+}
