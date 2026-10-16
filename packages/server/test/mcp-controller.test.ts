@@ -9,6 +9,7 @@ import { boardManual, parseScenario } from '@turing-city/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GameController, gameApi } from '../src/game-controller.ts';
 import { createMcpEndpoint } from '../src/mcp.ts';
+import { type NodeSeasonThread, nodeSeasonThread } from '../src/node-season-thread.ts';
 
 // The MCP endpoint over the real GameController: what an agent reads when the controller refuses or gives up on a request.
 
@@ -25,7 +26,7 @@ let rig: Rig | null = null;
 
 /** An agent connected to a server whose game is a real controller, with the agent's connection and the dev tools wired to it. */
 async function start(withSeason = true): Promise<Rig> {
-  const controller = new GameController({ scenario });
+  const controller = new GameController({ scenario, spawn: nodeSeasonThread });
   const endpoint = createMcpEndpoint({
     api: gameApi(controller),
     token: () => TOKEN,
@@ -78,7 +79,7 @@ const until = async (cond: () => boolean, ms = 3000): Promise<void> => {
 const textOf = (result: unknown): string => (result as { content: Array<{ text: string }> }).content[0]?.text ?? '';
 
 /** The controller's worker thread: the one place a test can hold an answer back or make the thread fail. */
-const workerOf = (c: GameController): Worker => (c as unknown as { worker: Worker }).worker;
+const workerOf = (c: GameController): Worker => (c as unknown as { worker: NodeSeasonThread }).worker.thread;
 
 /** Keeps the worker from ever receiving messages of one type, so the request that sent one stays out. Counts them. */
 function holdBack(c: GameController, type: string): { count: number } {

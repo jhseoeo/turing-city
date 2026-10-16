@@ -1,0 +1,23 @@
+{
+  "name": "@turing-city/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@turing-city/core": "workspace:*",
+    "@turing-city/firmware": "workspace:*",
+    "@turing-city/server": "workspace:*",
+    "@turing-city/viewer": "workspace:*",
+    "wasmoon": "1.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.4",
+    "playwright-core": "1.64.0",
+    "vite": "8.3.4"
+  }
+}

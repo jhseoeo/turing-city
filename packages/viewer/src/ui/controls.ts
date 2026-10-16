@@ -1,6 +1,6 @@
 import type { FacilityAction, FacilityView, Snapshot } from '@turing-city/core';
 import { el } from '../dom.ts';
-import type { Connection } from '../net.ts';
+import type { GameLink } from '../net.ts';
 import {
   amountChoices,
   type ButtonState,
@@ -25,7 +25,7 @@ const choice = (label: string, on: boolean, onclick: () => void, off = false): H
   el('button', { class: on ? 'on' : '', disabled: off, onclick }, [label]);
 
 /** The plant: the thermal output on a slider (sent when the player lets go), and the supply order with ↑ and ↓. */
-function plantControls(s: Snapshot, f: FacilityView, net: Connection): HTMLElement[] {
+function plantControls(s: Snapshot, f: FacilityView, net: GameLink): HTMLElement[] {
   const shown = el('b', {}, [String(s.plant.thermal)]);
   const slider = el('input', { type: 'range', min: '0', max: String(s.plant.thermalMax), step: '10', value: String(s.plant.thermal) });
   // While the pointer drags it, the page holds its renders; the number follows the thumb, and the server hears the value on release.
@@ -66,7 +66,7 @@ function plantControls(s: Snapshot, f: FacilityView, net: Connection): HTMLEleme
 }
 
 /** The warehouse: its trucks, and a form that picks a truck, a trip, and an amount from buttons that survive the page's renders. */
-function warehouseControls(s: Snapshot, f: FacilityView, store: Store, net: Connection): HTMLElement[] {
+function warehouseControls(s: Snapshot, f: FacilityView, store: Store, net: GameLink): HTMLElement[] {
   const draft = store.dispatchDraft;
   const trucks = s.trucks.filter((t) => t.warehouse === f.id);
   const capacity = store.scenario?.tuning.warehouse.truckCapacity ?? 40;
@@ -103,7 +103,7 @@ function warehouseControls(s: Snapshot, f: FacilityView, store: Store, net: Conn
 }
 
 /** The hand controls of a standing facility (10-10 spec §4.3); null for a kind that has none (housing). */
-export function renderControls(s: Snapshot, f: FacilityView, store: Store, net: Connection): HTMLElement | null {
+export function renderControls(s: Snapshot, f: FacilityView, store: Store, net: GameLink): HTMLElement | null {
   const hand = (action: FacilityAction) => net.send({ type: 'hand', facility: f.id, action });
   let children: HTMLElement[];
   if (f.kind === 'farm') children = stateButton(harvestButton(f), () => hand({ kind: 'harvest' }), 'primary');

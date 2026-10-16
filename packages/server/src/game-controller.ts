@@ -1,4 +1,3 @@
-import { Worker } from 'node:worker_threads';
 import {
   type AgentStatus,
   type AlertKind,
@@ -30,8 +29,25 @@ import {
 } from '@turing-city/core';
 import { SyntaxChecker } from '@turing-city/firmware';
 
+/**
+ * The thread a season runs in, as the controller sees it: a Node worker thread on the server (node-season-thread.ts), a Web Worker
+ * in the web demo. One thread runs one season; a new season gets a fresh one.
+ */
+export interface SeasonThread {
+  post(message: WorkerRequest): void;
+  onMessage(listener: (message: WorkerResponse) => void): void;
+  onError(listener: (error: unknown) => void): void;
+  terminate(): void;
+  /** [board index or -1, firmware version]: which board was ticking, which the watchdog reports when the thread stops answering. */
+  progress(): readonly [number, number];
+}
+
 export interface ControllerOptions {
   readonly scenario: Scenario;
+  /** Starts the thread for a new season. */
+  readonly spawn: () => SeasonThread;
+  /** Makes the deploys' syntax checker, once; by default the firmware package's, which loads Lua's own WebAssembly. */
+  readonly syntaxChecker?: () => Promise<SyntaxChecker>;
   /** A batch of steps taking longer than this stops the session (spec §6.8). */
   readonly watchdogMs?: number;
   /** The most steps one batch may carry. */
@@ -96,9 +112,10 @@ export class GameController {
   private readonly stepsPerBatch: number;
   private readonly listeners = new Set<(event: ControllerEvent) => void>();
   private readonly pending = new Map<number, Pending>();
+  private readonly spawn: () => SeasonThread;
+  private readonly makeChecker: () => Promise<SyntaxChecker>;
   private checker: Promise<SyntaxChecker> | null = null;
-  private worker: Worker | null = null;
-  private progress: Int32Array | null = null;
+  private worker: SeasonThread | null = null;
   private nextId = 1;
   private state: GameState = 'idle';
   private speed: 1 | 2 | 3 = 1;
@@ -113,6 +130,8 @@ export class GameController {
 
   constructor(options: ControllerOptions) {
     this.scenario = options.scenario;
+    this.spawn = options.spawn;
+    this.makeChecker = options.syntaxChecker ?? (() => SyntaxChecker.create());
     this.watchdogMs = options.watchdogMs ?? 5000;
     this.stepsPerBatch = options.stepsPerBatch ?? 200;
   }
@@ -174,20 +193,14 @@ export class GameController {
     this.state = 'idle';
     this.crash = null;
     this.season += 1;
-    this.progress = new Int32Array(new SharedArrayBuffer(8));
-    this.progress[0] = -1;
-    // Node strips the worker's types itself and warns about it once per thread; the server runs with this flag already.
-    const worker = new Worker(new URL('./worker.ts', import.meta.url), {
-      workerData: { progress: this.progress.buffer },
-      execArgv: ['--disable-warning=ExperimentalWarning'],
-    });
+    const worker = this.spawn();
     this.worker = worker;
     // A worker that was stopped still delivers what it had already posted (Node drains its port as the thread exits), and an
     // error it raised on the way out. That is the voice of a season that is over: only the worker the controller holds is heard.
-    worker.on('message', (m: WorkerResponse) => {
+    worker.onMessage((m: WorkerResponse) => {
       if (this.worker === worker) this.onWorker(m);
     });
-    worker.on('error', (e) => {
+    worker.onError((e) => {
       if (this.worker === worker) this.fail(`the simulator failed: ${e instanceof Error ? e.message : String(e)}`);
     });
     const started = new Promise<Snapshot>((resolve, reject) => {
@@ -238,7 +251,7 @@ export class GameController {
    */
   async deploy(board: string, code: string, by: DeployedBy = 'player'): Promise<DeployOutcome> {
     const worker = this.requireSeason();
-    this.checker ??= SyntaxChecker.create();
+    this.checker ??= this.makeChecker();
     const problem = (await this.checker).check(code);
     if (problem !== null) return { ok: false, error: problem };
     // The checker takes about 100 ms to load the first time, and the season can change meanwhile. A deploy posted to a season that
@@ -408,8 +421,7 @@ export class GameController {
   }
 
   private onWatchdog(): void {
-    const index = this.progress ? Atomics.load(this.progress, 0) : -1;
-    const version = this.progress ? Atomics.load(this.progress, 1) : 0;
+    const [index, version] = this.worker?.progress() ?? [-1, 0];
     const board = index >= 0 ? this.scenario.facilities[index]?.id : undefined;
     this.fail(
       board
@@ -450,7 +462,7 @@ export class GameController {
   }
 
   /** The worker of the season in play; a ToolError when there is none. */
-  private requireSeason(): Worker {
+  private requireSeason(): SeasonThread {
     if (!this.worker || this.state === 'idle' || this.state === 'crashed') throw this.noSeason();
     return this.worker;
   }
@@ -463,7 +475,7 @@ export class GameController {
   }
 
   private post(message: WorkerRequest): void {
-    this.worker?.postMessage(message);
+    this.worker?.post(message);
   }
 
   private stopClock(): void {
@@ -475,7 +487,7 @@ export class GameController {
   private terminate(reason: string): void {
     if (this.watchdog) clearTimeout(this.watchdog);
     this.watchdog = null;
-    if (this.worker) void this.worker.terminate();
+    if (this.worker) this.worker.terminate();
     this.worker = null;
     const error = new Error(reason);
     this.startWaiter?.reject(error);

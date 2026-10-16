@@ -1,10 +1,10 @@
 import { clear, el } from '../dom.ts';
 import { endingLabel, moneyLabel } from '../format.ts';
-import type { Connection } from '../net.ts';
+import type { GameLink } from '../net.ts';
 import type { Store } from '../store.ts';
 
 /** A crashed session or the season's end; hidden otherwise. A new season needs no agent (10-10 spec §8). */
-export function renderOverlay(root: HTMLElement, store: Store, net: Connection): void {
+export function renderOverlay(root: HTMLElement, store: Store, net: GameLink): void {
   clear(root);
   const status = store.status;
   const s = store.snapshot;

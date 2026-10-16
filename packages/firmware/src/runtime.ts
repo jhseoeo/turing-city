@@ -24,8 +24,11 @@ function pinClock(imports: WebAssembly.Imports | undefined): void {
  * string hashing (and with it `pairs` order) from time(NULL); in this build every clock read
  * goes through the `env.emscripten_date_now` import, which this replaces. `PINNED_ENV` keeps
  * the launching process out of the heap.
+ *
+ * `wasmUrl` is where the Lua WebAssembly module comes from: by default, wasmoon's own file next to its package in Node, and unpkg
+ * in a browser. A page that may fetch only its own files (the web demo) passes the URL of a copy it serves.
  */
-export async function createLuaRuntime(): Promise<LuaWasm> {
+export async function createLuaRuntime(wasmUrl?: string): Promise<LuaWasm> {
   const original: Instantiate = WebAssembly.instantiate;
   const patched = function (this: unknown, source: unknown, imports?: WebAssembly.Imports) {
     pinClock(imports);
@@ -33,7 +36,7 @@ export async function createLuaRuntime(): Promise<LuaWasm> {
   } as unknown as Instantiate;
   WebAssembly.instantiate = patched;
   try {
-    return await new LuaFactory(undefined, PINNED_ENV).getLuaModule();
+    return await new LuaFactory(wasmUrl, PINNED_ENV).getLuaModule();
   } finally {
     WebAssembly.instantiate = original;
   }

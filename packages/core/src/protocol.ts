@@ -71,7 +71,10 @@ export type ControllerEvent =
 
 /** Server to viewer, over the WebSocket. */
 export type ServerToViewer =
-  /** The connect command, the port, and the game's scenario: the viewer renders the boards' manuals from it. */
+  /**
+   * The connect command, the port, and the game's scenario: the viewer renders the boards' manuals from it. The web demo, which
+   * runs the game inside the page with no MCP server, says port 0 and no connect command.
+   */
   | { readonly type: 'hello'; readonly connect: string; readonly port: number; readonly scenario: Scenario }
   | { readonly type: 'status'; readonly status: ControllerStatus }
   | { readonly type: 'snapshot'; readonly snapshot: Snapshot }

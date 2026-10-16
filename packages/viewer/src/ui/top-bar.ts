@@ -1,9 +1,9 @@
 import { clear, el } from '../dom.ts';
 import { moneyLabel, populationLabel, timeLabel } from '../format.ts';
-import type { Connection } from '../net.ts';
+import type { GameLink } from '../net.ts';
 import type { Store } from '../store.ts';
 
-export function renderTopBar(root: HTMLElement, store: Store, net: Connection): void {
+export function renderTopBar(root: HTMLElement, store: Store, net: GameLink): void {
   const s = store.snapshot;
   const status = store.status;
   if (!s || !status) return;
@@ -35,8 +35,11 @@ export function renderTopBar(root: HTMLElement, store: Store, net: Connection): 
       el('button', { onclick: () => store.openManual('index') }, ['매뉴얼']),
       el('button', { onclick: () => store.openGuide() }, ['도움말']),
     ]),
-    el('span', { class: `agent ${agent.connected ? 'ok' : 'dim'}` }, [
-      agent.connected ? `● 에이전트 연결 (${agent.clientName ?? 'agent'})` : '○ 에이전트 없음',
-    ]),
+    // The web demo has no MCP server: no agent can connect, so there is nothing to tell.
+    store.webDemo
+      ? el('span', { class: 'agent dim' }, ['웹 데모'])
+      : el('span', { class: `agent ${agent.connected ? 'ok' : 'dim'}` }, [
+          agent.connected ? `● 에이전트 연결 (${agent.clientName ?? 'agent'})` : '○ 에이전트 없음',
+        ]),
   );
 }

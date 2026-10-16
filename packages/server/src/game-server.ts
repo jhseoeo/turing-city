@@ -6,6 +6,7 @@ import { type ControllerStatus, parseScenario, type ServerToViewer } from '@turi
 import { configDir, connectCommand, loadConfig, reissueToken } from './config.ts';
 import { GameController, gameApi } from './game-controller.ts';
 import { createMcpEndpoint, type DevTools } from './mcp.ts';
+import { nodeSeasonThread } from './node-season-thread.ts';
 import { serveStatic } from './static-files.ts';
 import { createViewerHub } from './viewer-hub.ts';
 
@@ -44,7 +45,7 @@ export async function startGameServer(
   const dir = options.configDir ?? configDir();
   let config = loadConfig(dir);
   const scenario = parseScenario(JSON.parse(readFileSync(options.scenarioPath ?? DEFAULT_SCENARIO, 'utf8')));
-  const controller = new GameController({ scenario });
+  const controller = new GameController({ scenario, spawn: nodeSeasonThread });
   if (options.onStatus) {
     const notify = options.onStatus;
     controller.onEvent((event) => {

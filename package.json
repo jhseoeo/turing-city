@@ -16,7 +16,9 @@
     "start": "pnpm --filter @turing-city/viewer build && node --disable-warning=ExperimentalWarning packages/server/src/main.ts",
     "start:dev": "pnpm --filter @turing-city/viewer build && node --disable-warning=ExperimentalWarning packages/server/src/main.ts --dev",
     "viewer": "pnpm --filter @turing-city/viewer dev",
-    "shots": "pnpm --filter @turing-city/viewer build && node --disable-warning=ExperimentalWarning packages/server/scripts/shots.ts"
+    "shots": "pnpm --filter @turing-city/viewer build && node --disable-warning=ExperimentalWarning packages/server/scripts/shots.ts",
+    "web:build": "pnpm --filter @turing-city/web build && node --disable-warning=ExperimentalWarning packages/web/scripts/artifact-page.ts",
+    "web:smoke": "pnpm web:build && node --disable-warning=ExperimentalWarning packages/web/scripts/smoke.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",

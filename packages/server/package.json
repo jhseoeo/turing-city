@@ -4,7 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./game-controller": "./src/game-controller.ts",
+    "./season-worker": "./src/season-worker.ts",
+    "./viewer-peer": "./src/viewer-peer.ts"
   },
   "scripts": {
     "typecheck": "tsc -p ."

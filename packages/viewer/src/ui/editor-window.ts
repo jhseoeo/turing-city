@@ -1,6 +1,6 @@
 import { clear, el } from '../dom.ts';
 import { createLuaEditor, type LuaEditor } from '../editor.ts';
-import type { Connection } from '../net.ts';
+import type { GameLink } from '../net.ts';
 import type { Store } from '../store.ts';
 import { deployResultText, sourceProblem, starterFirmware } from '../window-rules.ts';
 
@@ -33,7 +33,7 @@ export function closeEditorWindow(store: Store): void {
 }
 
 /** 10-10 spec §10.4: the board's firmware in CodeMirror, [배포], and the server's answer under it. */
-export function renderEditorWindow(root: HTMLElement, store: Store, net: Connection): void {
+export function renderEditorWindow(root: HTMLElement, store: Store, net: GameLink): void {
   const board = store.editorFor;
   if (board === null) {
     mounted?.editor?.destroy();

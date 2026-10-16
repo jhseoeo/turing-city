@@ -59,6 +59,11 @@ const NO_DRAFT: DispatchDraft = { truck: null, trip: null, amount: null };
 /** What the screens read; every change notifies the subscribers. */
 export class Store {
   hello: { connect: string; port: number } | null = null;
+
+  /** The web demo: the game runs inside the page, with no MCP server, so no agent can connect (hello says port 0). */
+  get webDemo(): boolean {
+    return this.hello?.port === 0;
+  }
   /** The scenario the server plays, from hello: the manual and the truck form read their numbers from it. */
   scenario: Scenario | null = null;
   status: ControllerStatus | null = null;

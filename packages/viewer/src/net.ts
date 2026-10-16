@@ -6,8 +6,13 @@ export function gameSocketUrl(location: Location): string {
   return `ws://${location.host}/ws`;
 }
 
+/** Where the viewer sends the player's commands: the game server's socket, or the web demo's game inside the page. */
+export interface GameLink {
+  send(message: ViewerToServer): void;
+}
+
 /** A WebSocket that reconnects every second while the server is away. */
-export class Connection {
+export class Connection implements GameLink {
   private socket: WebSocket | null = null;
   private readonly url: string;
   private readonly onMessage: (message: ServerToViewer) => void;

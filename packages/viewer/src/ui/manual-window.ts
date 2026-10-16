@@ -47,7 +47,7 @@ export function renderManualWindow(root: HTMLElement, store: Store): void {
       await navigator.clipboard.writeText(text);
       said.textContent = '복사했어요';
     } catch {
-      said.textContent = '복사하지 못했어요. 다운로드를 써 보세요.';
+      said.textContent = store.webDemo ? '복사하지 못했어요. 본문을 선택해서 복사하세요.' : '복사하지 못했어요. 다운로드를 써 보세요.';
     }
   };
   const slots = scenario.facilities.filter((f) => f.board !== null);
@@ -55,7 +55,8 @@ export function renderManualWindow(root: HTMLElement, store: Store): void {
     el('header', {}, [
       el('b', {}, [target === 'index' ? '매뉴얼' : `${target} 보드 매뉴얼`]),
       el('button', { onclick: () => void copy() }, ['마크다운 복사']),
-      el('button', { onclick: () => download(manualFileName(target), text) }, ['.md 다운로드']),
+      // The web demo's frame blocks downloads a page starts.
+      ...(store.webDemo ? [] : [el('button', { onclick: () => download(manualFileName(target), text) }, ['.md 다운로드'])]),
       said,
       el('button', { class: 'close', title: '닫기 (Esc)', onclick: () => store.closeManual() }, ['×']),
     ]),

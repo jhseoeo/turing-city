@@ -51,8 +51,9 @@ export class WasmoonHost implements FirmwareHost {
     this.lua = lua;
   }
 
-  static async create(): Promise<WasmoonHost> {
-    return new WasmoonHost(await createLuaRuntime());
+  /** `wasmUrl`: where the Lua WebAssembly module comes from (createLuaRuntime). */
+  static async create(wasmUrl?: string): Promise<WasmoonHost> {
+    return new WasmoonHost(await createLuaRuntime(wasmUrl));
   }
 
   boot(info: BootInfo): void {

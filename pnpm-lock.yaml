@@ -96,6 +96,34 @@ importers:
         specifier: 8.3.4
         version: 8.3.4(@types/node@26.6.4)
 
+  packages/web:
+    dependencies:
+      '@turing-city/core':
+        specifier: workspace:*
+        version: link:../core
+      '@turing-city/firmware':
+        specifier: workspace:*
+        version: link:../firmware
+      '@turing-city/server':
+        specifier: workspace:*
+        version: link:../server
+      '@turing-city/viewer':
+        specifier: workspace:*
+        version: link:../viewer
+      wasmoon:
+        specifier: 1.16.0
+        version: 1.16.0
+    devDependencies:
+      '@types/node':
+        specifier: 26.6.4
+        version: 26.6.4
+      playwright-core:
+        specifier: 1.64.0
+        version: 1.64.0
+      vite:
+        specifier: 8.3.4
+        version: 8.3.4(@types/node@26.6.4)
+
 packages:
 
   '@biomejs/biome@2.5.15':

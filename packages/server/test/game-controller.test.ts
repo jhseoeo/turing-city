@@ -5,6 +5,7 @@ import { WasmoonHost } from '@turing-city/firmware';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadFirmwareDir } from '../src/firmware-files.ts';
 import { GameController, gameApi, installsAt } from '../src/game-controller.ts';
+import { type NodeSeasonThread, nodeSeasonThread } from '../src/node-season-thread.ts';
 
 const scenario = parseScenario(JSON.parse(readFileSync('scenarios/m1-power.json', 'utf8')));
 /** The whole town, every facility at T0: no boards. */
@@ -13,7 +14,7 @@ const AGENT = { connected: true, clientName: 'test-agent' };
 let controller: GameController | null = null;
 
 function make(options: { watchdogMs?: number } = {}): GameController {
-  controller = new GameController({ scenario, ...options });
+  controller = new GameController({ scenario, spawn: nodeSeasonThread, ...options });
   return controller;
 }
 
@@ -47,14 +48,13 @@ function calmScenario(): Scenario {
 
 /** A controller on a scenario of its own; afterEach closes it like the others. */
 function makeFor(forScenario: Scenario, options: { watchdogMs?: number; stepsPerBatch?: number } = {}): GameController {
-  controller = new GameController({ scenario: forScenario, ...options });
+  controller = new GameController({ scenario: forScenario, spawn: nodeSeasonThread, ...options });
   return controller;
 }
 
-/** What a few tests reach into: the progress array the controller shares with the worker, and the worker itself. */
+/** What a few tests reach into: the season thread, with its worker and the progress array it shares with the controller. */
 interface Internals {
-  readonly progress: Int32Array;
-  readonly worker: Worker | null;
+  readonly worker: NodeSeasonThread | null;
 }
 const inside = (c: GameController): Internals => c as unknown as Internals;
 
@@ -210,7 +210,7 @@ describe('GameController', () => {
       ...JSON.parse(readFileSync('scenarios/m1-power.json', 'utf8')),
       time: { stepsPerSecond: 20, secondsPerDay: 1, seasonDays: 1 },
     });
-    controller = new GameController({ scenario: short });
+    controller = new GameController({ scenario: short, spawn: nodeSeasonThread });
     const c = controller;
     c.setAgent(AGENT);
     await c.startSeason(1);
@@ -417,7 +417,7 @@ describe('GameController: the clock', () => {
     await c.startSeason(1);
     c.setSpeed(3);
     c.play();
-    const sent = vi.spyOn(inside(c).worker!, 'postMessage');
+    const sent = vi.spyOn(inside(c).worker!.thread, 'postMessage');
     vi.advanceTimersByTime(100); // two ticks before the worker can have answered the first batch
     expect(sent.mock.calls.filter(([message]) => (message as { type: string }).type === 'advance')).toHaveLength(1);
     await until(() => c.latestSnapshot()!.step === 3);
@@ -528,7 +528,7 @@ describe('GameController: the clock', () => {
     await a.startSeason(2); // a new season while the clock runs
     expect(vi.getTimerCount()).toBe(0);
     a.play();
-    inside(a).worker!.emit('error', new Error('the thread died')); // the worker thread dies while the clock runs
+    inside(a).worker!.thread.emit('error', new Error('the thread died')); // the worker thread dies while the clock runs
     expect(a.status()).toMatchObject({ state: 'crashed', crash: 'the simulator failed: the thread died' });
     expect(vi.getTimerCount()).toBe(0);
     a.close();
@@ -618,7 +618,7 @@ describe('GameController: events', () => {
 
     await c.startSeason(1);
     events.length = 0;
-    inside(c).worker!.emit('error', new Error('the thread died'));
+    inside(c).worker!.thread.emit('error', new Error('the thread died'));
     expect(events).toMatchObject([{ kind: 'status', status: { state: 'crashed', crash: 'the simulator failed: the thread died' } }]);
   });
 
@@ -781,7 +781,7 @@ describe('GameController: events', () => {
     const first = c.latestSnapshot()!;
     const run = c.runUntil({ seconds: 600 }); // a batch is out
     // The worker says how the world stands between batches: the batch waiter and the watchdog belong to the batch.
-    inside(c).worker!.emit('message', { type: 'snapshot', snapshot: { ...first, money: 1234 } });
+    inside(c).worker!.thread.emit('message', { type: 'snapshot', snapshot: { ...first, money: 1234 } });
     expect(c.latestSnapshot()!.money).toBe(1234);
     await expect(c.runUntil({ seconds: 1 })).rejects.toThrow('already running'); // the batch is still out
     await run;
@@ -833,7 +833,7 @@ describe('GameController: requests', () => {
     await c.startSeason(1);
     const checking = holdChecker(c);
     const deploying = c.deploy('DA', 'function tick() end').catch((error: unknown) => error);
-    inside(c).worker!.emit('error', new Error('the thread died'));
+    inside(c).worker!.thread.emit('error', new Error('the thread died'));
     checking.release();
     const refusal = await Promise.race([deploying, sleep(1000).then(() => 'still waiting')]);
     expect(refusal).toBeInstanceOf(ToolError);
@@ -1164,7 +1164,7 @@ describe('GameController: requests', () => {
     const c = make();
     c.setAgent(AGENT);
     await c.startSeason(1);
-    const stopped = inside(c).worker!;
+    const stopped = inside(c).worker!.thread;
     const last = { ...c.latestSnapshot()!, step: 999, ended: { kind: 'bankrupt' as const, step: 999 } };
     const next = c.startSeason(2); // the first worker is being stopped, the second is starting
     stopped.emit('message', { type: 'started', snapshot: last });
@@ -1181,7 +1181,7 @@ describe('GameController: requests', () => {
     const c = make({ watchdogMs: 1 });
     c.setAgent(AGENT);
     await c.startSeason(1);
-    const stopped = inside(c).worker!;
+    const stopped = inside(c).worker!.thread;
     const late = { ...c.latestSnapshot()!, step: 999, ended: { kind: 'bankrupt' as const, step: 999 } };
     const heard: ControllerEvent[] = [];
     c.onEvent((event) => {
@@ -1222,7 +1222,7 @@ describe('GameController: the watchdog', () => {
     const c = make({ watchdogMs: 100 });
     c.setAgent(AGENT);
     await c.startSeason(1);
-    const unanswered = vi.spyOn(inside(c).worker!, 'postMessage').mockImplementation(() => undefined); // the worker never hears of the batch
+    const unanswered = vi.spyOn(inside(c).worker!.thread, 'postMessage').mockImplementation(() => undefined); // the worker never hears of the batch
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
       const run = c.runUntil({ seconds: 1 }).catch((error: unknown) => error);
@@ -1250,7 +1250,7 @@ describe('GameController: the watchdog', () => {
       const c = make({ watchdogMs: 100 });
       c.setAgent(AGENT);
       await c.startSeason(1);
-      const worker = inside(c).worker!;
+      const worker = inside(c).worker!.thread;
       const post = worker.postMessage.bind(worker);
       const held: unknown[] = [];
       const hold = vi.spyOn(worker, 'postMessage').mockImplementation((message: unknown) => void held.push(message));
@@ -1365,8 +1365,8 @@ describe('GameController: the watchdog', () => {
       d.setAgent(AGENT);
       await d.startSeason(1);
       // No firmware is installed, so no tick runs and nothing else writes the progress array: set what a stuck tick would have left.
-      Atomics.store(inside(d).progress, 0, board);
-      Atomics.store(inside(d).progress, 1, version);
+      Atomics.store(inside(d).worker!.shared, 0, board);
+      Atomics.store(inside(d).worker!.shared, 1, version);
       await expect(d.runUntil({ seconds: 600 })).rejects.toThrow('stopped');
       expect(d.status()).toMatchObject({ state: 'crashed', crash: message });
       d.close();
@@ -1378,7 +1378,7 @@ describe('GameController: the watchdog', () => {
     c.setAgent(AGENT);
     await c.startSeason(1);
     await c.deploy('DA', BUSY); // position 1 in the scenario, firmware version 1
-    const progress = inside(c).progress;
+    const progress = inside(c).worker!.shared;
     const seen = new Set<string>();
     let done = false;
     const run = c.runUntil({ seconds: 60 }).finally(() => {

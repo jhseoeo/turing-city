@@ -11,8 +11,9 @@ export class SyntaxChecker {
     this.fn = fn;
   }
 
-  static async create(): Promise<SyntaxChecker> {
-    const lua = await new LuaFactory().getLuaModule();
+  /** `wasmUrl`: where the Lua WebAssembly module comes from (createLuaRuntime). */
+  static async create(wasmUrl?: string): Promise<SyntaxChecker> {
+    const lua = await new LuaFactory(wasmUrl).getLuaModule();
     const engine = new LuaEngine(lua, { openStandardLibs: false, injectObjects: false, enableProxy: false });
     engine.global.loadLibrary(LuaLibraries.Base);
     engine.doStringSync('function __check(src) local f, err = load(src, "=firmware", "t", {}) if f then return nil end return err end');

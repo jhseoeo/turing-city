@@ -91,6 +91,14 @@ describe('Store: what the server says', () => {
     store.apply({ type: 'hello', connect: 'claude mcp add …', port: 7840, scenario });
     expect(store.hello).toEqual({ connect: 'claude mcp add …', port: 7840 });
     expect(store.scenario).toBe(scenario);
+    expect(store.webDemo).toBe(false);
+  });
+
+  it('knows the web demo by its hello: the game in the page, port 0, no agent to connect', () => {
+    const store = new Store(null);
+    expect(store.webDemo).toBe(false); // no hello yet
+    store.apply({ type: 'hello', connect: '', port: 0, scenario: {} as unknown as Scenario });
+    expect(store.webDemo).toBe(true);
   });
 
   it('says in the feed who deployed: the player from the editor, or the agent over MCP', () => {

@@ -1,14 +1,14 @@
 import { ALERT_KINDS, type AlertKind } from '@turing-city/core';
 import { clear, el } from '../dom.ts';
 import { ALERT_LABELS } from '../format.ts';
-import type { Connection } from '../net.ts';
+import type { GameLink } from '../net.ts';
 import type { Store } from '../store.ts';
 
 /** Every alert kind can pause the game but the season's end, which ends it. A lost agent is one of them now, on by default. */
 const TOGGLABLE: readonly AlertKind[] = ALERT_KINDS.filter((kind) => kind !== 'seasonEnd');
 const SEVERE: readonly AlertKind[] = ['raid', 'wrecked', 'fire', 'hunger', 'agentLost'];
 
-export function renderFeed(root: HTMLElement, store: Store, net: Connection): void {
+export function renderFeed(root: HTMLElement, store: Store, net: GameLink): void {
   clear(root);
   for (const item of store.feed.slice(0, 12)) {
     if (item.kind === 'deploy') {

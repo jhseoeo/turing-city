@@ -1,4 +1,4 @@
-import type { Connection } from './net.ts';
+import type { GameLink } from './net.ts';
 import type { Store } from './store.ts';
 import { closeEditorWindow } from './ui/editor-window.ts';
 
@@ -19,7 +19,7 @@ function typing(target: EventTarget | null): boolean {
  * text as a draft; the manual; the guide card), then clears the selection. While the player types code every key but Escape is the
  * code's, and Escape there closes the editor and nothing else.
  */
-export function bindKeys(store: Store, net: Connection): void {
+export function bindKeys(store: Store, net: GameLink): void {
   window.addEventListener('keydown', (event) => {
     if (inEditor(event.target)) {
       // CodeMirror takes some Escapes itself and marks them handled (collapsing a selection to its cursor): the window closes only on an

@@ -20,5 +20,8 @@
   },
   "devDependencies": {
     "vite": "8.3.4"
+  },
+  "exports": {
+    "./app": "./src/app.ts"
   }
 }

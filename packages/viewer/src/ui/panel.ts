@@ -1,7 +1,7 @@
 import type { FacilityView, Snapshot } from '@turing-city/core';
 import { clear, el } from '../dom.ts';
 import { CONDITION_LABELS, firmwareLabel, KIND_LABELS, LED_LABELS, ledOf, sensorLabel, TIER_LABELS } from '../format.ts';
-import type { Connection } from '../net.ts';
+import type { GameLink } from '../net.ts';
 import { commButton, installButton, logText, rebuildButton, repairButton } from '../panel-rules.ts';
 import type { Store } from '../store.ts';
 import { renderControls, stateButton } from './controls.ts';
@@ -58,7 +58,7 @@ function stateOf(f: FacilityView): HTMLElement {
   ]);
 }
 
-export function renderPanel(root: HTMLElement, store: Store, net: Connection): void {
+export function renderPanel(root: HTMLElement, store: Store, net: GameLink): void {
   // The panel is rebuilt on every change, so a block the player scrolled would jump back to its top: put each one back.
   const scrolled = scrollOffsets(root);
   clear(root);
@@ -98,7 +98,7 @@ export function renderPanel(root: HTMLElement, store: Store, net: Connection): v
   root.append(section('현재', kv(readings(s, f))));
 
   const install = installButton(s, f);
-  const comm = commButton(s, f);
+  const comm = store.webDemo ? null : commButton(s, f); // no agent to hand the board to
   const hardware = [
     ...(install ? stateButton(install, () => net.send({ type: 'install', facility: f.id, part: 'board' })) : []),
     ...(comm ? stateButton(comm, () => net.send({ type: 'install', facility: f.id, part: 'comm' })) : []),
