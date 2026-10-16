@@ -573,15 +573,21 @@ try {
       };
     });
   check(
-    'while it cools, [처리] waits with its reason, and the one gauge box shows the cooling cycle',
+    'while it cools, [처리] waits (its reason in the tooltip, no line under the buttons), and the one gauge box shows the cooling cycle',
     (await buttonNamed('#panel', '처리'))?.disabled === true &&
-      (await textOf('#panel .controls .reason')).includes('냉각하는 동안에는 처리할 수 없어요') &&
+      (await page.evaluate(
+        () => [...document.querySelectorAll<HTMLButtonElement>('#panel .controls button')].find((b) => b.textContent === '처리')?.title,
+      )) === '냉각하는 동안에는 처리할 수 없어요' &&
+      (await page.locator('#panel .controls .reason').count()) === 0 &&
       (await page.locator('#panel .gauge-row').count()) === 1 &&
       (await gauge())?.kind === 'cool' &&
       (await gauge())?.label === '냉각',
     JSON.stringify(await gauge()),
   );
   const early = (await gauge())?.width ?? -1;
+  const gaugeTop = (): Promise<number> =>
+    page.evaluate(() => document.querySelector('#panel .gauge-row')?.getBoundingClientRect().top ?? -1);
+  const topWhileCooling = await gaugeTop();
   await run(2);
   check(
     'the cooling gauge fills up as the cycle goes',
@@ -593,6 +599,11 @@ try {
   // The page shows the run's end a moment after the run returns: the temperature is read from the render that shows the button back.
   const cycleOver = await waitUntil(async () => (await buttonNamed('#panel', '냉각'))?.disabled === false);
   const cooled = await tempOf();
+  check(
+    'the gauge box stays where it was when the cycle ends',
+    (await gaugeTop()) === topWhileCooling,
+    `${topWhileCooling} -> ${await gaugeTop()}`,
+  );
   check('when the cycle ends, the button is back and the datacenter is cooler', cycleOver && cooled < hot, `${hot} -> ${cooled} °C`);
 
   // ---- A board, then a comm module (10-10 spec §4.1, §8) ----

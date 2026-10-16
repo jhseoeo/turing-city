@@ -108,16 +108,12 @@ export function renderControls(s: Snapshot, f: FacilityView, store: Store, net: 
   let children: HTMLElement[];
   if (f.kind === 'farm') children = stateButton(harvestButton(f), () => hand({ kind: 'harvest' }), 'primary');
   else if (f.kind === 'datacenter') {
-    // Two buttons the player presses again and again: their reasons share one line under them, always there, so neither moves.
-    const process = processButton(f);
-    const cool = coolButton(f);
+    // Two buttons the player presses again and again: no reason line comes and goes under them (it moved the gauge below). A
+    // disabled button says why in its tooltip; the gauge and the status say what runs.
     const button = (state: ButtonState, action: FacilityAction, cls = ''): HTMLElement =>
       el('button', { class: cls, disabled: state.disabled, title: state.reason ?? '', onclick: () => hand(action) }, [state.label]);
     children = [
-      el('div', { class: 'choices' }, [button(process, { kind: 'process' }, 'primary'), button(cool, { kind: 'cool' })]),
-      el('p', { class: 'dim reason' }, [
-        process.reason ?? cool.reason ?? (f.powered ? '\u00a0' : '전력이 끊겨서 처리도 냉각도 하지 못해요'),
-      ]),
+      el('div', { class: 'choices' }, [button(processButton(f), { kind: 'process' }, 'primary'), button(coolButton(f), { kind: 'cool' })]),
     ];
   } else if (f.kind === 'power') children = plantControls(s, f, net);
   else if (f.kind === 'warehouse') children = warehouseControls(s, f, store, net);
