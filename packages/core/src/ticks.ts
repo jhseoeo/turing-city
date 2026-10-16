@@ -50,6 +50,7 @@ export function runBoardTicks(ctx: SimContext, step: number): Ticked[] {
       error: outcome.error,
     };
     for (const line of outcome.logs) appendLog(board, step, 'log', line);
+    if (outcome.droppedLogs) appendLog(board, step, 'system', `${outcome.droppedLogs} log lines dropped this tick`);
     if (outcome.error) {
       appendLog(board, step, 'error', `${outcome.error.kind}: ${outcome.error.message}`);
       raiseOnce(ctx.world, `fwerr:${board.id}`, step, 'firmwareError', board.id, `${board.id} 펌웨어 에러: ${outcome.error.message}`);

@@ -52,6 +52,8 @@ export interface TickOutcome {
   readonly actions: readonly Action[];
   /** io.log lines, kept even when the tick failed. */
   readonly logs: readonly string[];
+  /** How many io.log lines the tick asked for past the limit; the core says so in the board's log. */
+  readonly droppedLogs?: number;
   readonly error: TickError | null;
   readonly ramUsedBytes: number;
 }

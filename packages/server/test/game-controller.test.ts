@@ -1050,7 +1050,11 @@ describe('GameController: requests', () => {
       refusal: { code: 'repairFirst', facility: lost },
     });
     expect(await c.repair(lost)).toEqual({ ok: true });
-    expect(await c.repair(lost)).toEqual({ ok: false, reason: `${lost} is not wrecked`, refusal: { code: 'notWrecked', facility: lost } });
+    expect(await c.repair(lost)).toEqual({
+      ok: false,
+      reason: `${lost} is already being repaired`,
+      refusal: { code: 'alreadyRepairing', facility: lost },
+    });
     await c.runUntil({ seconds: 21 }); // a repair takes 20 game seconds
     expect(await c.rebuild(lost)).toEqual({ ok: true });
     expect((await c.listBoards()).find((b) => b.id === lost)?.board?.status).toBe('rebuilding');

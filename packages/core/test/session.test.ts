@@ -79,6 +79,20 @@ describe('Session', () => {
     ]);
   });
 
+  it('says in the log how many lines a tick dropped, after the lines it kept', () => {
+    const host = new FakeHost();
+    const src = host.program('chatty', () => ({ logs: ['a', 'b'], droppedLogs: 10 }));
+    const s = new Session(m1Scenario(), SEED, host);
+    s.deploy('DA', src);
+    run(s, 4); // DA's first beat is step 3
+    expect(s.world.boards[1]!.log.map((l) => [l.kind, l.text])).toEqual([
+      ['system', 'firmware v1 installed'],
+      ['log', 'a'],
+      ['log', 'b'],
+      ['system', '10 log lines dropped this tick'],
+    ]);
+  });
+
   it('alerts again when a repaired board breaks a second time', () => {
     const host = new FakeHost();
     let beats = 0;

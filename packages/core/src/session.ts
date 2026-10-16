@@ -7,7 +7,7 @@ import { harvestProblem, runFarms } from './farm.ts';
 import type { FacilityAction, FirmwareHost } from './firmware-host.ts';
 import { runHousing } from './housing.ts';
 import { runLuddites, runRumour } from './luddites.ts';
-import { runPower } from './power.ts';
+import { initPower, runPower } from './power.ts';
 import type { Refusal } from './refusal.ts';
 import { createRng, deriveSeed } from './rng.ts';
 import type { Scenario } from './scenario.ts';
@@ -75,6 +75,7 @@ export class Session {
       luddites: createRng(deriveSeed(seed, 'luddites')),
     };
     this.ctx = { scenario, world: this.world, host, seed, rng };
+    initPower(this.ctx);
   }
 
   /** Advances the world by one step and reports the alerts raised during it. */

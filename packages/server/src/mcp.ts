@@ -148,6 +148,9 @@ export function createMcpEndpoint(options: McpOptions): {
         },
         async ({ seconds, alertKinds }) =>
           run(async () => {
+            if (seconds === undefined && (alertKinds === undefined || alertKinds.length === 0)) {
+              throw new Error('dev_run_until needs a goal: seconds, or alertKinds (with no goal it would run to the end of the season)');
+            }
             await dev.runUntil({
               ...(seconds === undefined ? {} : { seconds }),
               ...(alertKinds === undefined ? {} : { alertKinds }),

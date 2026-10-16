@@ -90,6 +90,29 @@ describe('BoardVm', () => {
     v.close();
   });
 
+  it('cuts a long log line at a character boundary, and counts the lines past the limit', () => {
+    const v = vm({ instructionCap: 20_000 });
+    const korean = v.tick(SENSORS, `function tick(io) io.log(string.rep("가", 100)) io.log("a" .. string.rep("가", 100)) end`);
+    // 200 bytes hold 66 three-byte characters (198 bytes), and 1 + 66 of them with the "a" (199 bytes).
+    expect(korean.logs).toEqual(['가'.repeat(66), `a${'가'.repeat(66)}`]);
+    const flood = v.tick(SENSORS, `function tick(io) for i = 1, 30 do io.log("n", i) end end`);
+    expect(flood.logs).toHaveLength(20);
+    expect(flood.droppedLogs).toBe(10);
+    expect(v.tick(SENSORS, `function tick(io) io.log("one") end`).droppedLogs).toBe(0);
+    v.close();
+  });
+
+  it('refuses a sleep whose argument is not a number, and queues one whose argument is', () => {
+    const v = vm();
+    for (const arg of ['"abc"', 'nil', '{}', '"5"']) {
+      const r = v.tick(SENSORS, `function tick(io) io.sleep(${arg}) end`);
+      expect(r.ok, arg).toBe(false);
+      expect(r.error?.message, arg).toMatch(/^firmware:1: sleep expects a number of seconds/);
+    }
+    expect(v.tick(SENSORS, `function tick(io) io.sleep(7) end`).queue).toEqual([5, 7]);
+    v.close();
+  });
+
   it('reports a missing tick function as noTick and a runtime error with its line', () => {
     const v = vm();
     expect(v.tick(SENSORS, `x = 1`).error).toEqual({ kind: 'noTick', message: 'firmware defines no tick(io, mem) function' });

@@ -219,7 +219,22 @@ local unfinished = false
 local function log(...)
   local parts = {}
   for k = 1, select("#", ...) do parts[k] = safe_tostring((select(k, ...))) end
-  if #logs < 20 then logs[#logs + 1] = S.sub(T.concat(parts, "\t"), 1, 200) end
+  if #logs >= 20 then
+    logs.dropped = logs.dropped + 1
+    return
+  end
+  local line = T.concat(parts, "\t")
+  local cut = 200
+  if #line > cut then
+    -- Cut at a character boundary: back off over the continuation bytes (10xxxxxx) of a UTF-8 character the cut would split.
+    for _ = 1, 3 do
+      local b = S.byte(line, cut + 1)
+      if b < 128 or b >= 192 then break end
+      cut = cut - 1
+    end
+    line = S.sub(line, 1, cut)
+  end
+  logs[#logs + 1] = line
 end
 
 local function push(...)
@@ -253,6 +268,9 @@ end
 
 function __boot(kind, fids, seed)
   M.randomseed(seed)
+  -- How many lines this tick's log dropped past its limit; the host reads and zeroes it with the lines. It is a field
+  -- of the log table so that the node it takes is already there at the baseline.
+  logs.dropped = 0
   -- The queue and the log keep the arrays they grow to, and an array never shrinks. They start at their limits (64
   -- numbers, 20 lines of an array of 32) so that the baseline holds them and no tick can leave them to the firmware.
   for k = 1, 64 do q[k] = 0 end
@@ -263,7 +281,10 @@ function __boot(kind, fids, seed)
   local fidx = {}
   for k = 1, #fids do fidx[fids[k]] = k end
   actions.log = log
-  actions.sleep = function(seconds) push(5, tonumber(seconds) or 0) end
+  actions.sleep = function(seconds)
+    if type(seconds) ~= "number" then error("sleep expects a number of seconds", 2) end
+    push(5, seconds)
+  end
   if kind == "datacenter" then
     actions.process = function() push(1) end
     -- One cooling cycle; while one runs, another call does nothing (the game's rule, not the prelude's).

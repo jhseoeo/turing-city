@@ -88,6 +88,8 @@ export function runTransitions(ctx: SimContext, step: number): void {
     // A repaired farm starts a new crop: whatever grew before the wreck is lost.
     const farm = ctx.world.farms[facility.id];
     if (farm) farm.plantedAt = step;
+    const board = findBoard(ctx.world, facility.id);
+    if (board) appendLog(board, step, 'system', 'facility repaired');
   }
   for (const board of ctx.world.boards) {
     if (board.status === 'asleep' && board.wakeAt !== null && board.wakeAt <= step) {

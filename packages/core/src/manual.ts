@@ -176,11 +176,11 @@ function actionDocs(scenario: Scenario): Record<BoardKind | 'any', readonly Acti
       {
         call: 'io.log(...)',
         meaning:
-          '로그에 한 줄을 남긴다(print도 같다). 틱마다 20줄, 줄마다 200바이트(한글 약 66자)까지. 행동이 아니라서 행동 전자파가 없고, 틱이 실패해도 남는다',
+          '로그에 한 줄을 남긴다(print도 같다). 틱마다 20줄, 줄마다 200바이트(한글 약 66자)까지. 20줄을 넘긴 줄은 버려지고, 그 틱에 몇 줄이 버려졌는지 시스템 줄이 하나 남는다. 행동이 아니라서 행동 전자파가 없고, 틱이 실패해도 남는다',
       },
       {
         call: 'io.sleep(seconds)',
-        meaning: `1~${t.maxSleepSeconds}초 동안 깊이 잠든다. 조용하고 전력도 ${t.sleepPower}만 쓰지만, RAM(mem과 전역 변수)이 지워진다`,
+        meaning: `1~${t.maxSleepSeconds}초 동안 깊이 잠든다(범위 밖의 숫자는 이 범위로 맞춰지고, 숫자가 아니면 그 틱을 에러로 끝낸다). 조용하고 전력도 ${t.sleepPower}만 쓰지만, RAM(mem과 전역 변수)이 지워진다`,
       },
     ],
   };
@@ -407,6 +407,7 @@ function commonSections(scenario: Scenario): Section[] {
           `RAM은 고정된 기준선 위의 펌웨어 데이터다: ${code('mem')}, 전역 변수, 틱이 할당한 것. 코드는 RAM에 세지 않는다. 넘으면 그 틱은 "out of RAM"으로 실패한다.`,
           `"out of RAM" 뒤에도 ${code('mem')}은 데이터를 그대로 들고 있다. 그러니 새 펌웨어는 첫 틱에 ${code('mem')}에서 필요 없는 것부터 비워야 한다. 그 첫 틱에는 약간의 여유가 더 주어진다.`,
           '보고되는 RAM 사용량은 아직 수거되지 않은 쓰레기까지 센다. 그래서 무언가를 비운 직후에도 높게 나올 수 있다. 쓰레기만으로 "out of RAM"이 나지는 않는다: 할당을 거부하기 전에 먼저 수거한다.',
+          `함수 호출의 스택(깊은 재귀)도 RAM을 쓴다. 보고되는 RAM 사용량은 틱이 끝난 뒤에 잰 값이라서, 틱 도중에 호출이 깊어졌다가 풀렸다면 사용량이 낮게 읽혀도 그 틱은 "out of RAM"으로 실패할 수 있다. 재귀는 깊이를 제한하거나 반복문으로 바꾼다.`,
         ]),
       ],
     },
@@ -430,7 +431,7 @@ function commonSections(scenario: Scenario): Section[] {
       title: '깊은 휴면',
       blocks: [
         list([
-          `${code('io.sleep(seconds)')}는 보드를 1~${t.maxSleepSeconds}초 동안 재운다. 틱이 끝나면 잠든다. 잠든 보드는 전자파를 내지 않고 전력은 ${t.sleepPower}만 쓴다.`,
+          `${code('io.sleep(seconds)')}는 보드를 1~${t.maxSleepSeconds}초 동안 재운다. 범위 밖의 숫자는 이 범위로 맞춰지고, 숫자가 아닌 값은 그 틱을 에러로 끝낸다. 틱이 끝나면 잠든다. 잠든 보드는 전자파를 내지 않고 전력은 ${t.sleepPower}만 쓴다.`,
           `휴면은 RAM을 지운다: 깨어나면 ${code('mem')}과 전역 변수가 비어 있고, 펌웨어가 처음부터 다시 설치된다.`,
           `같은 틱에서 ${code('io.sleep()')} 뒤에 부른 행동은 버려지고, 앞에 부른 행동은 적용된다.`,
           '보드가 자는 동안에도 시설은 멈추지 않는다. 손으로 돌릴 수 있고, 시설의 설정(화력 출력, 공급 순서)과 이미 시작된 데이터센터의 작업과 냉각은 그대로 간다.',

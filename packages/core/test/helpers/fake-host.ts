@@ -3,6 +3,7 @@ import type { Action, BootInfo, FirmwareHost, TickError, TickInput, TickOutcome 
 export interface FakeTick {
   actions?: Action[];
   logs?: string[];
+  droppedLogs?: number;
   instructions?: number;
   error?: TickError;
 }
@@ -47,6 +48,7 @@ export class FakeHost implements FirmwareHost {
       instructions: out.instructions ?? 100,
       actions: ok ? (out.actions ?? []) : [],
       logs: out.logs ?? [],
+      droppedLogs: out.droppedLogs ?? 0,
       error: out.error ?? null,
       ramUsedBytes: 0,
     };

@@ -102,6 +102,9 @@ export function installPart(ctx: SimContext, facilityId: string, part: InstallPa
 export function startRepair(ctx: SimContext, facilityId: string, step: number): CommandResult {
   const facility = findFacility(ctx.world, facilityId);
   if (!facility) return refuse(`unknown facility ${facilityId}`, { code: 'unknownFacility', facility: facilityId });
+  if (facility.condition === 'repairing') {
+    return refuse(`${facilityId} is already being repaired`, { code: 'alreadyRepairing', facility: facilityId });
+  }
   if (facility.condition !== 'wrecked' || !takesBoard(facility.kind)) {
     return refuse(`${facilityId} is not wrecked`, { code: 'notWrecked', facility: facilityId });
   }

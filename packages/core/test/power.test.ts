@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { stateHash } from '../src/hash.ts';
 import { facilityDemand, plantFacility, priorityOrder, runPower } from '../src/power.ts';
+import { listBoards, statusView } from '../src/queries.ts';
 import { Session } from '../src/session.ts';
 import { stepsForSeconds } from '../src/time.ts';
 import { findBoard, type WorldState } from '../src/world.ts';
@@ -55,6 +56,27 @@ const plantBoard = (world: WorldState) => findBoard(world, 'P')!;
 const texts = (b: { log: ReadonlyArray<{ text: string }> }): string[] => b.log.map((l) => l.text);
 
 describe('power', () => {
+  it('has the grid as step 0 will find it before the first step runs: the views claim no power the step cuts', () => {
+    const s = calm(20); // 20 of wind and no thermal output, against a demand of 28
+    const shed = s.world.plant.shed;
+    expect(shed.length).toBeGreaterThan(0);
+    expect(statusView(s.ctx).power).toMatchObject({ generation: 20, shed });
+    expect(statusView(s.ctx).power.demand).toBeGreaterThan(20);
+    expect(
+      listBoards(s.world)
+        .filter((b) => b.board && !b.board.powered)
+        .map((b) => b.id),
+    ).toEqual(shed.filter((id) => id !== 'P'));
+    const before = JSON.stringify([s.world.plant.generation, s.world.plant.demand, shed]);
+    const report = s.step();
+    expect(JSON.stringify([s.world.plant.generation, s.world.plant.demand, s.world.plant.shed])).toBe(before);
+    expect(report.alerts.map((a) => a.kind)).toContain('powerShortage'); // the first step still raises it
+    for (const id of shed) {
+      const board = findBoard(s.world, id);
+      if (board) expect(texts(board), id).toEqual(['power lost']); // said once, not again at step 0
+    }
+  });
+
   it("adds 2% per cell from the plant to a facility's draw", () => {
     const s = calm(120);
     const ctx = s.ctx;

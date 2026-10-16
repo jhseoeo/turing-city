@@ -22,6 +22,8 @@ export type Refusal =
   /** The facility is wrecked or being repaired. */
   | { readonly code: 'wrecked'; readonly facility: string }
   | { readonly code: 'notWrecked'; readonly facility: string }
+  /** A repair of a facility whose repair is already under way. */
+  | { readonly code: 'alreadyRepairing'; readonly facility: string }
   /** A board's rebuild before its facility is repaired. */
   | { readonly code: 'repairFirst'; readonly facility: string }
   /** An agent's board tool on a board below T2. */

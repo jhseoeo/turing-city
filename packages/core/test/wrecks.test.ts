@@ -93,9 +93,11 @@ describe('wrecks, repairs, and rebuilds', () => {
     expect(db).toMatchObject({ condition: 'repairing', repairReadyAt: 400 });
     steps(s, 400);
     expect(db.condition).toBe('repairing');
+    expect(findBoard(s.world, 'DB')!.log.at(-1)).toMatchObject({ text: 'smashed by Luddites' });
     steps(s, 1);
     expect(db).toMatchObject({ condition: 'ok', repairReadyAt: null });
     expect(findBoard(s.world, 'DB')!.status).toBe('destroyed');
+    expect(findBoard(s.world, 'DB')!.log.at(-1)).toMatchObject({ kind: 'system', text: 'facility repaired' });
     expect(s.record.inputs).toEqual([{ step: 0, kind: 'repair', facilityId: 'DB' }]);
   });
 
@@ -153,7 +155,11 @@ describe('wrecks, repairs, and rebuilds', () => {
     expect(stateHash(s.world)).toBe(hash);
     s.world.money = 5000 * MICRO;
     expect(s.repair('DA')).toEqual({ ok: true });
-    expect(s.repair('DA')).toEqual({ ok: false, reason: 'DA is not wrecked', refusal: { code: 'notWrecked', facility: 'DA' } });
+    expect(s.repair('DA')).toEqual({
+      ok: false,
+      reason: 'DA is already being repaired',
+      refusal: { code: 'alreadyRepairing', facility: 'DA' },
+    });
     expect(s.record.inputs).toEqual([{ step: 0, kind: 'repair', facilityId: 'DA' }]);
   });
 

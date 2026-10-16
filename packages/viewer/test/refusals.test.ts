@@ -18,6 +18,7 @@ const SAMPLES: Record<Refusal['code'], Refusal> = {
   boardDown: { code: 'boardDown', facility: 'DB' },
   wrecked: { code: 'wrecked', facility: 'W' },
   notWrecked: { code: 'notWrecked', facility: 'P' },
+  alreadyRepairing: { code: 'alreadyRepairing', facility: 'P' },
   repairFirst: { code: 'repairFirst', facility: 'DA' },
   noComm: { code: 'noComm', board: 'F2' },
   cannotAct: { code: 'cannotAct', facility: 'F3', detail: 'nothing is ripe' },
@@ -44,6 +45,7 @@ describe('refusalText', () => {
     expect(refusalText('x', SAMPLES.boardDown)).toContain('DB');
     expect(refusalText('x', SAMPLES.wrecked)).toContain('W');
     expect(refusalText('x', SAMPLES.notWrecked)).toContain('P');
+    expect(refusalText('x', SAMPLES.alreadyRepairing)).toBe("'P' 시설은 이미 복구 중이에요.");
     expect(refusalText('x', SAMPLES.repairFirst)).toContain('DA');
     expect(refusalText('x', SAMPLES.noComm)).toContain('F2');
     expect(refusalText('x', SAMPLES.cannotAct)).toContain('nothing is ripe');

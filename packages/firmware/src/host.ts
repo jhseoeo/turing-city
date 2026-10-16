@@ -76,6 +76,7 @@ export class WasmoonHost implements FirmwareHost {
       instructions: r.instructions,
       actions: r.ok ? decodeActions(r.queue, entry.facilityIds) : [],
       logs: r.logs,
+      droppedLogs: r.droppedLogs,
       error: r.error,
       ramUsedBytes: r.ramUsedBytes,
     };

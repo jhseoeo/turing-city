@@ -378,7 +378,11 @@ describe('what the agent is given beyond the eight tools', () => {
     expect(await answer('dev_set_speed', { speed: 3 })).toEqual(done);
     expect(await answer('dev_run_until', { seconds: 5, alertKinds: ['raid'] })).toEqual(done);
     expect(await answer('dev_run_until', { alertKinds: ['fire'] })).toEqual(done);
-    expect(await answer('dev_run_until', {})).toEqual(done);
+    for (const args of [{}, { alertKinds: [] }]) {
+      const refused = await client.callTool({ name: 'dev_run_until', arguments: args });
+      expect(refused.isError, JSON.stringify(args)).toBe(true);
+      expect(textOf(refused)).toContain('needs a goal');
+    }
     expect(await answer('dev_new_season', { seed: 7 })).toEqual(done);
     expect(await answer('dev_rebuild', { board: 'DB' })).toEqual({
       ok: false,
@@ -395,8 +399,7 @@ describe('what the agent is given beyond the eight tools', () => {
       ['pause'],
       ['setSpeed', 3],
       ['runUntil', { seconds: 5, alertKinds: ['raid'] }],
-      ['runUntil', { alertKinds: ['fire'] }], // what the agent left out stays out
-      ['runUntil', {}],
+      ['runUntil', { alertKinds: ['fire'] }], // what the agent left out stays out; a call with no goal never got here
       ['newSeason', 7],
       ['rebuild', 'DB'],
       ['repair', 'DA'],

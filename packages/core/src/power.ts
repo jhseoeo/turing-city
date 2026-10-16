@@ -65,11 +65,18 @@ function logPower(ctx: SimContext, board: BoardState, wasPowered: boolean, step:
   }
 }
 
-/** Phase 3: generation, demand, and shedding. The grid sheds whole facilities; a facility's board has power when its facility has. */
-export function runPower(ctx: SimContext, step: number): void {
+interface Grid {
+  readonly generation: number;
+  readonly plantDraw: number;
+  readonly order: readonly FacilityState[];
+  readonly demands: readonly number[];
+  readonly powered: readonly boolean[];
+}
+
+/** Who the grid can supply at this step: generation against demand, shedding the lowest priorities first. Changes nothing. */
+function solveGrid(ctx: SimContext, step: number): Grid {
   const w = ctx.world;
   const plant = plantFacility(w);
-  const plantBoard = findBoard(w, plant.id);
   // The thermal module follows the town's setting whatever the plant's board is doing: the board only automates it. A wrecked plant
   // makes nothing until it is repaired; the wind turbine is not the board's either, and it keeps turning.
   const thermal = plant.condition === 'ok' ? w.plant.thermalSetting : 0;
@@ -85,20 +92,42 @@ export function runPower(ctx: SimContext, step: number): void {
     powered[i] = false;
     load -= demands[i]!;
   }
+  return { generation, plantDraw, order, demands, powered };
+}
+
+/** Writes a grid's result into the facilities, the boards (with their log lines), and the plant's figures. */
+function assignGrid(ctx: SimContext, g: Grid, step: number): void {
+  const w = ctx.world;
+  const plant = plantFacility(w);
+  const plantBoard = findBoard(w, plant.id);
   // The plant's own board is never shed, even when nothing is generated, so its firmware can always start the thermal module.
   plant.powered = true;
   if (plantBoard) plantBoard.powered = true;
-  order.forEach((f, i) => {
-    f.powered = powered[i]!;
+  g.order.forEach((f, i) => {
+    f.powered = g.powered[i]!;
     const board = findBoard(w, f.id);
     if (!board) return;
     const was = board.powered;
     board.powered = f.powered;
     logPower(ctx, board, was, step);
   });
-  w.plant.generation = generation;
-  w.plant.demand = plantDraw + demands.reduce((a, b) => a + b, 0);
-  w.plant.shed = order.filter((_, i) => !powered[i] && demands[i]! > 0).map((f) => f.id);
+  w.plant.generation = g.generation;
+  w.plant.demand = g.plantDraw + g.demands.reduce((a, b) => a + b, 0);
+  w.plant.shed = g.order.filter((_, i) => !g.powered[i] && g.demands[i]! > 0).map((f) => f.id);
+}
+
+/**
+ * The grid as step 0 will find it, so that the views before the first step (and a deploy's "installs at") do not say a facility has
+ * power that step 0 cuts. It is the first power phase's own assignment, without its shortage alert: step 0 runs the phase again.
+ */
+export function initPower(ctx: SimContext): void {
+  assignGrid(ctx, solveGrid(ctx, 0), 0);
+}
+
+/** Phase 3: generation, demand, and shedding. The grid sheds whole facilities; a facility's board has power when its facility has. */
+export function runPower(ctx: SimContext, step: number): void {
+  const w = ctx.world;
+  assignGrid(ctx, solveGrid(ctx, step), step);
   if (w.plant.shed.length > 0) {
     w.plant.lastShedStep = step;
     raiseOnce(w, 'shortage', step, 'powerShortage', null, `전력 부족: ${w.plant.shed.join(', ')} 정전`);

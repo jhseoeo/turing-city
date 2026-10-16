@@ -34,6 +34,8 @@ export interface VmTickResult {
   /** The raw action queue; empty when the tick failed. */
   readonly queue: readonly number[];
   readonly logs: readonly string[];
+  /** How many log lines the tick asked for past the limit of 20. */
+  readonly droppedLogs: number;
   readonly error: TickError | null;
   /** Memory in use above the runtime and the installed code: mem, globals, and what a tick allocated and has not freed yet. */
   readonly ramUsedBytes: number;
@@ -139,7 +141,15 @@ export class BoardVm {
     lua.lua_settop(L, 0);
     const queue = this.drain('queue', () => lua.lua_tonumberx(L, -1, null));
     const logs = this.drain('logs', () => lua.lua_tolstring(L, -1, null));
-    return this.result(status === 0, this.capped ? this.options.instructionCap : this.ops, status === 0 ? queue : [], logs, error);
+    const droppedLogs = this.takeDroppedLogs();
+    return this.result(
+      status === 0,
+      this.capped ? this.options.instructionCap : this.ops,
+      status === 0 ? queue : [],
+      logs,
+      error,
+      droppedLogs,
+    );
   }
 
   close(): void {
@@ -332,6 +342,21 @@ export class BoardVm {
     return out;
   }
 
+  /** Reads and zeroes how many log lines the tick dropped past its limit (a field of the prelude's log table). */
+  private takeDroppedLogs(): number {
+    const { lua, L } = this;
+    this.pushRef('logs');
+    lua.lua_pushstring(L, 'dropped');
+    lua.lua_rawget(L, -2);
+    const n = Number(lua.lua_tonumberx(L, -1, null));
+    lua.lua_settop(L, -2);
+    lua.lua_pushstring(L, 'dropped');
+    lua.lua_pushinteger(L, 0n);
+    lua.lua_rawset(L, -3);
+    lua.lua_settop(L, 0);
+    return n;
+  }
+
   /** Firmware data may use ramBytes above the runtime and the installed code, plus extra on a tick that starts a firmware. */
   private capRam(extra = 0): void {
     this.engine.global.setMemoryMax(this.dataCap() + extra);
@@ -354,9 +379,10 @@ export class BoardVm {
     queue: readonly number[],
     logs: readonly string[],
     error: TickError | null,
+    droppedLogs = 0,
   ): VmTickResult {
     const ramUsedBytes = Math.max(0, this.engine.global.getMemoryUsed() - this.bootBytes - this.codeBytes);
-    return { ok, instructions, queue, logs, error, ramUsedBytes };
+    return { ok, instructions, queue, logs, droppedLogs, error, ramUsedBytes };
   }
 
   private takeGlobal(name: string): number {

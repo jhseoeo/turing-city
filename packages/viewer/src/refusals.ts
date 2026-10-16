@@ -41,6 +41,8 @@ export function refusalText(message: string, refusal: Refusal | undefined): stri
       return `'${refusal.facility}' 시설이 부서졌거나 복구 중이에요. 복구가 끝난 뒤에 해보세요.`;
     case 'notWrecked':
       return `'${refusal.facility}' 시설은 부서지지 않았어요.`;
+    case 'alreadyRepairing':
+      return `'${refusal.facility}' 시설은 이미 복구 중이에요.`;
     case 'repairFirst':
       return `'${refusal.facility}' 시설을 먼저 복구해야 보드를 재건할 수 있어요.`;
     case 'noComm':
