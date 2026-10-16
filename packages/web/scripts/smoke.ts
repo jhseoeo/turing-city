@@ -99,6 +99,12 @@ try {
 
   await page.locator('.start-button').click();
   check('a season starts: the town and the top bar show', await waitUntil(async () => (await textOf('#topbar')).includes('자금')));
+  const guide = await textOf('#guide');
+  check(
+    'the guide card puts the comm module and agents in the desktop version, and offers no MCP',
+    guide.includes('데스크톱 버전') && !guide.includes('MCP'),
+    guide.slice(0, 80),
+  );
   await page.keyboard.press('Escape'); // the guide card
 
   const map = await page.locator('#map canvas').boundingBox();

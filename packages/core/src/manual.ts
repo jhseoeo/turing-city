@@ -115,12 +115,12 @@ function sensorDocs(scenario: Scenario): Record<SensorName, SensorDoc> {
     outbox: { meaning: '출고함에 쌓인 식량', unit: '식량', range: `0~${t.farm.outboxCapacity}` },
     stock: { meaning: '이 창고에 보관된 식량', unit: '식량', range: '0 이상' },
     farms: {
-      meaning: `밭마다 ${code('{ id, outbox, distance }')}: 출고함의 식량, 이 창고에서의 거리(칸)`,
+      meaning: `밭마다 ${code('{ id, outbox, distance }')}: 출고함의 식량, 이 창고까지의 거리(칸)`,
       unit: '목록',
       range: `밭 ${ofKind(scenario, 'farm').length}곳, 지도 순서`,
     },
     housing: {
-      meaning: `주거지마다 ${code('{ id, food, residents, distance }')}: 남은 식량, 주민 수, 이 창고에서의 거리(칸)`,
+      meaning: `주거지마다 ${code('{ id, food, residents, distance }')}: 남은 식량, 주민 수, 이 창고까지의 거리(칸)`,
       unit: '목록',
       range: `주거지 ${ofKind(scenario, 'housing').length}곳, 지도 순서`,
     },
@@ -176,11 +176,11 @@ function actionDocs(scenario: Scenario): Record<BoardKind | 'any', readonly Acti
       {
         call: 'io.log(...)',
         meaning:
-          '로그에 한 줄을 남긴다(print도 같다). 틱마다 20줄, 줄마다 200바이트(한글 약 66자)까지. 20줄을 넘긴 줄은 버려지고, 그 틱에 몇 줄이 버려졌는지 시스템 줄이 하나 남는다. 행동이 아니라서 행동 전자파가 없고, 틱이 실패해도 남는다',
+          '로그에 한 줄을 남긴다(print도 같다). 틱마다 20줄, 줄마다 200바이트(한글 약 66자)까지. 20줄을 넘긴 줄은 버려지고 그 틱에 몇 줄이 버려졌는지 알리는 시스템 줄이 하나 남는다. 행동이 아니라서 행동 전자파가 없고 틱이 실패해도 남는다',
       },
       {
         call: 'io.sleep(seconds)',
-        meaning: `1~${t.maxSleepSeconds}초 동안 깊이 잠든다(범위 밖의 숫자는 이 범위로 맞춰지고, 숫자가 아니면 그 틱을 에러로 끝낸다). 조용하고 전력도 ${t.sleepPower}만 쓰지만, RAM(mem과 전역 변수)이 지워진다`,
+        meaning: `1~${t.maxSleepSeconds}초 동안 깊이 잠든다(범위 밖의 숫자는 이 범위로 맞춰지고 숫자가 아니면 그 틱을 에러로 끝낸다). 조용하고 전력도 ${t.sleepPower}만 쓰지만 RAM(mem과 전역 변수)이 지워진다`,
       },
     ],
   };
@@ -189,12 +189,12 @@ function actionDocs(scenario: Scenario): Record<BoardKind | 'any', readonly Acti
 /** What each kind of facility is for, in a paragraph. */
 const ROLES: Record<BoardKind, string> = {
   power:
-    '발전소는 마을 전체에 전력을 댄다. 풍력은 날씨를 따라 공짜로 나오고, 화력은 정한 만큼 나오지만 연료비가 든다. 이 보드의 펌웨어는 화력 출력과, 전력이 모자랄 때 누구부터 끊을지를 정한다.',
+    '발전소는 마을 전체에 전력을 댄다. 풍력은 날씨를 따라 공짜로 나오고 화력은 정한 만큼 나오지만 연료비가 든다. 이 보드의 펌웨어는 화력 출력을 정하고 전력이 모자랄 때 누구부터 끊을지도 정한다.',
   datacenter:
-    '데이터센터는 마을의 돈줄이다. 처리하는 동안 작업 단가만큼 벌지만, 전력을 많이 먹고, 뜨거워지고, 전자파를 낸다. 이 보드의 펌웨어는 언제 처리하고 언제 식힐지를 정한다. 데이터센터는 그 자체가 기계라서, 보드가 없어도 일하는 동안에는 러다이트의 표적이 된다.',
-  farm: '밭은 작물을 기른다. 익은 작물을 거두면 출고함에 식량이 쌓이고, 물류창고의 트럭이 그것을 가져간다. 이 보드의 펌웨어는 언제 거둘지를 정한다. 거두지 않고 두면 작물이 썩는다.',
+    '데이터센터는 마을의 돈줄이다. 처리하는 동안 작업 단가만큼 벌지만 전력을 많이 먹고 뜨거워지며 전자파도 낸다. 이 보드의 펌웨어는 언제 처리하고 언제 식힐지를 정한다. 데이터센터는 그 자체가 기계라서 보드가 없어도 일하는 동안에는 러다이트의 표적이 된다.',
+  farm: '밭은 작물을 기른다. 익은 작물을 거두면 출고함에 식량이 쌓이고 물류창고의 트럭이 그 식량을 가져간다. 이 보드의 펌웨어는 언제 거둘지를 정한다. 거두지 않고 두면 작물이 썩는다.',
   warehouse:
-    '물류창고는 식량을 옮긴다. 트럭으로 밭의 출고함에서 식량을 걷어 와 보관하고, 주거지로 배달한다. 이 보드의 펌웨어는 어느 트럭을 어디로 얼마나 보낼지를 정한다. 주민은 먹을 것이 있어야 세금을 낸다.',
+    '물류창고는 식량을 옮긴다. 트럭으로 밭의 출고함에서 식량을 걷어 와 보관하고 주거지로 배달한다. 이 보드의 펌웨어는 어느 트럭을 어디로 얼마나 보낼지를 정한다. 주민은 먹을 것이 있어야 세금을 낸다.',
 };
 
 /** The rules of one kind of facility, as blocks: a list, and for the warehouse the distances it works with. */
@@ -206,12 +206,12 @@ function facilityRules(scenario: Scenario, f: FacilitySpec, kind: BoardKind, boa
       const consumers = scenario.facilities.filter((x) => x.kind !== 'power').map((x) => code(x.id));
       return [
         list([
-          `발전량은 풍력과 화력의 합이다. 풍력은 날씨를 따라 0~${t.wind.max} 사이에서 초당 최대 ${t.wind.maxChangePerSecond}씩 변하고, 비용이 없다.`,
+          `발전량은 풍력과 화력의 합이다. 풍력은 날씨를 따라 0~${t.wind.max} 사이에서 초당 최대 ${t.wind.maxChangePerSecond}씩 변하고 비용이 없다.`,
           `화력은 정한 출력 그대로 나온다(0~${t.thermal.max}). 출력 1단위에 하루 ${code('fuel_price')}(${t.fuelPrice.min}~${t.fuelPrice.max}, 매일 바뀐다)가 든다. 하루는 ${day}초이므로 출력 1단위의 초당 연료비: ${code('fuel_price')} / ${day}.`,
           `${code('io.set_thermal(output)')}과 손의 [화력], ${code('io.set_priority({ids})')}와 손의 [공급 순서]는 같은 설정을 바꾼다. 나중에 바꾼 쪽이 이긴다.`,
-          '화력 설정과 공급 순서는 마을의 것이다. 보드가 자거나 부서져도 남는다. 발전소가 부서져 있는 동안 화력은 0이고 풍력만 나온다.',
+          '화력 설정과 공급 순서는 마을의 설정이라서 보드가 자거나 부서져도 남는다. 발전소가 부서져 있는 동안 화력은 0이고 풍력만 나온다.',
           `공급 순서에 쓸 수 있는 id: ${consumers.join(', ')}. 기본 순서는 이 지도 순서다.`,
-          '발전소 자신의 보드는 끊기지 않는다.',
+          '발전소의 보드는 끊기지 않는다.',
         ]),
       ];
     }
@@ -221,14 +221,14 @@ function facilityRules(scenario: Scenario, f: FacilitySpec, kind: BoardKind, boa
       const continuous = board.clockHz * dc.jobMs >= 1000;
       return [
         list([
-          `${code('io.process()')}와 손의 [처리]는 같은 일을 한다: 데이터센터가 도는 끝 시각을 지금부터 ${milli(dc.jobMs)}초 뒤로 잡는다. ${continuous ? '이 보드가 박자마다 부르면 쉬지 않고 돈다' : '이 보드의 박자는 그보다 길어서, 박자마다 불러도 사이사이 쉰다'}.`,
+          `${code('io.process()')}와 손의 [처리]는 둘 다 데이터센터가 도는 끝 시각을 지금부터 ${milli(dc.jobMs)}초 뒤로 잡는다. ${continuous ? '이 보드가 박자마다 부르면 쉬지 않고 돈다' : '이 보드의 박자는 그보다 길어서 박자마다 불러도 사이사이 쉰다'}.`,
           `처리하는 1초마다 그때의 단가(${code('price')})만큼 번다.`,
-          `처리하는 동안 ${dc.processPower}의 전력을 더 쓰고, 초당 ${milli(dc.heatMilliPerSecond)}°C씩 뜨거워지고, 초당 ${t.emf.processingPerSecond}의 전자파를 낸다.`,
+          `처리하는 동안 ${dc.processPower}의 전력을 더 쓰고 초당 ${milli(dc.heatMilliPerSecond)}°C씩 뜨거워지며 초당 ${t.emf.processingPerSecond}의 전자파를 낸다.`,
           `가만히 두면 매초 (온도 − ${milli(dc.ambientMilli)}°C)의 ${permille(dc.passiveCoolingPermillePerSecond)}%씩만 식는다. 아주 느리다.`,
-          `${code('io.cool()')}과 손의 [냉각]은 같은 일을 한다: ${milli(dc.coolingCycleMs)}초에 걸쳐 고르게 ${milli(dc.coolingDropMilli)}°C를 낮추고, 그동안 ${dc.coolingPower}의 전력을 쓴다. 냉각 중에 다시 부르면 아무 일도 없다. 처리와 냉각은 함께 돌 수 있다.`,
-          '전력이 끊기면 처리도 냉각도 멈춘다. 끊긴 동안에도 작업과 냉각 주기의 시간은 흘러가서, 그 사이의 몫은 사라진다.',
+          `${code('io.cool()')}과 손의 [냉각]은 둘 다 ${milli(dc.coolingCycleMs)}초에 걸쳐 고르게 ${milli(dc.coolingDropMilli)}°C를 낮추고 그동안 ${dc.coolingPower}의 전력을 쓴다. 냉각 중에 다시 부르면 아무 일도 없다. 처리와 냉각은 함께 돌 수 있다.`,
+          '전력이 끊기면 처리도 냉각도 멈춘다. 끊긴 동안에도 작업과 냉각 주기의 시간은 흘러가서 그 사이의 몫은 사라진다.',
           `${milli(dc.overheatAlertMilli)}°C에 닿으면 과열 알림이 뜬다. ${milli(dc.fireThresholdMilli)}°C를 넘으면 매초, 넘은 1°C마다 ${permille(dc.firePermillePerDegreePerSecond)}%의 확률로 불이 나서 데이터센터가 보드째 부서진다.`,
-          '보드가 돌거나 자고 있는 데이터센터는 늘 러다이트의 표적이다. 보드가 없거나 부서졌으면 처리하는 동안에만 표적이고, 그때 칸의 전자파가 감지되면 러다이트가 찾아와 시설째 부순다.',
+          '보드가 돌거나 자고 있는 데이터센터는 늘 러다이트의 표적이다. 보드가 없거나 부서졌으면 처리하는 동안에만 표적이고 그때 칸의 전자파가 감지되면 러다이트가 찾아와 시설째 부순다.',
           `수리된 데이터센터는 상온(${milli(dc.ambientMilli)}°C)에서 다시 시작한다.`,
         ]),
       ];
@@ -237,8 +237,8 @@ function facilityRules(scenario: Scenario, f: FacilitySpec, kind: BoardKind, boa
       return [
         list([
           `작물은 심은 지 ${span(scenario, t.farm.ripenSeconds)} 뒤에 익는다. ${code('ripeness')}는 그동안 0에서 100으로 오른다.`,
-          `익은 채로 ${span(scenario, t.farm.rotSeconds)} 동안 두면 썩어서 사라지고, 그 자리에 바로 다시 심는다.`,
-          `${code('io.harvest()')}와 손의 [수확]은 같은 일을 한다: ${t.farm.yield}의 식량을 출고함에 넣고 바로 다시 심는다. 출고함은 ${t.farm.outboxCapacity}까지이고, 넘치는 만큼은 버려진다.`,
+          `익은 채로 ${span(scenario, t.farm.rotSeconds)} 동안 두면 썩어서 사라지고 그 자리에 바로 다시 심는다.`,
+          `${code('io.harvest()')}와 손의 [수확]은 둘 다 ${t.farm.yield}의 식량을 출고함에 넣고 바로 다시 심는다. 출고함은 ${t.farm.outboxCapacity}까지이고 넘치는 만큼은 버려진다.`,
           '출고함의 식량은 물류창고의 트럭이 가져간다.',
           '밭은 보드가 없어도 자란다. 보드는 수확을 대신할 뿐이다.',
           '수리된 밭은 그때 새로 심는다.',
@@ -250,13 +250,13 @@ function facilityRules(scenario: Scenario, f: FacilitySpec, kind: BoardKind, boa
       const served = scenario.facilities.filter((x) => x.kind === 'farm' || x.kind === 'housing');
       return [
         list([
-          `트럭은 ${w.trucks}대이고 한 대에 ${w.truckCapacity}까지 싣는다. 초당 ${w.truckCellsPerSecond}칸을 가고, 새 칸에 들어설 때마다 연료비로 ${w.fuelPerCell}씩 든다.`,
+          `트럭은 ${w.trucks}대이고 한 대에 ${w.truckCapacity}까지 싣는다. 초당 ${w.truckCellsPerSecond}칸을 가고 새 칸에 들어설 때마다 연료비로 ${w.fuelPerCell}씩 든다.`,
           '길은 격자선을 따라 가로 먼저, 그다음 세로로 간다.',
           `회수: ${code(`io.dispatch(truck, 밭 id, "${f.id}", amount)`)}. 트럭이 밭에 닿을 때 min(amount, 출고함, ${w.truckCapacity})만큼 싣고 돌아와 재고에 넣는다.`,
           `배달: ${code(`io.dispatch(truck, "${f.id}", 주거지 id, amount)`)}. 떠날 때 min(amount, 재고, ${w.truckCapacity})만큼 싣고 주거지에 내려 준 뒤 빈 차로 돌아온다. 재고가 1보다 적으면 떠나지 않는다.`,
           '손의 [트럭 보내기]도 같은 일을 한다. 대기 중인 트럭만 떠난다.',
           `재고는 하루에 ${w.spoilagePctPerDay}%씩 상한다(하루의 마지막 순간에 한 번, 그때의 재고에서 덜어 낸다).`,
-          `주거지 블록마다 주민 ${h.residents}명이 살고, 한 명이 하루 ${h.foodPerPersonPerDay}씩 먹는다. 먹을 것이 떨어지면 굶고 세금을 내지 않는다. 먹고 전기가 들어오는 주민은 한 명당 하루 ${h.taxPerPersonPerDay}씩 세금을 낸다.`,
+          `주거지 블록마다 주민 ${h.residents}명이 살고 한 명이 하루 ${h.foodPerPersonPerDay}씩 먹는다. 먹을 것이 떨어지면 굶고 세금을 내지 않는다. 먹고 전기가 들어오는 주민은 한 명당 하루 ${h.taxPerPersonPerDay}씩 세금을 낸다.`,
           `시즌을 시작할 때 주거지 블록마다 식량이 ${h.startFood}만큼 있다.`,
           '창고가 부서지면 새 트럭을 보낼 수 없다. 이미 길에 있는 트럭은 하던 일을 마친다.',
         ]),
@@ -354,8 +354,8 @@ function commonSections(scenario: Scenario): Section[] {
       title: '실행 모델',
       blocks: [
         list([
-          `보드는 CPU의 클럭 박자마다 ${code('tick(io, mem)')}을 한 번 부른다. 보드가 깨어 있고, 전력을 받고, 그 시설이 부서지지 않았을 때만 돈다.`,
-          `세계는 1초에 ${time.stepsPerSecond} 스텝씩 흐르고, 보드는 자기 박자가 온 스텝에서만 펌웨어를 실행한다. 박자 사이에도 세계는 움직이므로 클럭이 느린 보드는 그만큼 늦게 알아챈다.`,
+          `보드는 CPU의 클럭 박자마다 ${code('tick(io, mem)')}을 한 번 부른다. 보드가 깨어 있고 전력을 받으며 그 시설이 부서지지 않았을 때만 돈다.`,
+          `세계는 1초에 ${time.stepsPerSecond} 스텝씩 흐르고 보드는 자기 박자가 온 스텝에서만 펌웨어를 실행한다. 박자 사이에도 세계는 움직이므로 클럭이 느린 보드는 그만큼 늦게 알아챈다.`,
           `하루는 ${day}초, 시즌은 ${time.seasonDays}일이다. ${code('io.day')}는 시즌의 날(1부터), ${code('io.clock')}은 시즌이 시작된 뒤 흐른 게임 초다.`,
           `센서 값은 틱마다 ${code('io')}에 새로 쓰인다. 목록과 표로 된 센서(예: ${code('io.farms')})의 값도 틱마다 다시 쓰이므로, 펌웨어가 그 값을 바꿔도 다음 틱에는 센서가 읽은 값으로 돌아온다.`,
           `행동은 틱 동안 쌓였다가 틱이 끝나면 차례로 적용된다. 한 틱에 쌓을 수 있는 행동은 숫자 64개 분량이다: ${code('process')}, ${code('cool')}, ${code('harvest')}는 1, ${code('set_thermal')}과 ${code('sleep')}은 2, ${code('dispatch')}는 5, ${code('set_priority')}는 2에 id 수를 더한 만큼. 다 들어가지 않는 행동은 통째로 버려진다.`,
@@ -376,9 +376,9 @@ function commonSections(scenario: Scenario): Section[] {
       title: '배포',
       blocks: [
         list([
-          '배포하면 먼저 문법을 검사한다. 문법 오류는 줄 번호와 함께 거부되고, 원래 펌웨어가 계속 돈다.',
-          '받아들여진 펌웨어는 그 보드의 다음 틱에 설치되고, 버전 번호가 하나 오른다. 보드가 자고 있거나, 전력이 끊겼거나, 부서졌으면 그것이 풀린 뒤의 첫 틱에 설치된다.',
-          `설치하는 틱에는 펌웨어의 맨 바깥 코드(메인 청크)가 먼저 돌고, 이어서 ${code('tick')}이 돈다. 메인 청크가 에러로 끝나면 그 틱이 실패하고, ${code('tick')}을 정의하기 전에 실패했다면 다음 배포가 설치될 때까지 매 틱 "noTick: the last deploy failed to install"과 원래 에러를 남긴다.`,
+          '배포하면 먼저 문법을 검사한다. 문법 오류는 줄 번호와 함께 거부되고 원래 펌웨어가 계속 돈다.',
+          '검사를 통과한 펌웨어는 그 보드의 다음 틱에 설치되고 버전 번호가 하나 오른다. 보드가 자고 있거나 전력이 끊겼거나 부서졌으면 그 상태가 풀린 뒤의 첫 틱에 설치된다.',
+          `설치하는 틱에는 펌웨어의 맨 바깥 코드(메인 청크)가 먼저 돌고 이어서 ${code('tick')}이 돈다. 메인 청크가 에러로 끝나면 그 틱이 실패한다. ${code('tick')}을 정의하기 전에 실패했다면 다음 배포가 설치될 때까지 매 틱 "noTick: the last deploy failed to install"과 원래 에러를 남긴다.`,
           `${code('tick')}을 정의하지 않은 펌웨어는 매 틱 "noTick: firmware defines no tick(io, mem) function"을 남긴다.`,
         ]),
       ],
@@ -387,9 +387,9 @@ function commonSections(scenario: Scenario): Section[] {
       title: '오류와 로그',
       blocks: [
         list([
-          '런타임 에러, 명령어 상한 초과, RAM 부족은 그 틱 하나만 실패시킨다. 실패한 틱은 로그에 남고 펌웨어 에러 알림이 뜨며, 다음 틱은 평소대로 돈다.',
-          `실패한 틱의 행동은 모두 버려지지만, 그 틱의 로그 줄과 ${code('mem')}에 쓴 값은 남는다.`,
-          `로그는 보드마다 최근 ${LOG_LIMIT}줄이고, 줄마다 게임 시각이 붙는다. ${code('io.log')}가 남긴 줄, 에러, 시스템 사건(설치, 휴면, 깨어남, 파괴, 재건, 정전과 복구)이 들어간다.`,
+          '런타임 에러, 명령어 상한 초과, RAM 부족은 그 틱 하나만 실패시킨다. 실패한 틱은 로그에 남고 펌웨어 에러 알림이 뜬다. 다음 틱은 평소대로 돈다.',
+          `실패한 틱의 행동은 모두 버려지지만 그 틱의 로그 줄과 ${code('mem')}에 쓴 값은 남는다.`,
+          `로그는 보드마다 최근 ${LOG_LIMIT}줄이고 줄마다 게임 시각이 붙는다. ${code('io.log')}가 남긴 줄, 에러, 시스템 사건(설치, 휴면, 깨어남, 파괴, 재건, 정전과 복구)이 들어간다.`,
           '같은 줄이 연달아 오면 한 줄로 접히고 ×N이 붙는다. 사이에 다른 줄이 끼면 새 줄이 된다.',
           quiet > 0
             ? `보드의 시설이 전력망에서 끊기면 "power lost"가, 끊긴 뒤 ${quiet}초 동안 한 번도 끊기지 않으면 "power back (steady for ${quiet} s)"가 남는다. 깜빡이는 동안에는 "power lost"만 접혀서 쌓인다.`
@@ -401,13 +401,13 @@ function commonSections(scenario: Scenario): Section[] {
       title: 'CPU와 RAM',
       blocks: [
         list([
-          '한 틱에 실행할 수 있는 명령어 수는 보드마다 정해진 상한까지다(각 보드의 부품 표). 상한에 닿으면 그 틱은 "CPU limit exceeded"로 중단되고, 전자파 계산에서는 상한을 다 쓴 것으로 센다. 무한 루프에 빠진 보드는 마을에서 가장 시끄러운 보드가 된다.',
+          '한 틱에 실행할 수 있는 명령어 수는 보드마다 정해진 상한까지다(각 보드의 부품 표). 상한에 닿으면 그 틱은 "CPU limit exceeded"로 중단되고 전자파 계산에서는 상한을 다 쓴 것으로 센다. 무한 루프에 빠진 보드는 마을에서 가장 시끄러운 보드가 된다.',
           `${code('pcall')}도 코루틴도 이 상한을 피하지 못한다.`,
           `일을 많이 하는 내장 함수(${code('string.rep')}, ${code('table.concat')}, ${code('table.sort')} 등)는 그 일의 양만큼 명령어를 쓴다.`,
           `RAM은 고정된 기준선 위의 펌웨어 데이터다: ${code('mem')}, 전역 변수, 틱이 할당한 것. 코드는 RAM에 세지 않는다. 넘으면 그 틱은 "out of RAM"으로 실패한다.`,
           `"out of RAM" 뒤에도 ${code('mem')}은 데이터를 그대로 들고 있다. 그러니 새 펌웨어는 첫 틱에 ${code('mem')}에서 필요 없는 것부터 비워야 한다. 그 첫 틱에는 약간의 여유가 더 주어진다.`,
-          '보고되는 RAM 사용량은 아직 수거되지 않은 쓰레기까지 센다. 그래서 무언가를 비운 직후에도 높게 나올 수 있다. 쓰레기만으로 "out of RAM"이 나지는 않는다: 할당을 거부하기 전에 먼저 수거한다.',
-          `함수 호출의 스택(깊은 재귀)도 RAM을 쓴다. 보고되는 RAM 사용량은 틱이 끝난 뒤에 잰 값이라서, 틱 도중에 호출이 깊어졌다가 풀렸다면 사용량이 낮게 읽혀도 그 틱은 "out of RAM"으로 실패할 수 있다. 재귀는 깊이를 제한하거나 반복문으로 바꾼다.`,
+          '보고되는 RAM 사용량은 아직 수거되지 않은 쓰레기까지 센다. 그래서 무언가를 비운 직후에도 높게 나올 수 있다. 쓰레기만으로 "out of RAM"이 나지는 않는다. 할당을 거부하기 전에 먼저 수거하기 때문이다.',
+          `함수 호출의 스택(깊은 재귀)도 RAM을 쓴다. 보고되는 RAM 사용량은 틱이 끝난 뒤에 잰 값이라서 틱 도중에 호출이 깊어졌다가 풀렸다면 사용량이 낮게 읽혀도 그 틱은 "out of RAM"으로 실패할 수 있다. 재귀는 깊이를 제한하거나 반복문으로 바꾼다.`,
         ]),
       ],
     },
@@ -418,11 +418,11 @@ function commonSections(scenario: Scenario): Section[] {
           `쓸 수 있는 것: 기본 라이브러리(${code('pairs')}, ${code('ipairs')}, ${code('pcall')}, ${code('setmetatable')} 등), ${code('string')}, ${code('table')}, ${code('math')}, ${code('coroutine')}.`,
           `없는 것: ${code('os')}, ${code('io')} 라이브러리, ${code('load')}, ${code('require')}, ${code('debug')}, ${code('collectgarbage')}, ${code('utf8')}, ${code('string.dump')}, ${code('string.pack')}, ${code('string.unpack')}.`,
           `${code('string.find')}는 패턴 없이 글자 그대로만 찾는다. ${code('string.match')}, ${code('string.gmatch')}, ${code('string.gsub')}는 없다.`,
-          `${code('math.randomseed')}는 없고, ${code('math.random')}은 보드마다 정해진 씨앗으로 시작한다.`,
+          `${code('math.randomseed')}는 없고 ${code('math.random')}은 보드마다 정해진 시드로 시작한다.`,
           `${code('__tostring')}이 없는 표나 함수를 ${code('tostring')}하면 종류만 나온다. 주소는 어디에서도 보이지 않는다. ${code('string.format')}은 ${code('%p')}를 거부한다.`,
           `${code('setmetatable')}은 ${code('__gc')}와 ${code('__mode')}를 거부한다.`,
           `${code('coroutine.close')}는 없다. 에러로 끝난 코루틴은 닫히지 않아서 그 ${code('<close>')} 핸들러가 돌지 않는다.`,
-          `${code('xpcall')}의 핸들러는 스택이 풀린 뒤에 돌고, 명령어 상한에 닿은 뒤에는 돌지 않는다.`,
+          `${code('xpcall')}의 핸들러는 스택이 풀린 뒤에 돌고 명령어 상한에 닿은 뒤에는 돌지 않는다.`,
           `${code('pairs')}나 ${code('next')}로 도는 중에 표에 키를 더하면 순서가 정해지지 않는다.`,
         ]),
       ],
@@ -431,10 +431,10 @@ function commonSections(scenario: Scenario): Section[] {
       title: '깊은 휴면',
       blocks: [
         list([
-          `${code('io.sleep(seconds)')}는 보드를 1~${t.maxSleepSeconds}초 동안 재운다. 범위 밖의 숫자는 이 범위로 맞춰지고, 숫자가 아닌 값은 그 틱을 에러로 끝낸다. 틱이 끝나면 잠든다. 잠든 보드는 전자파를 내지 않고 전력은 ${t.sleepPower}만 쓴다.`,
-          `휴면은 RAM을 지운다: 깨어나면 ${code('mem')}과 전역 변수가 비어 있고, 펌웨어가 처음부터 다시 설치된다.`,
-          `같은 틱에서 ${code('io.sleep()')} 뒤에 부른 행동은 버려지고, 앞에 부른 행동은 적용된다.`,
-          '보드가 자는 동안에도 시설은 멈추지 않는다. 손으로 돌릴 수 있고, 시설의 설정(화력 출력, 공급 순서)과 이미 시작된 데이터센터의 작업과 냉각은 그대로 간다.',
+          `${code('io.sleep(seconds)')}는 보드를 1~${t.maxSleepSeconds}초 동안 재운다. 범위 밖의 숫자는 이 범위로 맞춰지고 숫자가 아닌 값은 그 틱을 에러로 끝낸다. 틱이 끝나면 잠든다. 잠든 보드는 전자파를 내지 않고 전력은 ${t.sleepPower}만 쓴다.`,
+          `휴면은 RAM을 지운다: 깨어나면 ${code('mem')}과 전역 변수가 비어 있고 펌웨어가 처음부터 다시 설치된다.`,
+          `같은 틱에서 ${code('io.sleep()')} 뒤에 부른 행동은 버려지고 앞에 부른 행동은 적용된다.`,
+          '보드가 자는 동안에도 시설은 멈추지 않는다. 손으로 돌릴 수 있고 시설의 설정(화력 출력, 공급 순서)과 이미 시작된 데이터센터의 작업과 냉각은 그대로 간다.',
         ]),
       ],
     },
@@ -445,8 +445,8 @@ function commonSections(scenario: Scenario): Section[] {
           '발전소의 발전량(풍력과 화력)이 모든 시설에 나뉜다. 전력은 저장되지 않는다.',
           `시설의 수요는 이것들의 합이다: 보드(깨어 있으면 부품 표의 전력, 자면 ${t.sleepPower}), 데이터센터의 처리(${dc.processPower})와 냉각(${dc.coolingPower}), 주거지 블록마다 ${t.housing.power}. 부서졌거나 수리 중인 시설은 아무것도 쓰지 않는다.`,
           `송전 손실: 발전소에서 한 칸 멀어질 때마다 그 시설의 수요가 ${t.transmissionLossPctPerCell}%씩 늘어난다.`,
-          `한 스텝의 발전량이 모자라면 공급 순서가 낮은 시설부터 통째로 끊긴다. 공급 순서는 발전소가 정한다(발전소 보드의 ${code('set_priority')}, 또는 손으로). 정하지 않은 시설은 지도 순서로 뒤에 온다. 발전소 자신의 보드는 끊기지 않는다.`,
-          `전력이 끊긴 보드는 틱을 돌리지 않고 ${code('mem')}은 그대로 둔다. 시설은 손으로 돌릴 수 있지만, 데이터센터의 처리와 냉각처럼 전력이 드는 일은 멈춘다. 주거지가 끊기면 그 주민은 세금을 내지 않는다.`,
+          `한 스텝의 발전량이 모자라면 공급 순서가 낮은 시설부터 통째로 끊긴다. 공급 순서는 발전소가 정한다(발전소 보드의 ${code('set_priority')}, 또는 손으로). 정하지 않은 시설은 지도 순서로 뒤에 온다. 발전소의 보드는 끊기지 않는다.`,
+          `전력이 끊긴 보드는 틱을 돌리지 않고 ${code('mem')}은 그대로 둔다. 시설은 손으로 돌릴 수 있지만 데이터센터의 처리와 냉각처럼 전력이 드는 일은 멈춘다. 주거지가 끊기면 그 주민은 세금을 내지 않는다.`,
           quiet > 0
             ? `전력 부족 알림은 한 번 울리면, 마을이 ${quiet}초 동안 한 번도 끊기지 않아야 다시 울린다.`
             : '전력 부족 알림은 시설이 다시 끊길 때마다 울린다.',
@@ -477,10 +477,10 @@ function commonSections(scenario: Scenario): Section[] {
       blocks: [
         list([
           `깨어 있고 전력을 받는 보드는 아무 일을 안 해도 초당 기본 전자파(부품 표)를 낸다. 통신 모듈이 있으면 ${t.install.commBaseEmfPerSecond} 더 낸다.`,
-          `틱마다: 명령어 ${e.instructionsPerUnit}개마다 1, 그리고 펌웨어가 시킨 기계의 행동(${code('harvest')}, ${code('dispatch')}, ${code('set_thermal')}, ${code('set_priority')}, ${code('cool')}) 하나마다 ${e.perAction}. ${code('process')}, ${code('sleep')}, ${code('log')}는 행동으로 세지 않는다.`,
+          `틱마다: 명령어 ${e.instructionsPerUnit}개마다 1, 펌웨어가 시킨 기계의 행동(${code('harvest')}, ${code('dispatch')}, ${code('set_thermal')}, ${code('set_priority')}, ${code('cool')}) 하나마다 ${e.perAction}. ${code('process')}, ${code('sleep')}, ${code('log')}는 행동으로 세지 않는다.`,
           `데이터센터는 처리하는 동안 초당 ${e.processingPerSecond}의 전자파를 낸다. 손으로 [처리]를 눌렀든 펌웨어가 시켰든 같다.`,
           '사람이 손으로 하는 일(수확, 트럭 보내기, 화력과 공급 순서 정하기)은 전자파가 없다.',
-          `전자파는 그 시설의 칸에 쌓인다. 매초 각 칸이 이웃 네 칸에 ${e.diffusionPctPerSecond}%씩 나눠 주고, 지도 전체가 매초 ${e.decayPctPerSecond}%씩 줄어든다.`,
+          `전자파는 그 시설의 칸에 쌓인다. 매초 각 칸이 이웃 네 칸에 ${e.diffusionPctPerSecond}%씩 나눠 주고 지도 전체가 매초 ${e.decayPctPerSecond}%씩 줄어든다.`,
           `소문 게이지가 매초 지도 전체의 전자파를 모은다. ${e.rumourThreshold}에 닿을 때마다 러다이트 무리가 나타나고 게이지는 비워진다. 시끄러운 마을일수록 자주 습격받는다.`,
         ]),
       ],
@@ -489,13 +489,13 @@ function commonSections(scenario: Scenario): Section[] {
       title: '러다이트와 화재',
       blocks: [
         list([
-          `무리는 ${l.groupSize}명이고, 지도 가장자리의 한 점에서 나타난다.`,
-          `초당 ${l.cellsPerSecond}칸씩 걷고, 칸마다 감지되는 가장 강한 전자파로 다시 겨눈다. 감지되는 것은 전자파가 ${e.detectionThreshold} 이상인 칸이고, 노리는 것은 기계다: 보드가 돌거나 자고 있는 시설, 그리고 처리하는 중인 데이터센터(보드가 없어도 된다). 손으로만 돌리는 시설과 보드 없이 쉬는 데이터센터는 표적이 아니다.`,
+          `무리는 ${l.groupSize}명이고 지도 가장자리의 한 점에서 나타난다.`,
+          `초당 ${l.cellsPerSecond}칸씩 걷고 칸마다 감지되는 가장 강한 전자파로 다시 겨눈다. 전자파가 ${e.detectionThreshold} 이상인 칸만 감지된다. 무리는 기계를 노린다: 보드가 돌거나 자고 있는 시설과 처리하는 중인 데이터센터(보드가 없어도 된다). 손으로만 돌리는 시설과 보드 없이 쉬는 데이터센터는 표적이 아니다.`,
           '표적에 닿으면 그 시설을 보드째 통째로 부순다. 부서진 시설은 손으로도 돌릴 수 없다.',
-          `감지되는 것이 ${l.quietSecondsToLeave}초 동안 없으면 가장 가까운 가장자리로 떠난다.`,
+          `${l.quietSecondsToLeave}초 동안 아무것도 감지되지 않으면 가장 가까운 가장자리로 떠난다.`,
           `무리가 시설에서 ${l.approachCells}칸 안으로 들어오면 접근 알림이 뜬다.`,
           `데이터센터가 ${milli(dc.fireThresholdMilli)}°C를 넘으면 매초, 넘은 1°C마다 ${permille(dc.firePermillePerDegreePerSecond)}%의 확률로 불이 난다. 불도 데이터센터를 보드째 부순다.`,
-          `복구는 두 단계다. 먼저 시설을 수리하고(위의 표), 그다음 보드를 재건한다. 재건된 보드는 부품, 통신 모듈, 마지막 펌웨어를 그대로 가지고 돌아오고 ${code('mem')}은 비어 있다. 수리와 재건은 플레이어만 할 수 있다.`,
+          `복구는 두 단계다. 먼저 시설을 수리하고(위의 표) 그다음 보드를 재건한다. 재건된 보드는 부품, 통신 모듈, 마지막 펌웨어를 그대로 가지고 돌아오고 ${code('mem')}은 비어 있다. 수리와 재건은 플레이어만 할 수 있다.`,
         ]),
       ],
     },
@@ -521,7 +521,7 @@ export function boardManual(scenario: Scenario, facilityId: string): string | nu
   const name = KIND_NAMES[kind];
   return [
     `# ${f.id} 보드 매뉴얼: ${name}`,
-    `이 문서는 ${code(f.id)} 보드(${name}, 지도의 (${f.x}, ${f.y}))의 펌웨어를 직접 작성하는 데 필요한 것을 모두 담고 있다. 펌웨어는 Lua 5.4로 쓰고, 게임 안 편집기에서 배포한다. 모든 숫자는 이 마을의 설정 그대로다. 먼저 모든 보드에 공통인 규칙이 오고, 그다음 이 보드만의 규칙이 온다.`,
+    `이 문서에는 ${code(f.id)} 보드(${name}, 지도의 (${f.x}, ${f.y}))의 펌웨어를 직접 작성하는 데 필요한 것이 모두 있다. 펌웨어는 Lua 5.4로 쓰고 게임 안 편집기에서 배포한다. 모든 숫자는 이 마을의 설정 그대로다. 먼저 모든 보드에 공통인 규칙이 오고 그다음 이 보드만의 규칙이 온다.`,
     '## 공통 규칙',
     render(commonSections(scenario), 3),
     render(boardSections(scenario, f, kind, board), 2),
@@ -533,7 +533,7 @@ export function manualIndex(scenario: Scenario): string {
   const slots = scenario.facilities.filter((f) => takesBoard(f.kind) && f.board !== null);
   return [
     '# 매뉴얼 목차',
-    `이 마을에서 보드를 달 수 있는 시설은 ${slots.length}곳이다. 보드마다 매뉴얼이 있고, 모든 매뉴얼은 아래의 공통 규칙으로 시작한다.`,
+    `이 마을에서 보드를 달 수 있는 시설은 ${slots.length}곳이다. 보드마다 매뉴얼이 있고 모든 매뉴얼은 아래의 공통 규칙으로 시작한다.`,
     list(slots.map((f) => `${code(f.id)}: ${KIND_NAMES[f.kind]}, (${f.x}, ${f.y})`)),
     '## 공통 규칙',
     render(commonSections(scenario), 3),
