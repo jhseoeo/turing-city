@@ -4,6 +4,7 @@ import { PRELUDE } from './prelude.ts';
 
 const REGISTRY = -1_001_000;
 const MASK_COUNT = 8;
+const T_NIL = 0;
 const T_NUMBER = 3;
 const T_STRING = 4;
 const ERR_MEM = 4;
@@ -67,6 +68,8 @@ export class BoardVm {
   private installError: string | null = null;
   /** The VM's own tables for the lists and records among the readings, by path, as registry references (see writeSensors). */
   private readonly tables = new Map<string, number>();
+  /** How many items the host last wrote into each list table, by path: all it ever clears from that list. */
+  private readonly listLengths = new Map<string, number>();
 
   private readonly lua: LuaWasm;
   private readonly options: BoardVmOptions;
@@ -235,7 +238,8 @@ export class BoardVm {
    * Writes a frame of readings into io, with raw access only, so that no firmware metamethod runs outside a tick. A list or a
    * record goes into a table the VM keeps for its path (`farms`, `farms/1`, ...) and fills again every tick. After the first
    * frame, writing the readings allocates nothing, so a tick leaves no garbage for the RAM reading to count: the host writes
-   * outside the RAM cap. A list that comes shorter loses its last items. A deploy drops the tables, so each firmware gets its own.
+   * outside the RAM cap. A list that comes shorter loses the last items the host wrote; what firmware adds to a table is its own.
+   * A deploy drops the tables, so each firmware gets its own.
    */
   private writeSensors(sensors: Readonly<Record<string, SensorValue>>): void {
     const { lua, L } = this;
@@ -263,10 +267,21 @@ export class BoardVm {
         this.pushValue(item, `${path}/${i + 1}`);
         lua.lua_rawseti(L, -2, BigInt(i + 1));
       });
-      for (let i = lua.lua_rawlen(L, -1); i > list.length; i--) {
+      // Clears the items the host wrote last frame past the new length, then the run of items firmware appended after them. Not
+      // down from the table's length: firmware can make a few sparse items report a length near 2^30, and this runs outside the
+      // cap. The run upward ends at the first nil, so it is no longer than what firmware could store in its RAM.
+      const wrote = this.listLengths.get(path) ?? 0;
+      for (let i = list.length + 1; i <= wrote; i++) {
         lua.lua_pushnil(L);
         lua.lua_rawseti(L, -2, BigInt(i));
       }
+      for (let i = Math.max(wrote, list.length) + 1; lua.lua_rawgeti(L, -1, BigInt(i)) !== T_NIL; i++) {
+        lua.lua_settop(L, -2);
+        lua.lua_pushnil(L);
+        lua.lua_rawseti(L, -2, BigInt(i));
+      }
+      lua.lua_settop(L, -2);
+      this.listLengths.set(path, list.length);
     } else {
       const fields = Object.entries(value as { readonly [key: string]: SensorValue });
       this.pushTable(path, 0, fields.length);
@@ -295,6 +310,7 @@ export class BoardVm {
   private dropSensorTables(): void {
     for (const ref of this.tables.values()) this.lua.luaL_unref(this.L, REGISTRY, ref);
     this.tables.clear();
+    this.listLengths.clear();
   }
 
   /** Reads and empties one of the prelude's lists, with raw access only. */

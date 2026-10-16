@@ -163,6 +163,20 @@ describe('hostile firmware', () => {
     expect(reports[1]?.elapsedMs).toBeLessThan(BUDGET_MS);
   });
 
+  it('clears a shorter list in bounded time, whatever length the firmware makes the list report', async () => {
+    // A few dozen items, then pairs at powers of two, make the border search report a length near 2^30. Clearing down from
+    // that length would run for minutes outside the cap: the host clears only the items it wrote itself.
+    const reports = await runTicks([
+      'function tick(io) local t = io.farms for i = 3, 40 do t[i] = 1 end local j = 32 while j <= (1 << 30) do t[j] = 1 t[j + 1] = 1 j = j * 2 end end',
+      null,
+    ]);
+    expect(reports).not.toBe('hung');
+    if (reports === 'hung') return;
+    expect(reports[0]?.kind).toBeNull();
+    expect(reports[1]?.kind).toBeNull();
+    expect(reports[1]?.elapsedMs).toBeLessThan(BUDGET_MS);
+  });
+
   it('does not close a coroutine that the cap killed, on a later tick either', async () => {
     // Tick 1 starts a coroutine with a <close> handler and the cap kills it: it dies with its hooks off. Closing it on
     // tick 2 with coroutine.close would run the handler uncounted. The sandbox has no coroutine.close, so tick 2 fails
