@@ -28,12 +28,15 @@ export function isProcessing(ctx: SimContext, facilityId: string, step: number):
 }
 
 /**
- * Why a datacenter can't start or extend a job at this step, or null: a cooling cycle runs (the user, 2026-10-16: processing and
- * cooling never run at once). Session.hand refuses with it; firmware's process() is ignored.
+ * Why a datacenter can't start a job at this step, or null: a cooling cycle runs (the user, 2026-10-16: processing and cooling never
+ * run at once), or a job already runs. Session.hand refuses with it; firmware's process() is ignored.
  */
 export function processProblem(ctx: SimContext, facilityId: string, step: number): string | null {
   const dc = ctx.world.datacenters[facilityId];
-  return dc && covers(dc.coolFrom, dc.coolUntil, step) ? 'a cooling cycle is running' : null;
+  if (!dc) return null;
+  if (covers(dc.coolFrom, dc.coolUntil, step)) return 'a cooling cycle is running';
+  // A job runs to its end: the next one waits for it (the user, 2026-10-16).
+  return covers(dc.busyFrom, dc.busyUntil, step) ? 'a job is running' : null;
 }
 
 /** How much of the window is left at this step, in per mille of its full length: 0 when the window doesn't cover the step. */

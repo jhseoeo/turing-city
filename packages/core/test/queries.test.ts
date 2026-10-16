@@ -296,7 +296,7 @@ describe('views in detail', () => {
     s.world.datacenters.DA!.tempMilli = 61_999;
     const snap = snapshot(s.ctx);
     // Phase 3 of step 7: 220 wind + 100 thermal against P 5, DA 10 + 150 (the job its tick at step 3 started runs through
-    // step 13) plus 2% of that for one cell (3), and DB 10 + 3. DA's tick at step 7 renewed the job, which covers step 8 too.
+    // step 13) plus 2% of that for one cell (3), and DB 10 + 3. DA's tick at step 7 did nothing: the job was still running.
     expect(snap.plant).toEqual({
       wind: 220,
       thermal: 100,
@@ -311,8 +311,8 @@ describe('views in detail', () => {
     const running = { status: 'running', powered: true, hasFirmware: true, erroring: false };
     expect(snap.facilities.map((f) => [f.id, f.demand, f.board, f.datacenter])).toEqual([
       ['P', 5, running, null],
-      // DA's job, renewed by its tick at 7, runs from step 8 for its whole 0.5 s: all of it is left.
-      ['DA', 163, running, { tempC: 61, processing: true, cooling: false, jobLeft: 1000, coolLeft: 0 }],
+      // DA's job runs steps 4 to 13: at step 8, 6 of its 10 steps are left.
+      ['DA', 163, running, { tempC: 61, processing: true, cooling: false, jobLeft: 600, coolLeft: 0 }],
       ['DB', 13, { ...running, erroring: true }, { tempC: 25, processing: false, cooling: false, jobLeft: 0, coolLeft: 0 }],
     ]);
     expect(snap.facilities[1]).toEqual({
@@ -326,7 +326,7 @@ describe('views in detail', () => {
       powered: true,
       demand: 163,
       board: running,
-      datacenter: { tempC: 61, processing: true, cooling: false, jobLeft: 1000, coolLeft: 0 },
+      datacenter: { tempC: 61, processing: true, cooling: false, jobLeft: 600, coolLeft: 0 },
       farm: null,
       warehouse: null,
       housing: null,

@@ -533,22 +533,42 @@ try {
   }
   check('↑ moves a facility up the supply order, to the top', startRank > 1 && (await priorityRow('DA')).rank === 1, `from ${startRank}`);
 
-  // ---- The datacenter by hand: [처리] mashed, then a cooling cycle (10-10 spec §4.3) ----
+  // ---- The datacenter by hand: [처리] runs one job to its end, then a cooling cycle (10-10 spec §4.3) ----
   await select('DA', '데이터센터 DA');
   const tempOf = async (): Promise<number> => Number(/온도\s*(\d+)°C/.exec(await textOf('#panel'))?.[1] ?? Number.NaN);
   const cold = await tempOf();
-  await agent.call('dev_play');
-  let processing = false;
-  for (let k = 0; k < 14; k++) {
-    await clickOn('#panel button', '처리');
-    await page.waitForTimeout(150);
-    if ((await textOf('#panel')).includes('처리 중')) processing = true;
-  }
-  await agent.call('dev_pause');
-  await page.waitForTimeout(300);
+  const processLabel = async (): Promise<string> => JSON.stringify(await buttonNamed('#panel', '처리'));
+  await clickOn('#panel button', '처리');
+  // A job runs to its end (the user, 2026-10-16): the button waits for it, and the gauge box shows the job.
+  check(
+    '[처리] starts a job, and the button waits for its end as 처리 중…',
+    await waitUntil(async () => {
+      const button = await buttonNamed('#panel', '처리');
+      return button?.disabled === true && button.text === '처리 중…';
+    }),
+    await processLabel(),
+  );
+  await clickOn('#panel button', '처리'); // a click on the waiting button does nothing
+  await run(0.5);
+  check(
+    'the job runs on to its end: half way through, the button still waits',
+    await waitUntil(async () => (await buttonNamed('#panel', '처리'))?.text === '처리 중…'),
+    await processLabel(),
+  );
+  await run(0.6);
+  check(
+    'once the job ends, [처리] can be pressed again',
+    await waitUntil(async () => {
+      const button = await buttonNamed('#panel', '처리');
+      return button?.disabled === false && button.text === '처리';
+    }),
+    await processLabel(),
+  );
+  await clickOn('#panel button', '처리'); // a second job
+  await run(1.1);
+  await waitUntil(async () => (await buttonNamed('#panel', '처리'))?.disabled === false);
   const hot = await tempOf();
-  check('mashing [처리] keeps the datacenter processing, and it heats up', processing && hot > cold, `${cold} -> ${hot} °C`);
-  await run(1); // the last press's job ends
+  check('two jobs heat the datacenter up', hot > cold, `${cold} -> ${hot} °C`);
   await clickOn('#panel button', '냉각');
   check(
     '[냉각] starts a cycle, and the button waits for its end',

@@ -110,15 +110,23 @@ describe('datacenters', () => {
     expect(s.world.ledger.datacenterIncome).toBe(20 * MICRO); // 40 a second for half a second
   });
 
-  it('does not stack presses: a press while it runs ends the job a half second after that press', () => {
+  it('runs a job to its end: a press while it runs is refused, and one after it starts the next job', () => {
     const s = powered();
     const dc = s.world.datacenters.DA!;
     s.hand('DA', { kind: 'process' }); // applies at step 0: steps 0 to 9
     steps(s, 5);
-    s.hand('DA', { kind: 'process' }); // applies at step 5, mid-job: now steps 0 to 14, not 0 to 19
+    expect(s.hand('DA', { kind: 'process' })).toEqual({
+      ok: false,
+      reason: 'DA: a job is running',
+      refusal: { code: 'cannotAct', facility: 'DA', detail: 'a job is running' },
+    }); // at step 5, mid-job: refused, and the job still ends after step 9
+    applyFacilityAction(s.ctx, fac(s, 'DA'), { kind: 'process' }, 6); // the same call from firmware is ignored
+    expect([dc.busyFrom, dc.busyUntil]).toEqual([0, 10]);
+    steps(s, 5); // through step 9, the job's last
+    expect(s.hand('DA', { kind: 'process' })).toEqual({ ok: true }); // at step 10: the next job, steps 10 to 19
+    expect([dc.busyFrom, dc.busyUntil]).toEqual([10, 20]);
     steps(s, 20);
-    expect([dc.busyFrom, dc.busyUntil]).toEqual([0, 15]);
-    expect(s.world.ledger.datacenterIncome).toBe(15 * 2 * MICRO); // steps 0 to 14, at 2 a step
+    expect(s.world.ledger.datacenterIncome).toBe(20 * 2 * MICRO); // steps 0 to 19, at 2 a step
   });
 
   it('charges and pays one process() call for half a second, longer than the tick period', () => {
@@ -133,27 +141,29 @@ describe('datacenters', () => {
     expect(paid).toEqual(job);
   });
 
-  it('runs without a gap while firmware calls process() on every beat', () => {
+  it('starts the next job on the first beat after one ends, while firmware calls process() on every beat', () => {
     const host = new FakeHost();
     const work = host.program('work', () => ({ actions: [{ kind: 'process' }] }));
     const s = holding(host);
     s.deploy('DA', work);
     const { charged, paid } = chargedAndPaid(s, 40);
-    const working = Array.from({ length: 37 }, (_, i) => i + 4); // from step 4 on: each beat, 4 steps apart, moves the end on
+    // Beats at steps 3, 7, 11, ... apply a step later. A job of 10 steps from step 4 ends after 13: the calls applying at 8 and 12
+    // do nothing, and the one at 16 starts the next job.
+    const job = (from: number): number[] => Array.from({ length: 10 }, (_, i) => from + i);
+    const working = [...job(4), ...job(16), ...job(28), 40];
     expect(charged).toEqual(working);
     expect(paid).toEqual(working);
   });
 
   it('earns the job price and gains the tuned heat for every second of work', () => {
-    const host = new FakeHost();
-    const work = host.program('work', () => ({ actions: [{ kind: 'process' }] }));
-    const s = holding(host);
+    const s = holding();
     const dc = s.world.datacenters.DA!;
     const { ambientMilli, heatMilliPerSecond } = s.scenario.tuning.datacenter;
-    s.deploy('DA', work);
-    steps(s, 4); // the job starts at step 4
     for (const seconds of [1, 2, 3]) {
-      steps(s, s.scenario.time.stepsPerSecond);
+      for (let job = 0; job < 2; job++) {
+        expect(s.hand('DA', { kind: 'process' })).toEqual({ ok: true }); // two jobs of half a second, back to back
+        steps(s, jobSteps(s.ctx));
+      }
       expect(s.world.ledger.datacenterIncome, `income after ${seconds} s`).toBe(seconds * s.world.jobPrice * MICRO);
       expect(dc.tempMilli, `temperature after ${seconds} s`).toBe(ambientMilli + seconds * heatMilliPerSecond);
     }

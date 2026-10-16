@@ -130,6 +130,12 @@ describe('panel rules: the hand', () => {
       reason: '냉각하는 동안에는 처리할 수 없어요',
     });
     const working = { tempC: 70, processing: true, cooling: false, jobLeft: 450, coolLeft: 0 };
+    // A job runs to its end: the button waits for it, as the game would refuse the press.
+    expect(processButton(facility({ datacenter: working }))).toEqual({
+      label: '처리 중…',
+      disabled: true,
+      reason: '처리가 끝나면 다시 누를 수 있어요',
+    });
     // One gauge, for what runs now, filling up: 450 left of a job is 550 done.
     expect(datacenterGauge(facility({ datacenter: working }))).toEqual({ label: '처리', kind: 'job', done: 550 });
     expect(datacenterGauge(facility({ datacenter: coolingNow }))).toEqual({ label: '냉각', kind: 'cool', done: 400 });

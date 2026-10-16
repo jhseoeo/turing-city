@@ -59,12 +59,13 @@ export function harvestButton(f: FacilityView): ButtonState {
 }
 
 /**
- * Each press runs the datacenter for a short job; mashing it keeps it running (10-10 spec §4.3). Not while a cooling cycle runs:
- * the two never run at once, and the game refuses the press.
+ * Each press runs the datacenter for one job, to its end: the button waits for it (a press during one would do nothing). Not while a
+ * cooling cycle runs either: the two never run at once, and the game refuses the press.
  */
 export function processButton(f: FacilityView): ButtonState {
   if (f.condition !== 'ok') return disabled('처리', DOWN);
   if ((f.datacenter?.coolLeft ?? 0) > 0) return disabled('처리', '냉각하는 동안에는 처리할 수 없어요');
+  if ((f.datacenter?.jobLeft ?? 0) > 0) return disabled('처리 중…', '처리가 끝나면 다시 누를 수 있어요');
   return enabled('처리');
 }
 

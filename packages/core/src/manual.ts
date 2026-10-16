@@ -145,7 +145,7 @@ function actionDocs(scenario: Scenario): Record<BoardKind | 'any', readonly Acti
     datacenter: [
       {
         call: 'io.process()',
-        meaning: `지금부터 ${milli(dc.jobMs)}초 동안 데이터센터를 돌린다. 이미 돌고 있으면 끝나는 시각을 지금부터 ${milli(dc.jobMs)}초 뒤로 다시 잡는다(쌓이지 않는다). 냉각 중이면 아무 일도 없다`,
+        meaning: `지금부터 ${milli(dc.jobMs)}초 동안 데이터센터를 돌린다. 이미 돌고 있거나 냉각 중이면 아무 일도 없다`,
       },
       {
         call: 'io.cool()',
@@ -217,11 +217,9 @@ function facilityRules(scenario: Scenario, f: FacilitySpec, kind: BoardKind, boa
     }
     case 'datacenter': {
       const dc = t.datacenter;
-      // Firmware that calls process() on every beat keeps the datacenter running when a job outlasts the beat.
-      const continuous = board.clockHz * dc.jobMs >= 1000;
       return [
         list([
-          `${code('io.process()')}와 손의 [처리]는 둘 다 데이터센터가 도는 끝 시각을 지금부터 ${milli(dc.jobMs)}초 뒤로 잡는다. ${continuous ? '이 보드가 박자마다 부르면 쉬지 않고 돈다' : '이 보드의 박자는 그보다 길어서 박자마다 불러도 사이사이 쉰다'}.`,
+          `${code('io.process()')}와 손의 [처리]는 둘 다 데이터센터를 지금부터 ${milli(dc.jobMs)}초 동안 돌린다. 한 번 시작한 처리는 끝까지 돌고, 도는 동안 다시 부르면 아무 일도 없다. 끝난 뒤에 불러야 새로 돈다.`,
           `처리하는 1초마다 그때의 단가(${code('price')})만큼 번다.`,
           `처리하는 동안 ${dc.processPower}의 전력을 더 쓰고 초당 ${milli(dc.heatMilliPerSecond)}°C씩 뜨거워지며 초당 ${t.emf.processingPerSecond}의 전자파를 낸다.`,
           `가만히 두면 매초 (온도 − ${milli(dc.ambientMilli)}°C)의 ${permille(dc.passiveCoolingPermillePerSecond)}%씩만 식는다. 아주 느리다.`,

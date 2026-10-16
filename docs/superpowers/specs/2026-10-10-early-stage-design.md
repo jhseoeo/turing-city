@@ -105,11 +105,11 @@ A facility always works by hand. A board automates it.
 | Farm | **[수확] (harvest):** harvests a ripe crop into the outbox and replants (`harvest()`). Disabled while nothing is ripe. |
 | Warehouse | **[트럭 보내기] (send a truck):** pick an idle truck, a trip, and an amount. A trip collects from a farm's outbox or delivers to a housing block, as `dispatch(truck, from, to, amount)` allows (10-09 §5.5). |
 | Power plant | **Thermal:** a slider for the thermal output from 0 to the module's maximum (`set_thermal`). **Supply order:** up and down buttons on the priority list (`set_priority`). |
-| Datacenter | **[처리] (process):** each press runs the datacenter for `datacenter.jobMs` from that moment. Presses don't stack: a press while it runs moves the end to `jobMs` after the press, so keeping it running means pressing again and again. Mashing it keeps the money coming, at the risk of power shortage, heat, fire, and EMF. **[냉각] (cool):** starts a cooling cycle. It lasts `datacenter.coolingCycleMs` and takes exactly `datacenter.coolingDropMilli` off the temperature, in even steps across the cycle (the rounding is spread over the steps, so the whole cycle takes off the full amount). It draws `datacenter.coolingPower` while it runs, more than processing. A press during a cycle does nothing (the button is disabled). **Processing and cooling never run at once** (the user, 2026-10-16): starting a cycle ends a running job, and while the cycle runs [처리] is disabled (the game refuses the press) and `process()` does nothing. Under its buttons the panel shows one gauge box for what the datacenter does now ("처리" or "냉각", or "대기" and empty), filling up as the job or the cycle runs its course; the map shows the same as a bar along the bottom of the datacenter's cell. Left alone, a datacenter cools very slowly (`datacenter.passiveCoolingPermillePerSecond`). |
+| Datacenter | **[처리] (process):** a press runs the datacenter for `datacenter.jobMs` from that moment, and the job runs to its end (the user, 2026-10-16): while it runs the button is disabled as "처리 중…" and the game refuses a press, so the next job starts only after this one ends. Keeping it running means pressing again each time the gauge fills. Each job brings money, at the risk of power shortage, heat, fire, and EMF. **[냉각] (cool):** starts a cooling cycle. It lasts `datacenter.coolingCycleMs` and takes exactly `datacenter.coolingDropMilli` off the temperature, in even steps across the cycle (the rounding is spread over the steps, so the whole cycle takes off the full amount). It draws `datacenter.coolingPower` while it runs, more than processing. A press during a cycle does nothing (the button is disabled). **Processing and cooling never run at once** (the user, 2026-10-16): starting a cycle ends a running job, and while the cycle runs [처리] is disabled (the game refuses the press) and `process()` does nothing. Under its buttons the panel shows one gauge box for what the datacenter does now ("처리" or "냉각", or "대기" and empty), filling up as the job or the cycle runs its course; the map shows the same as a bar along the bottom of the datacenter's cell. Left alone, a datacenter cools very slowly (`datacenter.passiveCoolingPermillePerSecond`). |
 | Housing | None. Housing has no board; it eats, uses power, and pays tax (10-09 §5.6). |
 
 **Hand and firmware share the datacenter's methods.** The buttons and the firmware call the same two:
-- `process()` runs the datacenter for `datacenter.jobMs` from now, without stacking. A firmware that calls it on every beat of a 5 Hz clock keeps the datacenter running.
+- `process()` runs the datacenter for `datacenter.jobMs` from now. While a job or a cooling cycle runs it does nothing. A firmware that calls it on every beat starts the next job on the first beat after one ends, so the datacenter rests for up to one beat between jobs.
 - `cool()` starts a cooling cycle, or does nothing while one runs. It replaces the 10-09 `cool(level)` and its levels.
 - Power, pay, heat, and processing EMF follow the time the datacenter runs, whoever pressed or called.
 - Processing and a cooling cycle never run at once: `cool()` ends a running job, and `process()` does nothing while a cycle runs.
@@ -311,7 +311,7 @@ These rules change 10-09 §8.
 | Board price (T1), `install.boardPrice` | farm 200, warehouse 400, power plant 400, datacenter 600 |
 | Comm module price (T2), `install.commPrice` | 300 |
 | Comm module base EMF, `install.commBaseEmfPerSecond` | +5 per second |
-| Datacenter job per press or `process()`, `datacenter.jobMs` | 1 s from that moment, no stacking (the user, 2026-10-16; was 500 ms) |
+| Datacenter job per press or `process()`, `datacenter.jobMs` | 1 s from that moment, run to its end; a press during it does nothing (the user, 2026-10-16; was 500 ms, and a press during it moved the end) |
 | Cooling cycle, `datacenter.coolingCycleMs` / `coolingDropMilli` / `coolingPower` | 5 s (the user, 2026-10-16; was 4 s) / 15 °C over the cycle, the heat of 7 to 8 one-second presses at +2 °C per second / 250 while it runs |
 | Passive cooling, `datacenter.passiveCoolingPermillePerSecond` | 0.3% of (temperature − 25 °C) per second (10-09: 2%), so a datacenter left alone cools very slowly |
 | Facility repair, `repair.cost` / `repair.seconds` | farm 150, warehouse 300, power plant 300, datacenter 500 / half a day (20 s); the board's rebuild after it is the 10-09 rebuild (500, half a day) |
@@ -333,7 +333,7 @@ These rules change 10-09 §8.
   - installs and their prices;
   - manual actions on each facility, and a hand and firmware changing the same setting;
   - EMF: nothing from hands, and processing EMF whoever started the job;
-  - the datacenter's methods: a press or `process()` runs it 1 s without stacking, never during a cooling cycle, and a cooling cycle takes its drop over its seconds, draws its power, and ignores a second press;
+  - the datacenter's methods: a press or `process()` runs it 1 s to its end, never during a running job or a cooling cycle, and a cooling cycle takes its drop over its seconds, draws its power, and ignores a second press;
   - Luddites and fire wreck the facility they hit, board and all; a wrecked facility can't be worked by hand; repair, then the board's rebuild, bring each back;
   - a sleeping or shed board leaves its facility working;
   - no fall ending;
@@ -352,7 +352,7 @@ These rules change 10-09 §8.
   - the start screen with no agent, and the guide card: shown, ticked away, opened again;
   - each manual control:
     - the thermal slider and the supply order;
-    - mashing [처리], and a cooling cycle from [냉각];
+    - [처리] running one job to its end (the button waits as 처리 중…), and a cooling cycle from [냉각];
     - [수확];
     - the truck form, collecting and then delivering, with the warehouse's routes on the map;
   - installing a board and a comm module, and the agent reaching the board only at T2;

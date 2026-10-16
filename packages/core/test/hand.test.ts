@@ -53,12 +53,12 @@ describe('facility actions from the hand and from firmware', () => {
     expect(s.world.ledger.datacenterIncome - before).toBe(20 * MICRO); // 40 a second for half a second
   });
 
-  it('does not stack presses: a press while the job runs ends it half a second after that press', () => {
+  it('refuses a press while the job runs: the job runs to its end, half a second after the first press', () => {
     const s = quiet();
     s.hand('DA', { kind: 'process' });
     steps(s, 5);
-    s.hand('DA', { kind: 'process' });
-    expect(windows(s, 'DA').busy).toEqual([0, 15]);
+    expect(s.hand('DA', { kind: 'process' })).toMatchObject({ ok: false, refusal: { code: 'cannotAct', detail: 'a job is running' } });
+    expect(windows(s, 'DA').busy).toEqual([0, 10]);
   });
 
   it('starts a cooling cycle at once, ignores a press during it, and starts a new one after it', () => {

@@ -44,13 +44,12 @@ export function applyFacilityAction(ctx: SimContext, facility: FacilityState, ac
   const t = ctx.scenario.tuning;
   switch (action.kind) {
     case 'process': {
-      // A job runs jobMs from its start. A press while one runs doesn't stack: the job ends jobMs after the latest press. No job
-      // starts or grows while a cooling cycle runs.
+      // A job runs jobMs from its start, to its end: a press while one runs does nothing (the user, 2026-10-16: the next job waits for
+      // this one to finish). No job starts while a cooling cycle runs.
       const dc = w.datacenters[facility.id]!;
       if (processProblem(ctx, facility.id, startStep) !== null) break;
-      const running = dc.busyFrom <= startStep && startStep < dc.busyUntil;
-      if (!running) dc.busyFrom = startStep;
-      dc.busyUntil = Math.max(dc.busyUntil, startStep + jobSteps(ctx));
+      dc.busyFrom = startStep;
+      dc.busyUntil = startStep + jobSteps(ctx);
       break;
     }
     case 'cool': {
