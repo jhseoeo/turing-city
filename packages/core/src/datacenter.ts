@@ -27,6 +27,21 @@ export function isProcessing(ctx: SimContext, facilityId: string, step: number):
   return !!f && !!dc && f.condition === 'ok' && f.powered && covers(dc.busyFrom, dc.busyUntil, step);
 }
 
+/**
+ * Why a datacenter can't start or extend a job at this step, or null: a cooling cycle runs (the user, 2026-10-16: processing and
+ * cooling never run at once). Session.hand refuses with it; firmware's process() is ignored.
+ */
+export function processProblem(ctx: SimContext, facilityId: string, step: number): string | null {
+  const dc = ctx.world.datacenters[facilityId];
+  return dc && covers(dc.coolFrom, dc.coolUntil, step) ? 'a cooling cycle is running' : null;
+}
+
+/** How much of the window is left at this step, in per mille of its full length: 0 when the window doesn't cover the step. */
+export function windowLeft(from: number, until: number, length: number, step: number): number {
+  if (!covers(from, until, step) || length <= 0) return 0;
+  return Math.min(1000, idiv((until - step) * 1000, length));
+}
+
 /** Whether a datacenter's cooling cycle runs at this step: the cycle covers the step, it stands, and the grid supplies it. */
 export function isCooling(ctx: SimContext, facilityId: string, step: number): boolean {
   const f = findFacility(ctx.world, facilityId);

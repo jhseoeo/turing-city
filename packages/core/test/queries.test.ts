@@ -311,8 +311,9 @@ describe('views in detail', () => {
     const running = { status: 'running', powered: true, hasFirmware: true, erroring: false };
     expect(snap.facilities.map((f) => [f.id, f.demand, f.board, f.datacenter])).toEqual([
       ['P', 5, running, null],
-      ['DA', 163, running, { tempC: 61, processing: true, cooling: false }],
-      ['DB', 13, { ...running, erroring: true }, { tempC: 25, processing: false, cooling: false }],
+      // DA's job, renewed by its tick at 7, runs from step 8 for its whole 0.5 s: all of it is left.
+      ['DA', 163, running, { tempC: 61, processing: true, cooling: false, jobLeft: 1000, coolLeft: 0 }],
+      ['DB', 13, { ...running, erroring: true }, { tempC: 25, processing: false, cooling: false, jobLeft: 0, coolLeft: 0 }],
     ]);
     expect(snap.facilities[1]).toEqual({
       id: 'DA',
@@ -325,15 +326,19 @@ describe('views in detail', () => {
       powered: true,
       demand: 163,
       board: running,
-      datacenter: { tempC: 61, processing: true, cooling: false },
+      datacenter: { tempC: 61, processing: true, cooling: false, jobLeft: 1000, coolLeft: 0 },
       farm: null,
       warehouse: null,
       housing: null,
     });
-    // A cooling cycle that covers this step: the datacenter shows it, and draws its 400 on top: 560, and 2% of that (11).
+    // A cooling cycle that covers this step, which ends the job: the datacenter shows it, and draws 10 + 400, and 2% of that (8).
+    s.world.datacenters.DA!.busyUntil = 8;
     s.world.datacenters.DA!.coolFrom = 8;
     s.world.datacenters.DA!.coolUntil = 88;
-    expect(snapshot(s.ctx).facilities[1]).toMatchObject({ demand: 571, datacenter: { processing: true, cooling: true } });
+    expect(snapshot(s.ctx).facilities[1]).toMatchObject({
+      demand: 418,
+      datacenter: { processing: false, cooling: true, jobLeft: 0, coolLeft: 1000 },
+    });
     expect(snap.trucks).toEqual([]);
     expect(snap.town).toEqual({ food: 0, population: { fed: 0, hungry: 0, unpowered: 0 } });
   });
@@ -535,7 +540,7 @@ describe('views of the whole town', () => {
     s.install('DA', 'board');
     for (let i = 0; i < 20; i++) s.step(); // a second: the crops planted at step 0 are ripe
     const w = s.world;
-    w.datacenters.DA = { tempMilli: 61_999, busyFrom: 20, busyUntil: 30, coolFrom: 20, coolUntil: 100 };
+    w.datacenters.DA = { tempMilli: 61_999, busyFrom: 15, busyUntil: 30, coolFrom: -1, coolUntil: -1 }; // 10 of 20 steps left
     w.farms.F2!.plantedAt = 10; // half ripe
     w.farms.F3!.outbox = 33;
     w.warehouses.W!.stockMilli = 12_999;
@@ -562,7 +567,7 @@ describe('views of the whole town', () => {
       warehouse: null,
       housing: null,
     };
-    // DA processes and cools on top of its board: 10 + 150 + 250, and 2% of that for one cell (8).
+    // DA processes on top of its board: 10 + 150, and 2% of that for one cell (3).
     expect(view('DA')).toEqual({
       ...plain,
       id: 'DA',
@@ -570,9 +575,18 @@ describe('views of the whole town', () => {
       x: 5,
       y: 4,
       tier: 1,
-      demand: 418,
+      demand: 163,
       board: { status: 'running', powered: true, hasFirmware: false, erroring: false },
-      datacenter: { tempC: 61, processing: true, cooling: true },
+      datacenter: { tempC: 61, processing: true, cooling: false, jobLeft: 500, coolLeft: 0 },
+    });
+    // A cooling cycle of 5 s (100 steps) that started 10 steps ago has 90% left.
+    w.datacenters.DA = { tempMilli: 61_999, busyFrom: -1, busyUntil: -1, coolFrom: 10, coolUntil: 110 };
+    expect(snapshot(s.ctx).facilities.find((f) => f.id === 'DA')!.datacenter).toEqual({
+      tempC: 61,
+      processing: false,
+      cooling: true,
+      jobLeft: 0,
+      coolLeft: 900,
     });
     expect(view('DB')).toEqual({
       ...plain,
@@ -582,7 +596,7 @@ describe('views of the whole town', () => {
       y: 8,
       tier: 0,
       demand: 0,
-      datacenter: { tempC: 25, processing: false, cooling: false },
+      datacenter: { tempC: 25, processing: false, cooling: false, jobLeft: 0, coolLeft: 0 },
     });
     expect(view('F1')).toEqual({
       ...plain,

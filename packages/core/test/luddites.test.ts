@@ -611,9 +611,9 @@ describe('Luddites', () => {
     });
     const is = (id: string): boolean => isMachine(s.ctx, fac(s, id), 0);
     expect(['H1', 'P', 'DA', 'W', 'DB', 'F1', 'F2'].map(is)).toEqual([false, false, false, false, false, true, false]);
-    s.hand('DA', { kind: 'process' }); // a job from step 0: 0.5 s
+    s.hand('DA', { kind: 'process' }); // a job from step 0: 1 s, 20 steps
     expect(is('DA')).toBe(true);
-    expect(isMachine(s.ctx, fac(s, 'DA'), 10), 'the job is over').toBe(false);
+    expect(isMachine(s.ctx, fac(s, 'DA'), 20), 'the job is over').toBe(false);
     const f1 = s.world.boards[0]!; // the town's only board
     f1.status = 'asleep';
     expect(is('F1')).toBe(true);

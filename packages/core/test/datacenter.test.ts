@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { applyFacilityAction } from '../src/actions.ts';
 import { coolSteps, datacenterDraw, isCooling, isProcessing, jobSteps, runDatacenters, runFires } from '../src/datacenter.ts';
 import { MICRO } from '../src/fixed.ts';
 import { facilityDemand } from '../src/power.ts';
@@ -190,16 +191,29 @@ describe('datacenters', () => {
     expect([dc.coolFrom, dc.coolUntil]).toEqual([80, 160]);
   });
 
-  it('runs work and a cooling cycle at the same time', () => {
+  it('never works and cools at once: a cooling cycle stops the job, and no job starts while it runs', () => {
     const s = holding();
     const dc = s.world.datacenters.DA!;
     dc.tempMilli = 80_000;
-    s.hand('DA', { kind: 'process' });
-    s.hand('DA', { kind: 'cool' });
-    steps(s, 10); // both apply at step 0; steps 0 to 9 work and cool
-    // +100 a step of work, and the cycle's first ten parts: 15,000 x 10 / 80 = 1,875
-    expect(dc.tempMilli).toBe(80_000 + 1_000 - 1_875);
-    expect(s.world.ledger.datacenterIncome).toBe(20 * MICRO);
+    expect(s.hand('DA', { kind: 'process' })).toEqual({ ok: true }); // a job from step 0, steps 0 to 9
+    steps(s, 4); // steps 0 to 3 work
+    expect(s.hand('DA', { kind: 'cool' })).toEqual({ ok: true }); // a cycle from step 4 stops the job there
+    expect([dc.busyFrom, dc.busyUntil, dc.coolFrom, dc.coolUntil]).toEqual([0, 4, 4, 84]);
+    // A press while it cools is refused, and changes nothing; the same call from firmware is ignored.
+    expect(s.hand('DA', { kind: 'process' })).toEqual({
+      ok: false,
+      reason: 'DA: a cooling cycle is running',
+      refusal: { code: 'cannotAct', facility: 'DA', detail: 'a cooling cycle is running' },
+    });
+    applyFacilityAction(s.ctx, fac(s, 'DA'), { kind: 'process' }, 5);
+    expect([dc.busyFrom, dc.busyUntil]).toEqual([0, 4]);
+    steps(s, 10); // steps 4 to 13 cool and don't work
+    // Four steps of work (+100 each), then ten parts of the cycle: 15,000 x 10 / 80 = 1,875.
+    expect(dc.tempMilli).toBe(80_000 + 400 - 1_875);
+    expect(s.world.ledger.datacenterIncome).toBe(8 * MICRO);
+    expect(isProcessing(s.ctx, 'DA', 13)).toBe(false);
+    steps(s, 70); // the cycle's last step is 83
+    expect(s.hand('DA', { kind: 'process' })).toEqual({ ok: true }); // at step 84 it works again
   });
 
   it('draws processing power on the steps of its job and cooling power on the steps of its cycle', () => {
@@ -251,8 +265,8 @@ describe('datacenters', () => {
     const s = town();
     expect(s.world.boards).toEqual([]); // the milestone-2 town starts with no board
     s.hand('DA', { kind: 'process' });
-    steps(s, 12);
-    expect(s.world.ledger.datacenterIncome).toBe(20 * MICRO);
+    steps(s, 12); // a job of 1 s covers steps 0 to 19: all twelve pay 40 / 20 a step
+    expect(s.world.ledger.datacenterIncome).toBe(24 * MICRO);
     expect(s.world.datacenters.DA!.tempMilli).toBeGreaterThan(25_000);
   });
 

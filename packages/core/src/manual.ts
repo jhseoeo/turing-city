@@ -145,11 +145,11 @@ function actionDocs(scenario: Scenario): Record<BoardKind | 'any', readonly Acti
     datacenter: [
       {
         call: 'io.process()',
-        meaning: `지금부터 ${milli(dc.jobMs)}초 동안 데이터센터를 돌린다. 이미 돌고 있으면 끝나는 시각을 지금부터 ${milli(dc.jobMs)}초 뒤로 다시 잡는다(쌓이지 않는다)`,
+        meaning: `지금부터 ${milli(dc.jobMs)}초 동안 데이터센터를 돌린다. 이미 돌고 있으면 끝나는 시각을 지금부터 ${milli(dc.jobMs)}초 뒤로 다시 잡는다(쌓이지 않는다). 냉각 중이면 아무 일도 없다`,
       },
       {
         call: 'io.cool()',
-        meaning: `냉각을 한 번 돌린다: ${milli(dc.coolingCycleMs)}초에 걸쳐 ${milli(dc.coolingDropMilli)}°C를 낮춘다. 냉각 중이면 아무 일도 없다`,
+        meaning: `냉각을 한 번 돌린다: ${milli(dc.coolingCycleMs)}초에 걸쳐 ${milli(dc.coolingDropMilli)}°C를 낮춘다. 돌던 처리는 거기서 끝난다. 냉각 중이면 아무 일도 없다`,
       },
     ],
     power: [
@@ -225,7 +225,7 @@ function facilityRules(scenario: Scenario, f: FacilitySpec, kind: BoardKind, boa
           `처리하는 1초마다 그때의 단가(${code('price')})만큼 번다.`,
           `처리하는 동안 ${dc.processPower}의 전력을 더 쓰고 초당 ${milli(dc.heatMilliPerSecond)}°C씩 뜨거워지며 초당 ${t.emf.processingPerSecond}의 전자파를 낸다.`,
           `가만히 두면 매초 (온도 − ${milli(dc.ambientMilli)}°C)의 ${permille(dc.passiveCoolingPermillePerSecond)}%씩만 식는다. 아주 느리다.`,
-          `${code('io.cool()')}과 손의 [냉각]은 둘 다 ${milli(dc.coolingCycleMs)}초에 걸쳐 고르게 ${milli(dc.coolingDropMilli)}°C를 낮추고 그동안 ${dc.coolingPower}의 전력을 쓴다. 냉각 중에 다시 부르면 아무 일도 없다. 처리와 냉각은 함께 돌 수 있다.`,
+          `${code('io.cool()')}과 손의 [냉각]은 둘 다 ${milli(dc.coolingCycleMs)}초에 걸쳐 고르게 ${milli(dc.coolingDropMilli)}°C를 낮추고 그동안 ${dc.coolingPower}의 전력을 쓴다. 냉각 중에 다시 부르면 아무 일도 없다. 처리와 냉각은 함께 돌지 않는다. 냉각을 시작하면 돌던 처리가 거기서 끝나고, 냉각하는 동안에는 ${code('io.process()')}가 아무 일도 하지 않으며 손의 [처리]는 눌리지 않는다.`,
           '전력이 끊기면 처리도 냉각도 멈춘다. 끊긴 동안에도 작업과 냉각 주기의 시간은 흘러가서 그 사이의 몫은 사라진다.',
           `${milli(dc.overheatAlertMilli)}°C에 닿으면 과열 알림이 뜬다. ${milli(dc.fireThresholdMilli)}°C를 넘으면 매초, 넘은 1°C마다 ${permille(dc.firePermillePerDegreePerSecond)}%의 확률로 불이 나서 데이터센터가 보드째 부서진다.`,
           '보드가 돌거나 자고 있는 데이터센터는 늘 러다이트의 표적이다. 보드가 없거나 부서졌으면 처리하는 동안에만 표적이고 그때 칸의 전자파가 감지되면 러다이트가 찾아와 시설째 부순다.',

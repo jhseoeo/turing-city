@@ -105,14 +105,14 @@ A facility always works by hand. A board automates it.
 | Farm | **[수확] (harvest):** harvests a ripe crop into the outbox and replants (`harvest()`). Disabled while nothing is ripe. |
 | Warehouse | **[트럭 보내기] (send a truck):** pick an idle truck, a trip, and an amount. A trip collects from a farm's outbox or delivers to a housing block, as `dispatch(truck, from, to, amount)` allows (10-09 §5.5). |
 | Power plant | **Thermal:** a slider for the thermal output from 0 to the module's maximum (`set_thermal`). **Supply order:** up and down buttons on the priority list (`set_priority`). |
-| Datacenter | **[처리] (process):** each press runs the datacenter for `datacenter.jobMs` from that moment. Presses don't stack: a press while it runs moves the end to `jobMs` after the press, so keeping it running means pressing again and again. Mashing it keeps the money coming, at the risk of power shortage, heat, fire, and EMF. **[냉각] (cool):** starts a cooling cycle. It lasts `datacenter.coolingCycleMs` and takes exactly `datacenter.coolingDropMilli` off the temperature, in even steps across the cycle (the rounding is spread over the steps, so the whole cycle takes off the full amount), about as much heat as 15 presses add. It draws `datacenter.coolingPower` while it runs, more than processing. A press during a cycle does nothing (the button is disabled). Left alone, a datacenter cools very slowly (`datacenter.passiveCoolingPermillePerSecond`). |
+| Datacenter | **[처리] (process):** each press runs the datacenter for `datacenter.jobMs` from that moment. Presses don't stack: a press while it runs moves the end to `jobMs` after the press, so keeping it running means pressing again and again. Mashing it keeps the money coming, at the risk of power shortage, heat, fire, and EMF. **[냉각] (cool):** starts a cooling cycle. It lasts `datacenter.coolingCycleMs` and takes exactly `datacenter.coolingDropMilli` off the temperature, in even steps across the cycle (the rounding is spread over the steps, so the whole cycle takes off the full amount). It draws `datacenter.coolingPower` while it runs, more than processing. A press during a cycle does nothing (the button is disabled). **Processing and cooling never run at once** (the user, 2026-10-16): starting a cycle ends a running job, and while the cycle runs [처리] is disabled (the game refuses the press) and `process()` does nothing. Under its buttons the panel shows two gauges that empty as the job's and the cycle's time runs out; the map shows the same as a bar along the bottom of the datacenter's cell. Left alone, a datacenter cools very slowly (`datacenter.passiveCoolingPermillePerSecond`). |
 | Housing | None. Housing has no board; it eats, uses power, and pays tax (10-09 §5.6). |
 
 **Hand and firmware share the datacenter's methods.** The buttons and the firmware call the same two:
 - `process()` runs the datacenter for `datacenter.jobMs` from now, without stacking. A firmware that calls it on every beat of a 5 Hz clock keeps the datacenter running.
 - `cool()` starts a cooling cycle, or does nothing while one runs. It replaces the 10-09 `cool(level)` and its levels.
 - Power, pay, heat, and processing EMF follow the time the datacenter runs, whoever pressed or called.
-- Processing and a cooling cycle can run at the same time.
+- Processing and a cooling cycle never run at once: `cool()` ends a running job, and `process()` does nothing while a cycle runs.
 
 ## 5. EMF
 
@@ -254,6 +254,7 @@ These rules change 10-09 §8.
   - status lights only on facilities with a board, so that a T0 facility reads as a plain building;
   - a mark for the tier;
   - the trucks at their cells, moving along their row-then-column paths;
+  - along the bottom of a datacenter's cell, a bar for the time its job or its cooling cycle has left;
   - under each cell a caption of at most two short lines (a datacenter's temperature and its work marks, a farm's ripeness and outbox, the warehouse's stock, a housing block's food), so that neighbouring cells don't overlap;
   - the 10-09 selection rules for every facility.
 - **Panel:** for the selected facility:
@@ -308,8 +309,8 @@ These rules change 10-09 §8.
 | Board price (T1), `install.boardPrice` | farm 200, warehouse 400, power plant 400, datacenter 600 |
 | Comm module price (T2), `install.commPrice` | 300 |
 | Comm module base EMF, `install.commBaseEmfPerSecond` | +5 per second |
-| Datacenter job per press or `process()`, `datacenter.jobMs` | 500 ms from that moment, no stacking |
-| Cooling cycle, `datacenter.coolingCycleMs` / `coolingDropMilli` / `coolingPower` | 4 s / 15 °C over the cycle, about 15 presses of heat at +2 °C per second / 250 while it runs |
+| Datacenter job per press or `process()`, `datacenter.jobMs` | 1 s from that moment, no stacking (the user, 2026-10-16; was 500 ms) |
+| Cooling cycle, `datacenter.coolingCycleMs` / `coolingDropMilli` / `coolingPower` | 5 s (the user, 2026-10-16; was 4 s) / 15 °C over the cycle, the heat of 7 to 8 one-second presses at +2 °C per second / 250 while it runs |
 | Passive cooling, `datacenter.passiveCoolingPermillePerSecond` | 0.3% of (temperature − 25 °C) per second (10-09: 2%), so a datacenter left alone cools very slowly |
 | Facility repair, `repair.cost` / `repair.seconds` | farm 150, warehouse 300, power plant 300, datacenter 500 / half a day (20 s); the board's rebuild after it is the 10-09 rebuild (500, half a day) |
 | Datacenter processing EMF, `emf.processingPerSecond` | 50 per second of processing (what 10 per action at 5 Hz gave in milestone 1) |
@@ -330,7 +331,7 @@ These rules change 10-09 §8.
   - installs and their prices;
   - manual actions on each facility, and a hand and firmware changing the same setting;
   - EMF: nothing from hands, and processing EMF whoever started the job;
-  - the datacenter's methods: a press or `process()` runs it 0.5 s without stacking, and a cooling cycle takes its drop over its seconds, draws its power, and ignores a second press;
+  - the datacenter's methods: a press or `process()` runs it 1 s without stacking, never during a cooling cycle, and a cooling cycle takes its drop over its seconds, draws its power, and ignores a second press;
   - Luddites and fire wreck the facility they hit, board and all; a wrecked facility can't be worked by hand; repair, then the board's rebuild, bring each back;
   - a sleeping or shed board leaves its facility working;
   - no fall ending;
@@ -392,7 +393,7 @@ These rules change 10-09 §8.
 
   These are tuning questions, for the playtest.
   - **What the first runs show (2026-10-16, `pnpm sim --rebuild`, seeds 1 to 3, no tuning changed).** The reference firmware installs all seven boards at step 0.
-    - The careful set completes its season on every seed, ending on 1,948, 7,226, and 2,689. The careless set goes bankrupt on days 5, 7, and 6.
+    - The careful set completes its season on every seed, ending on 1,904, 7,571, and 4,138 (with 1 s jobs, 5 s cooling cycles, and no processing while cooling, 2026-10-16). The careless set goes bankrupt on days 5, 7, and 6.
     - A town with no boards, left alone, ends on 5,585, 5,965, and 5,600. So a careful season with every board bought up front ended below that on seeds 1 and 3, and above it on seed 2. The boards cost 2,600 together (comm modules apart) beside their upkeep, and whether they pay back depends on the seed.
     - These runs buy every board at once and don't play the hand stage, so they bound nothing about a player who buys one board at a time. Whether boards pay back within a season, and whether the food chain is worth running, are for the playtest to say.
 - **Rebuilding:** instant or delayed (10-09 §13).

@@ -4,6 +4,7 @@ import {
   amountChoices,
   commButton,
   coolButton,
+  datacenterGauges,
   dispatchAction,
   harvestButton,
   idleTrucks,
@@ -31,7 +32,7 @@ const facility = (over: Partial<FacilityView>): FacilityView => ({
   powered: true,
   demand: 0,
   board: null,
-  datacenter: { tempC: 30, processing: false, cooling: false },
+  datacenter: { tempC: 30, processing: false, cooling: false, jobLeft: 0, coolLeft: 0 },
   farm: null,
   warehouse: null,
   housing: null,
@@ -116,11 +117,24 @@ describe('panel rules: the hand', () => {
     expect(processButton(facility({}))).toEqual({ label: '처리', disabled: false, reason: null });
     expect(processButton(facility({ condition: 'repairing' })).disabled).toBe(true);
     expect(coolButton(facility({}))).toEqual({ label: '냉각', disabled: false, reason: null });
-    expect(coolButton(facility({ datacenter: { tempC: 70, processing: true, cooling: true } }))).toEqual({
+    const coolingNow = { tempC: 70, processing: false, cooling: true, jobLeft: 0, coolLeft: 600 };
+    expect(coolButton(facility({ datacenter: coolingNow }))).toEqual({
       label: '냉각 중…',
       disabled: true,
       reason: '냉각이 끝나면 다시 누를 수 있어요',
     });
+    // Processing waits for the cycle: the game would refuse the press.
+    expect(processButton(facility({ datacenter: coolingNow }))).toEqual({
+      label: '처리',
+      disabled: true,
+      reason: '냉각하는 동안에는 처리할 수 없어요',
+    });
+    const working = { tempC: 70, processing: true, cooling: false, jobLeft: 450, coolLeft: 0 };
+    expect(datacenterGauges(facility({ datacenter: working }))).toEqual([
+      { label: '처리', kind: 'job', left: 450 },
+      { label: '냉각', kind: 'cool', left: 0 },
+    ]);
+    expect(datacenterGauges(facility({ kind: 'farm', datacenter: null }))).toEqual([]);
   });
 
   it("moves a facility up or down the plant's supply order, and leaves the order alone at its ends", () => {

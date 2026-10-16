@@ -13,7 +13,7 @@ const facility = (board: FacilityView['board'], condition: FacilityView['conditi
   powered: true,
   demand: 0,
   board,
-  datacenter: { tempC: 30, processing: false, cooling: false },
+  datacenter: { tempC: 30, processing: false, cooling: false, jobLeft: 0, coolLeft: 0 },
   farm: null,
   warehouse: null,
   housing: null,

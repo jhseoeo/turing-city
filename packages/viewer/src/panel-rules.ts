@@ -58,16 +58,30 @@ export function harvestButton(f: FacilityView): ButtonState {
   return enabled('수확');
 }
 
-/** Each press runs the datacenter for a short job; mashing it keeps it running (10-10 spec §4.3). */
+/**
+ * Each press runs the datacenter for a short job; mashing it keeps it running (10-10 spec §4.3). Not while a cooling cycle runs:
+ * the two never run at once, and the game refuses the press.
+ */
 export function processButton(f: FacilityView): ButtonState {
-  return f.condition !== 'ok' ? disabled('처리', DOWN) : enabled('처리');
+  if (f.condition !== 'ok') return disabled('처리', DOWN);
+  if ((f.datacenter?.coolLeft ?? 0) > 0) return disabled('처리', '냉각하는 동안에는 처리할 수 없어요');
+  return enabled('처리');
 }
 
 /** One cooling cycle at a time: a press during one would do nothing, so the button waits for its end. */
 export function coolButton(f: FacilityView): ButtonState {
   if (f.condition !== 'ok') return disabled('냉각', DOWN);
-  if (f.datacenter?.cooling) return disabled('냉각 중…', '냉각이 끝나면 다시 누를 수 있어요');
+  if ((f.datacenter?.coolLeft ?? 0) > 0) return disabled('냉각 중…', '냉각이 끝나면 다시 누를 수 있어요');
   return enabled('냉각');
+}
+
+/** A datacenter's two gauges: how much of its job and of its cooling cycle is left, in per mille, and whether each runs. */
+export function datacenterGauges(f: FacilityView): Array<{ label: string; kind: 'job' | 'cool'; left: number }> {
+  if (!f.datacenter) return [];
+  return [
+    { label: '처리', kind: 'job', left: f.datacenter.jobLeft },
+    { label: '냉각', kind: 'cool', left: f.datacenter.coolLeft },
+  ];
 }
 
 /** A trip the form offers, with what its source holds now. */

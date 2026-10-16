@@ -107,14 +107,17 @@ export function renderControls(s: Snapshot, f: FacilityView, store: Store, net: 
   const hand = (action: FacilityAction) => net.send({ type: 'hand', facility: f.id, action });
   let children: HTMLElement[];
   if (f.kind === 'farm') children = stateButton(harvestButton(f), () => hand({ kind: 'harvest' }), 'primary');
-  else if (f.kind === 'datacenter')
+  else if (f.kind === 'datacenter') {
+    // Two buttons the player presses again and again: their reasons share one line under them, always there, so neither moves.
+    const process = processButton(f);
+    const cool = coolButton(f);
+    const button = (state: ButtonState, action: FacilityAction, cls = ''): HTMLElement =>
+      el('button', { class: cls, disabled: state.disabled, title: state.reason ?? '', onclick: () => hand(action) }, [state.label]);
     children = [
-      el('div', { class: 'choices' }, [
-        ...stateButton(processButton(f), () => hand({ kind: 'process' }), 'primary'),
-        ...stateButton(coolButton(f), () => hand({ kind: 'cool' })),
-      ]),
+      el('div', { class: 'choices' }, [button(process, { kind: 'process' }, 'primary'), button(cool, { kind: 'cool' })]),
+      el('p', { class: 'dim reason' }, [process.reason ?? cool.reason ?? '\u00a0']),
     ];
-  else if (f.kind === 'power') children = plantControls(s, f, net);
+  } else if (f.kind === 'power') children = plantControls(s, f, net);
   else if (f.kind === 'warehouse') children = warehouseControls(s, f, store, net);
   else return null;
   return el('div', { class: 'controls' }, children);

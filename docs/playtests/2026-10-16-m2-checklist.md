@@ -67,7 +67,7 @@ Every facility starts without a board, and you work it by hand. A board takes a 
 - [ ] Which facility did you automate first, and why? Was it a real choice?
 - [ ] How was handing a board to your agent, compared with pasting from a chat? Did the agent manage from the manual and the logs alone?
 - [ ] Did you feel the trade-off: each board takes a chore away and adds EMF? How often and how hard did the Luddites come?
-- [ ] Did a board pay for itself within the season? Note each season's ending ("시즌 완주" or "파산") and its final money ("최종 자금"). This is a tuning question: the prices and the upkeep are placeholders. For comparison, in headless runs on seeds 1 to 3 a town with no boards ended on 5,585, 5,965, and 5,600, and a careful set of firmware on all seven boards bought at the start ended on 1,948, 7,226, and 2,689. Which boards paid, and which only cost?
+- [ ] Did a board pay for itself within the season? Note each season's ending ("시즌 완주" or "파산") and its final money ("최종 자금"). This is a tuning question: the prices and the upkeep are placeholders. For comparison, in headless runs on seeds 1 to 3 a town with no boards ended on 5,585, 5,965, and 5,600, and a careful set of firmware on all seven boards bought at the start ended on 1,904, 7,571, and 4,138. Which boards paid, and which only cost?
 - [ ] Was the food chain (the farms, the warehouse and its trucks, the housing) worth running, or did you let it go? Did the homes eat and pay tax, and what did you give up to keep them fed? Another tuning question, and the one the 10-10 spec (§15) leaves open.
 - [ ] Can you read the town on screen:
   - lights only on facilities with a board, and the tier marks;

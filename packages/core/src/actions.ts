@@ -1,5 +1,5 @@
 import { startSleep } from './boards.ts';
-import { coolSteps, jobSteps } from './datacenter.ts';
+import { coolSteps, jobSteps, processProblem } from './datacenter.ts';
 import { harvest } from './farm.ts';
 import type { FacilityAction } from './firmware-host.ts';
 import { clamp } from './fixed.ts';
@@ -44,19 +44,22 @@ export function applyFacilityAction(ctx: SimContext, facility: FacilityState, ac
   const t = ctx.scenario.tuning;
   switch (action.kind) {
     case 'process': {
-      // A job runs jobMs from its start. A press while one runs doesn't stack: the job ends jobMs after the latest press.
+      // A job runs jobMs from its start. A press while one runs doesn't stack: the job ends jobMs after the latest press. No job
+      // starts or grows while a cooling cycle runs.
       const dc = w.datacenters[facility.id]!;
+      if (processProblem(ctx, facility.id, startStep) !== null) break;
       const running = dc.busyFrom <= startStep && startStep < dc.busyUntil;
       if (!running) dc.busyFrom = startStep;
       dc.busyUntil = Math.max(dc.busyUntil, startStep + jobSteps(ctx));
       break;
     }
     case 'cool': {
-      // A cooling cycle runs to its end: a press while one runs does nothing.
+      // A cooling cycle runs to its end: a press while one runs does nothing. It stops a running job: the two never run at once.
       const dc = w.datacenters[facility.id]!;
       if (dc.coolFrom <= startStep && startStep < dc.coolUntil) break;
       dc.coolFrom = startStep;
       dc.coolUntil = startStep + coolSteps(ctx);
+      if (dc.busyFrom <= startStep && startStep < dc.busyUntil) dc.busyUntil = startStep;
       break;
     }
     case 'setThermal':

@@ -2,12 +2,19 @@ import type { FacilityView, Snapshot } from '@turing-city/core';
 import { clear, el } from '../dom.ts';
 import { CONDITION_LABELS, firmwareLabel, KIND_LABELS, LED_LABELS, ledOf, sensorLabel, TIER_LABELS } from '../format.ts';
 import type { GameLink } from '../net.ts';
-import { commButton, installButton, logText, rebuildButton, repairButton } from '../panel-rules.ts';
+import { commButton, datacenterGauges, installButton, logText, rebuildButton, repairButton } from '../panel-rules.ts';
 import type { Store } from '../store.ts';
 import { renderControls, stateButton } from './controls.ts';
 
 const section = (label: string, ...children: Array<Node | string>): HTMLElement =>
   el('div', { class: 'sec' }, [el('div', { class: 'label' }, [label]), ...children]);
+
+/** A labelled bar that empties as the time it shows runs out. */
+const gaugeRow = (g: { label: string; kind: 'job' | 'cool'; left: number }): HTMLElement =>
+  el('div', { class: 'gauge-row' }, [
+    el('span', { class: 'dim' }, [g.label]),
+    el('div', { class: `gauge ${g.kind}` }, [el('i', { style: `width: ${g.left / 10}%` })]),
+  ]);
 
 const kv = (pairs: Array<[string, string]>): HTMLElement =>
   el(
@@ -35,7 +42,7 @@ function readings(s: Snapshot, f: FacilityView): Array<[string, string]> {
   }
   if (f.datacenter) {
     rows.push(['온도', `${f.datacenter.tempC}°C`]);
-    rows.push(['상태', [f.datacenter.processing ? '처리 중' : '대기', ...(f.datacenter.cooling ? ['냉각 중'] : [])].join(' · ')]);
+    rows.push(['상태', f.datacenter.cooling ? '냉각 중' : f.datacenter.processing ? '처리 중' : '대기']);
   }
   if (f.farm) rows.push(['익음', `${f.farm.ripeness}%${f.farm.ripe ? ' (수확 가능)' : ''}`], ['출고함', String(f.farm.outbox)]);
   if (f.warehouse) rows.push(['재고', String(f.warehouse.stock)]);
@@ -84,7 +91,8 @@ export function renderPanel(root: HTMLElement, store: Store, net: GameLink): voi
   // The hand controls first, right under the title: nothing above them may change height from one snapshot to the next (a reading,
   // a reason line that comes and goes with the money), or the button the player keeps pressing moves away from the pointer.
   const controls = f.condition === 'ok' ? renderControls(s, f, store, net) : null;
-  if (controls) root.append(section('손으로', controls));
+  // A datacenter's gauges sit under its buttons, always both, so that nothing above the buttons moves.
+  if (controls) root.append(section('손으로', controls, ...datacenterGauges(f).map(gaugeRow)));
 
   // Damage: a wrecked facility is repaired, then its board is rebuilt; each is paid for on its own (10-10 spec §6).
   const repair = repairButton(s, f);

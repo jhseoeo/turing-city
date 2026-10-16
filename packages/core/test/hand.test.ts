@@ -73,13 +73,13 @@ describe('facility actions from the hand and from firmware', () => {
     expect(windows(s, 'DA').cool).toEqual([80, 160]);
   });
 
-  it("applies firmware's actions the same way, from the step after its tick", () => {
+  it("applies firmware's actions the same way, from the step after its tick: a cooling cycle stops the job it meets", () => {
     const host = new FakeHost();
     const both = host.program('both', () => ({ actions: [{ kind: 'process' }, { kind: 'cool' }] }));
     const s = quiet(host);
     s.deploy('DA', both);
     steps(s, 4); // DA's first beat is step 3
-    expect(windows(s, 'DA')).toEqual({ busy: [4, 14], cool: [4, 84] });
+    expect(windows(s, 'DA')).toEqual({ busy: [4, 4], cool: [4, 84] }); // the job started at 4 ends where the cycle starts
   });
 
   it('lets the last writer win, in the order things happen: the hand after a tick, and the next tick after the hand', () => {
@@ -112,8 +112,8 @@ describe('facility actions from the hand and from firmware', () => {
     // The wind alone can't carry both housing blocks and the job: the plant's thermal module, set by hand, makes up the rest.
     expect(s.hand('P', { kind: 'setThermal', output: 200 })).toEqual({ ok: true });
     expect(s.hand('DA', { kind: 'process' })).toEqual({ ok: true });
-    steps(s, 12);
-    expect(s.world.ledger.datacenterIncome).toBe(20 * MICRO);
+    steps(s, 12); // a job of 1 s covers steps 0 to 19: all twelve pay 40 / 20 a step
+    expect(s.world.ledger.datacenterIncome).toBe(24 * MICRO);
     expect(s.world.plant.shed).toEqual([]);
   });
 

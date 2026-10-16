@@ -547,6 +547,20 @@ try {
     }),
     JSON.stringify(await buttonNamed('#panel', '냉각')),
   );
+  // Processing and cooling never run at once (the user, 2026-10-16): [처리] waits for the cycle, and the cooling gauge shows its time.
+  const gaugeWidth = (kind: string): Promise<number> =>
+    page.evaluate((k) => {
+      const bar = document.querySelector<HTMLElement>(`#panel .gauge.${k} i`);
+      return bar ? bar.getBoundingClientRect().width : -1;
+    }, kind);
+  check(
+    'while it cools, [처리] waits with its reason, the cooling gauge is full, and the job gauge empty',
+    (await buttonNamed('#panel', '처리'))?.disabled === true &&
+      (await textOf('#panel .controls .reason')).includes('냉각하는 동안에는 처리할 수 없어요') &&
+      (await gaugeWidth('cool')) > 0 &&
+      (await gaugeWidth('job')) === 0,
+    `cool ${await gaugeWidth('cool')} px, job ${await gaugeWidth('job')} px`,
+  );
   await shot('4-datacenter-by-hand');
   await run(tuning.datacenter.coolingCycleMs / 1000 + 0.5);
   // The page shows the run's end a moment after the run returns: the temperature is read from the render that shows the button back.

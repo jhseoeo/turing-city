@@ -411,8 +411,7 @@ describe('EMF', () => {
   it('makes noise at a datacenter worked by hand, with no board anywhere in town', () => {
     const s = town();
     expect(s.hand('DA', { kind: 'process' })).toEqual({ ok: true });
-    s.step(); // the press applies in step 0: the job covers steps 1 to 10
-    for (let i = 0; i < 10; i++) s.step();
+    for (let i = 0; i < 10; i++) s.step(); // the press applies at once: the job of 1 s covers steps 0 to 19
     expect(cellOf(s, 'DA')).toBe(10 * 2_500); // half a second of processing EMF
     expect(s.world.emf.reduce((a, b) => a + b, 0)).toBe(25_000); // and nothing anywhere else
   });

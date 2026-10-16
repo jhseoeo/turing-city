@@ -454,3 +454,27 @@ main {
   background: none;
   padding: 0;
 }
+/* A datacenter's job and cooling gauges, under its hand buttons: a bar that empties as the time runs out. */
+#panel .gauge-row {
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+#panel .gauge {
+  height: 8px;
+  background: var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+}
+#panel .gauge i {
+  display: block;
+  height: 100%;
+}
+#panel .gauge.job i {
+  background: var(--ok);
+}
+#panel .gauge.cool i {
+  background: #4fb3ff;
+}

@@ -121,8 +121,8 @@ describe('Session', () => {
     run(s, 4); // P beats at 0, DA at 3
     expect(s.world.plant.thermalSetting).toBe(300);
     expect(s.world.plant.priority).toEqual(['DB', 'DA']);
-    // From the step after DA's beat at 3: a job of 0.5 s (steps 4 to 13; the second call changes nothing) and a cycle of 4 s.
-    expect(s.world.datacenters.DA).toMatchObject({ busyFrom: 4, busyUntil: 14, coolFrom: 4, coolUntil: 84 });
+    // From the step after DA's beat at 3: a cycle of 4 s, and no job, because processing waits while a cycle runs.
+    expect(s.world.datacenters.DA).toMatchObject({ busyFrom: -1, busyUntil: -1, coolFrom: 4, coolUntil: 84 });
   });
 
   it('sleeps a board, wipes its VM, and reboots it with the same firmware', () => {

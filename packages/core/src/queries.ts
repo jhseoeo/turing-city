@@ -1,4 +1,4 @@
-import { isCooling, isProcessing } from './datacenter.ts';
+import { coolSteps, isCooling, isProcessing, jobSteps, windowLeft } from './datacenter.ts';
 import { isRipe, ripeness } from './farm.ts';
 import type { SensorValue } from './firmware-host.ts';
 import { idiv, MICRO, MILLI } from './fixed.ts';
@@ -262,7 +262,17 @@ export interface FacilityView {
     readonly hasFirmware: boolean;
     readonly erroring: boolean;
   } | null;
-  readonly datacenter: { readonly tempC: number; readonly processing: boolean; readonly cooling: boolean } | null;
+  /**
+   * Its temperature, whether it works or cools at this step, and how much of its job and of its cooling cycle is left, in per mille
+   * of a full one (0 when none runs): the viewer's gauges.
+   */
+  readonly datacenter: {
+    readonly tempC: number;
+    readonly processing: boolean;
+    readonly cooling: boolean;
+    readonly jobLeft: number;
+    readonly coolLeft: number;
+  } | null;
   readonly farm: { readonly ripeness: number; readonly ripe: boolean; readonly outbox: number } | null;
   /** Whole food units in stock. */
   readonly warehouse: { readonly stock: number } | null;
@@ -297,7 +307,13 @@ function facilityView(ctx: SimContext, f: FacilityState): FacilityView {
         }
       : null,
     datacenter: dc
-      ? { tempC: idiv(dc.tempMilli, MILLI), processing: isProcessing(ctx, f.id, step), cooling: isCooling(ctx, f.id, step) }
+      ? {
+          tempC: idiv(dc.tempMilli, MILLI),
+          processing: isProcessing(ctx, f.id, step),
+          cooling: isCooling(ctx, f.id, step),
+          jobLeft: windowLeft(dc.busyFrom, dc.busyUntil, jobSteps(ctx), step),
+          coolLeft: windowLeft(dc.coolFrom, dc.coolUntil, coolSteps(ctx), step),
+        }
       : null,
     farm: farm ? { ripeness: ripeness(ctx, farm, step), ripe: isRipe(ctx, farm, step), outbox: farm.outbox } : null,
     warehouse: stock ? { stock: idiv(stock.stockMilli, MILLI) } : null,
