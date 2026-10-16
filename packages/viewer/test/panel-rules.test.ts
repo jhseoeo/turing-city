@@ -76,6 +76,7 @@ describe('panel rules: the hardware', () => {
       reason: '자금이 모자라요 (필요 600, 보유 450)',
     });
     expect(installButton(snapshotWith(5000), facility({ condition: 'wrecked' }))?.reason).toBe('시설이 부서져 있어요. 먼저 복구하세요.');
+    expect(installButton(snapshotWith(5000), facility({ condition: 'repairing' }))?.reason).toBe('시설을 복구하는 중이에요.');
   });
 
   it('offers a comm module at T1 only, and not while the board is down', () => {

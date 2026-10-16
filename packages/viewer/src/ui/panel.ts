@@ -43,7 +43,8 @@ function readings(s: Snapshot, f: FacilityView): Array<[string, string]> {
     rows.push(['주민', `${f.housing.residents}명`], ['식량', String(f.housing.food)]);
     rows.push(['상태', `${f.housing.fed ? '먹음' : '굶주림'} · ${f.powered ? '전기 있음' : '정전'}`]);
   }
-  if (f.kind !== 'power' && f.demand > 0) rows.push(['전력', `${f.demand} 사용${f.powered ? '' : ' (끊김)'}`]);
+  // Always there, 0 too: a row that came and went with a datacenter's job would move the hand controls under the pointer.
+  if (f.kind !== 'power') rows.push(['전력', `${f.demand} 사용${f.powered ? '' : ' (끊김)'}`]);
   return rows;
 }
 
@@ -80,7 +81,12 @@ export function renderPanel(root: HTMLElement, store: Store, net: Connection): v
     ]),
   );
 
-  // Damage first: a wrecked facility is repaired, then its board is rebuilt; each is paid for on its own (10-10 spec §6).
+  // The hand controls first, right under the title: nothing above them may change height from one snapshot to the next (a reading,
+  // a reason line that comes and goes with the money), or the button the player keeps pressing moves away from the pointer.
+  const controls = f.condition === 'ok' ? renderControls(s, f, store, net) : null;
+  if (controls) root.append(section('손으로', controls));
+
+  // Damage: a wrecked facility is repaired, then its board is rebuilt; each is paid for on its own (10-10 spec §6).
   const repair = repairButton(s, f);
   if (repair) root.append(section('피해', ...stateButton(repair, () => net.send({ type: 'repair', facility: f.id }), 'primary')));
   if (f.condition === 'repairing')
@@ -90,8 +96,6 @@ export function renderPanel(root: HTMLElement, store: Store, net: Connection): v
   if (f.condition === 'ok' && f.board?.status === 'rebuilding') root.append(section('보드', el('span', { class: 'warn' }, ['재건 중…'])));
 
   root.append(section('현재', kv(readings(s, f))));
-  const controls = f.condition === 'ok' ? renderControls(s, f, store, net) : null;
-  if (controls) root.append(section('손으로', controls));
 
   const install = installButton(s, f);
   const comm = commButton(s, f);
@@ -112,7 +116,14 @@ export function renderPanel(root: HTMLElement, store: Store, net: Connection): v
                 'button',
                 {
                   disabled: !inspection,
-                  onclick: () => (inspection ? void navigator.clipboard.writeText(logText(inspection.logs)) : undefined),
+                  onclick: (event: Event) => {
+                    if (!inspection) return;
+                    const button = event.currentTarget as HTMLButtonElement;
+                    navigator.clipboard.writeText(logText(inspection.logs)).then(
+                      () => (button.textContent = '복사했어요'),
+                      () => (button.textContent = '복사하지 못했어요'),
+                    );
+                  },
                 },
                 ['로그 복사'],
               ),

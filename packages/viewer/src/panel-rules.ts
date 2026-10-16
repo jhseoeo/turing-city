@@ -21,6 +21,7 @@ export function installButton(s: Snapshot, f: FacilityView): ButtonState | null 
   if (f.kind === 'housing' || f.board !== null) return null;
   const price = s.prices.board[f.kind];
   const label = `보드 설치 (${moneyLabel(price)})`;
+  if (f.condition === 'repairing') return disabled(label, '시설을 복구하는 중이에요.');
   if (f.condition !== 'ok') return disabled(label, DOWN);
   if (s.money < price) return disabled(label, shortOf(price, s.money));
   return enabled(label);
@@ -144,7 +145,7 @@ export function movedInPriority(order: readonly string[], id: string, delta: -1 
   return next;
 }
 
-/** A board's log as [로그 복사] copies it: oldest first, one line each, the way the panel shows it. */
+/** A board's log as [로그 복사] copies it: oldest first, one line each (the panel lists it newest first). */
 export function logText(logs: readonly LogView[]): string {
   return logs
     .map((l) => `${l.day}일 ${l.clock}  ${l.kind === 'log' ? '' : `[${l.kind}] `}${l.text}${l.repeat > 1 ? ` ×${l.repeat}` : ''}`)
