@@ -76,7 +76,11 @@ export function coolingDrop(ctx: SimContext, dc: DatacenterState, step: number):
   return idiv(total * (k + 1), n) - idiv(total * k, n);
 }
 
-/** Phase 6: income and heat from work, the passive leak, and cooling cycles, for every datacenter that stands. */
+/**
+ * Phase 6: heat from work, a finished job's pay, the passive leak, and cooling cycles, for every datacenter that stands. A job pays
+ * once, at its last step, the job price for the time it worked (the user, 2026-10-16): the steps the grid shed earn nothing, and a
+ * job that a cooling cycle or a wreck ends early never reaches its last step, so it pays nothing.
+ */
 export function runDatacenters(ctx: SimContext, step: number): void {
   const t = ctx.scenario.tuning.datacenter;
   const sps = ctx.scenario.time.stepsPerSecond;
@@ -86,10 +90,17 @@ export function runDatacenters(ctx: SimContext, step: number): void {
     if (!dc || f.condition !== 'ok') continue;
     let temp = dc.tempMilli;
     if (isProcessing(ctx, f.id, step)) {
-      const income = mulDiv(w.jobPrice, MICRO, sps);
-      w.money += income;
-      w.ledger.datacenterIncome += income;
+      dc.workedSteps += 1;
       temp += idiv(t.heatMilliPerSecond, sps);
+    }
+    // A cooling cycle that firmware starts at the next step cuts the job's end to this step: that job falls short of its length.
+    const finished = step === dc.busyUntil - 1 && dc.busyUntil - dc.busyFrom === jobSteps(ctx);
+    if (finished && dc.workedSteps > 0) {
+      const pay = mulDiv(w.jobPrice * MICRO, dc.workedSteps, sps);
+      w.money += pay;
+      w.ledger.datacenterIncome += pay;
+      dc.paidStep = step;
+      dc.paidMicro = pay;
     }
     const excess = temp - t.ambientMilli;
     if (excess > 0) temp -= idiv(excess * t.passiveCoolingPermillePerSecond, 1000 * sps);

@@ -549,11 +549,12 @@ try {
     await processLabel(),
   );
   await clickOn('#panel button', '처리'); // a click on the waiting button does nothing
+  const payText = (): Promise<string> => textOf('#panel .gauge-row .pay');
   await run(0.5);
   check(
-    'the job runs on to its end: half way through, the button still waits',
-    await waitUntil(async () => (await buttonNamed('#panel', '처리'))?.text === '처리 중…'),
-    await processLabel(),
+    'the job runs on to its end: half way through, the button still waits, and nothing is paid yet',
+    (await waitUntil(async () => (await buttonNamed('#panel', '처리'))?.text === '처리 중…')) && (await payText()) === '',
+    `${await processLabel()} pay "${await payText()}"`,
   );
   await run(0.6);
   check(
@@ -564,6 +565,9 @@ try {
     }),
     await processLabel(),
   );
+  // A job pays all at once as it ends (the user, 2026-10-16): the panel shows the pay beside the gauge for a moment.
+  check('the finished job pays, and the panel shows it as "+…" beside the gauge', /^\+\d+$/.test(await payText()), await payText());
+  await shot('4-datacenter-paid');
   await clickOn('#panel button', '처리'); // a second job
   await run(1.1);
   await waitUntil(async () => (await buttonNamed('#panel', '처리'))?.disabled === false);

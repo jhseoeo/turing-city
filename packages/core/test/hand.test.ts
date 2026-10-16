@@ -112,8 +112,8 @@ describe('facility actions from the hand and from firmware', () => {
     // The wind alone can't carry both housing blocks and the job: the plant's thermal module, set by hand, makes up the rest.
     expect(s.hand('P', { kind: 'setThermal', output: 200 })).toEqual({ ok: true });
     expect(s.hand('DA', { kind: 'process' })).toEqual({ ok: true });
-    steps(s, 12); // a job of 1 s covers steps 0 to 19: all twelve pay 40 / 20 a step
-    expect(s.world.ledger.datacenterIncome).toBe(24 * MICRO);
+    steps(s, 20); // a job of 1 s covers steps 0 to 19, and pays its 40 at the last
+    expect(s.world.ledger.datacenterIncome).toBe(40 * MICRO);
     expect(s.world.plant.shed).toEqual([]);
   });
 

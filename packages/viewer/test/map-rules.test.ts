@@ -90,7 +90,7 @@ describe('map rules: truck routes', () => {
 describe('map rules: what a cell says', () => {
   it("says a datacenter's temperature, amber from the overheat threshold, and whether it is processing or cooling", () => {
     const dc = (tempC: number, processing = false, cooling = false) =>
-      facility({ kind: 'datacenter', datacenter: { tempC, processing, cooling, jobLeft: 0, coolLeft: 0 } });
+      facility({ kind: 'datacenter', datacenter: { tempC, processing, cooling, jobLeft: 0, coolLeft: 0, lastPay: null } });
     expect(cellCaption(dc(40), 85)).toEqual({ text: '40°C', tone: 'normal' });
     expect(cellCaption(dc(85, true), 85)).toEqual({ text: '85°C\n▲', tone: 'warn' });
     expect(cellCaption(dc(60, false, true), 85)).toEqual({ text: '60°C\n❄', tone: 'normal' });
@@ -114,7 +114,7 @@ describe('map rules: what a cell says', () => {
     const width = (line: string) => [...line].reduce((w, ch) => w + (ch.charCodeAt(0) > 0x2000 ? 10 : 6), 0);
     const captions = [
       facility({ farm: { ripeness: 100, ripe: true, outbox: 80 } }),
-      facility({ kind: 'datacenter', datacenter: { tempC: 140, processing: true, cooling: true, jobLeft: 0, coolLeft: 0 } }),
+      facility({ kind: 'datacenter', datacenter: { tempC: 140, processing: true, cooling: true, jobLeft: 0, coolLeft: 0, lastPay: null } }),
       facility({ kind: 'warehouse', warehouse: { stock: 9999 } }),
       facility({ kind: 'housing', housing: { food: 999, residents: 40, fed: true } }),
       facility({ condition: 'wrecked' }),
@@ -127,7 +127,7 @@ describe('map rules: what a cell says', () => {
     const wrecked = facility({
       kind: 'datacenter',
       condition: 'wrecked',
-      datacenter: { tempC: 92, processing: false, cooling: false, jobLeft: 0, coolLeft: 0 },
+      datacenter: { tempC: 92, processing: false, cooling: false, jobLeft: 0, coolLeft: 0, lastPay: null },
     });
     expect(cellCaption(wrecked, 85)).toEqual({ text: '부서짐', tone: 'warn' });
     expect(cellCaption(facility({ condition: 'repairing', repairHoursLeft: 7 }), 85)).toEqual({ text: '복구\n7시간', tone: 'warn' });

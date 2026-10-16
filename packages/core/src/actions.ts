@@ -42,20 +42,25 @@ export function applyFacilityAction(ctx: SimContext, facility: FacilityState, ac
   if (facility.condition !== 'ok' || kindProblem(facility, action) !== null) return;
   const w = ctx.world;
   const t = ctx.scenario.tuning;
+  // Firmware's action comes during step w.step and starts at the next one, while the job or cycle that covers w.step has yet to run
+  // it: that one is still running too. (The hand's action comes between steps, and starts at w.step.)
+  const now = w.step;
   switch (action.kind) {
     case 'process': {
       // A job runs jobMs from its start, to its end: a press while one runs does nothing (the user, 2026-10-16: the next job waits for
       // this one to finish). No job starts while a cooling cycle runs.
       const dc = w.datacenters[facility.id]!;
-      if (processProblem(ctx, facility.id, startStep) !== null) break;
+      if (processProblem(ctx, facility.id, now) !== null || processProblem(ctx, facility.id, startStep) !== null) break;
       dc.busyFrom = startStep;
       dc.busyUntil = startStep + jobSteps(ctx);
+      dc.workedSteps = 0;
       break;
     }
     case 'cool': {
       // A cooling cycle runs to its end: a press while one runs does nothing. It stops a running job: the two never run at once.
       const dc = w.datacenters[facility.id]!;
-      if (dc.coolFrom <= startStep && startStep < dc.coolUntil) break;
+      const cycling = (step: number): boolean => dc.coolFrom <= step && step < dc.coolUntil;
+      if (cycling(now) || cycling(startStep)) break;
       dc.coolFrom = startStep;
       dc.coolUntil = startStep + coolSteps(ctx);
       if (dc.busyFrom <= startStep && startStep < dc.busyUntil) dc.busyUntil = startStep;

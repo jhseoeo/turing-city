@@ -40,6 +40,7 @@ function stopDatacenter(ctx: SimContext, facilityId: string): void {
   dc.busyUntil = -1;
   dc.coolFrom = -1;
   dc.coolUntil = -1;
+  dc.workedSteps = 0;
 }
 
 export function startSleep(ctx: SimContext, board: BoardState, step: number, seconds: number): void {

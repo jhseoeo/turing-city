@@ -457,7 +457,7 @@ main {
 /* A datacenter's job and cooling gauges, under its hand buttons: a bar that empties as the time runs out. */
 #panel .gauge-row {
   display: grid;
-  grid-template-columns: 40px 1fr;
+  grid-template-columns: 40px 1fr 36px;
   align-items: center;
   gap: 8px;
   margin-top: 6px;
@@ -477,4 +477,25 @@ main {
 }
 #panel .gauge.cool i {
   background: #4fb3ff;
+}
+/* A finished job's pay beside the gauge: it rises a little and fades out (its slot stays, so nothing moves). */
+#panel .gauge-row .pay {
+  color: var(--ok);
+  font-size: 12px;
+  text-align: right;
+  opacity: 0;
+  animation: pay-rise 1200ms ease-out forwards;
+}
+#panel .gauge-row .pay:empty {
+  animation: none;
+}
+@keyframes pay-rise {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
 }

@@ -128,7 +128,7 @@ describe('wrecks, repairs, and rebuilds', () => {
     expect(findBoard(s.world, 'DA')!.status).toBe('asleep');
     dc.tempMilli = 60_000;
     steps(s, 1);
-    expect(s.world.ledger.datacenterIncome).toBeGreaterThan(0);
+    expect(dc.workedSteps).toBe(1); // the job worked its step
     expect(dc.tempMilli).toBeLessThan(60_000); // the cycle's drop outweighs the job's heat
   });
 

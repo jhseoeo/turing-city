@@ -2,6 +2,7 @@ import type { Snapshot } from '@turing-city/core';
 import Phaser from 'phaser';
 import { consumersOf, heatAlpha, LED_COLORS, ledOf } from '../format.ts';
 import { cellCaption, FACILITY_COLORS, routesFor, type Tone, truckLabel, trucksByCell } from '../map-rules.ts';
+import { PAY_FLASH_MS, type PayFlash } from '../pay-flash.ts';
 
 export const CELL = 34;
 
@@ -48,6 +49,24 @@ export class MapScene extends Phaser.Scene {
     this.heatmap = heatmap;
     this.overheatC = overheatC;
     this.redraw();
+  }
+
+  /** Floats each new pay's "+40" up from its datacenter's cell, fading out: it outlives the redraws, and destroys itself. */
+  float(pays: readonly PayFlash[]): void {
+    for (const pay of pays) {
+      const t = this.add
+        .text(pay.x * CELL + CELL / 2, pay.y * CELL - 2, `+${pay.amount}`, {
+          fontFamily: 'ui-monospace, Menlo, monospace',
+          fontSize: '13px',
+          fontStyle: 'bold',
+          color: '#7fe08a',
+          stroke: '#0c0f13',
+          strokeThickness: 3,
+        })
+        .setOrigin(0.5, 1)
+        .setDepth(10);
+      this.tweens.add({ targets: t, y: t.y - 18, alpha: 0, duration: PAY_FLASH_MS, ease: 'Cubic.easeOut', onComplete: () => t.destroy() });
+    }
   }
 
   private text(x: number, y: number, value: string, color: string, size = 11, background = '#0c0f13cc'): void {

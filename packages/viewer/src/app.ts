@@ -3,6 +3,7 @@ import { bindKeys } from './keys.ts';
 import { type MapScene, mountMap } from './map/map-scene.ts';
 import { overheatCelsius } from './map-rules.ts';
 import type { GameLink } from './net.ts';
+import { PayFlashes } from './pay-flash.ts';
 import { Store } from './store.ts';
 import { renderEditorWindow } from './ui/editor-window.ts';
 import { renderFeed } from './ui/feed.ts';
@@ -28,6 +29,7 @@ export function startViewer(connect: (onMessage: Store['apply'], onOpenChange: S
   let map: MapScene | null = null;
   let pointerDown = false;
   let renderOwed = false;
+  const pays = new PayFlashes();
 
   function render(): void {
     renderOwed = false;
@@ -43,14 +45,18 @@ export function startViewer(connect: (onMessage: Store['apply'], onOpenChange: S
       return;
     }
     renderGuide($('#guide'), store);
+    const now = performance.now();
+    const freshPays = store.snapshot ? pays.take(store.snapshot, now) : [];
     renderTopBar($('#topbar'), store, net);
     renderFeed($('#feed'), store, net);
-    renderPanel($('#panel'), store, net);
+    const pay = store.selected ? pays.flash(store.selected, now) : null;
+    renderPanel($('#panel'), store, net, pay ? { amount: pay.amount, elapsed: now - pay.since } : null);
     renderManualWindow($('#manual-window'), store);
     renderEditorWindow($('#editor-window'), store, net);
     if (store.snapshot) {
       map ??= mountMap($('#map'), store.snapshot, (id) => store.select(id));
       map.show(store.snapshot, store.selected, store.heatmap, overheatCelsius(store.scenario));
+      map.float(freshPays);
     }
   }
 

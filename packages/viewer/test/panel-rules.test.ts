@@ -32,7 +32,7 @@ const facility = (over: Partial<FacilityView>): FacilityView => ({
   powered: true,
   demand: 0,
   board: null,
-  datacenter: { tempC: 30, processing: false, cooling: false, jobLeft: 0, coolLeft: 0 },
+  datacenter: { tempC: 30, processing: false, cooling: false, jobLeft: 0, coolLeft: 0, lastPay: null },
   farm: null,
   warehouse: null,
   housing: null,
@@ -117,7 +117,7 @@ describe('panel rules: the hand', () => {
     expect(processButton(facility({}))).toEqual({ label: '처리', disabled: false, reason: null });
     expect(processButton(facility({ condition: 'repairing' })).disabled).toBe(true);
     expect(coolButton(facility({}))).toEqual({ label: '냉각', disabled: false, reason: null });
-    const coolingNow = { tempC: 70, processing: false, cooling: true, jobLeft: 0, coolLeft: 600 };
+    const coolingNow = { tempC: 70, processing: false, cooling: true, jobLeft: 0, coolLeft: 600, lastPay: null };
     expect(coolButton(facility({ datacenter: coolingNow }))).toEqual({
       label: '냉각 중…',
       disabled: true,
@@ -129,7 +129,7 @@ describe('panel rules: the hand', () => {
       disabled: true,
       reason: '냉각하는 동안에는 처리할 수 없어요',
     });
-    const working = { tempC: 70, processing: true, cooling: false, jobLeft: 450, coolLeft: 0 };
+    const working = { tempC: 70, processing: true, cooling: false, jobLeft: 450, coolLeft: 0, lastPay: null };
     // A job runs to its end: the button waits for it, as the game would refuse the press.
     expect(processButton(facility({ datacenter: working }))).toEqual({
       label: '처리 중…',
@@ -139,7 +139,7 @@ describe('panel rules: the hand', () => {
     // One gauge, for what runs now, filling up: 450 left of a job is 550 done.
     expect(datacenterGauge(facility({ datacenter: working }))).toEqual({ label: '처리', kind: 'job', done: 550 });
     expect(datacenterGauge(facility({ datacenter: coolingNow }))).toEqual({ label: '냉각', kind: 'cool', done: 400 });
-    const idle = { tempC: 30, processing: false, cooling: false, jobLeft: 0, coolLeft: 0 };
+    const idle = { tempC: 30, processing: false, cooling: false, jobLeft: 0, coolLeft: 0, lastPay: null };
     expect(datacenterGauge(facility({ datacenter: idle }))).toEqual({ label: '대기', kind: 'idle', done: 0 });
     expect(datacenterGauge(facility({ kind: 'farm', datacenter: null }))).toBeNull();
   });

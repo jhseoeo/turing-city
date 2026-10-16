@@ -25,7 +25,7 @@ const facility = (over: Partial<FacilityView>): FacilityView => ({
   powered: true,
   demand: 10,
   board: { status: 'running', powered: true, hasFirmware: true, erroring: false },
-  datacenter: { tempC: 40, processing: false, cooling: false, jobLeft: 0, coolLeft: 0 },
+  datacenter: { tempC: 40, processing: false, cooling: false, jobLeft: 0, coolLeft: 0, lastPay: null },
   farm: null,
   warehouse: null,
   housing: null,

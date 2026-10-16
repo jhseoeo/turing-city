@@ -38,7 +38,7 @@ Every facility starts without a board, and you work it by hand. A board takes a 
   - the thermal slider ("화력"), whose fuel costs money;
   - the supply order (↑ and ↓), where the bottom of the list loses power first when the plant falls short.
 - **A datacenter:**
-  - [처리] runs it for one second and earns money while it runs. The button waits as "처리 중…" until the gauge fills; press it again then to keep it running.
+  - [처리] runs it for one second. The button waits as "처리 중…" until the gauge fills; press it again then to keep it running. The money comes all at once as the job ends, and "+40" flashes beside the gauge and above the datacenter on the map.
   - It heats up. [냉각] runs a cooling cycle of a few seconds that draws a lot of power. Above 90 °C it can catch fire.
 - **Housing** eats food, and pays tax while fed and powered. The top bar shows 식량 (food) and 인구 (people: fed, hungry, without power).
 

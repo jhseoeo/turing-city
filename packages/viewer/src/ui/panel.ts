@@ -10,10 +10,20 @@ const section = (label: string, ...children: Array<Node | string>): HTMLElement 
   el('div', { class: 'sec' }, [el('div', { class: 'label' }, [label]), ...children]);
 
 /** The datacenter's gauge box: what it does now, and a bar that fills up as that runs its course. */
-const gaugeRow = (g: { label: string; kind: 'job' | 'cool' | 'idle'; done: number }): HTMLElement =>
+/**
+ * The gauge box, and beside it the last job's pay ("+40") for a moment after it comes. Its slot is always there, so the gauge never
+ * moves; the panel is rebuilt on every snapshot, so the fade is started that far into its course.
+ */
+const gaugeRow = (
+  g: { label: string; kind: 'job' | 'cool' | 'idle'; done: number },
+  pay: { amount: number; elapsed: number } | null,
+): HTMLElement =>
   el('div', { class: 'gauge-row' }, [
     el('span', { class: 'dim' }, [g.label]),
     el('div', { class: `gauge ${g.kind}` }, [el('i', { style: `width: ${g.done / 10}%` })]),
+    pay
+      ? el('b', { class: 'pay', style: `animation-delay: -${Math.round(pay.elapsed)}ms` }, [`+${pay.amount}`])
+      : el('b', { class: 'pay' }, []),
   ]);
 
 const kv = (pairs: Array<[string, string]>): HTMLElement =>
@@ -68,7 +78,7 @@ function stateOf(f: FacilityView): HTMLElement {
   ]);
 }
 
-export function renderPanel(root: HTMLElement, store: Store, net: GameLink): void {
+export function renderPanel(root: HTMLElement, store: Store, net: GameLink, pay: { amount: number; elapsed: number } | null = null): void {
   // The panel is rebuilt on every change, so a block the player scrolled would jump back to its top: put each one back.
   const scrolled = scrollOffsets(root);
   clear(root);
@@ -96,7 +106,7 @@ export function renderPanel(root: HTMLElement, store: Store, net: GameLink): voi
   const controls = f.condition === 'ok' ? renderControls(s, f, store, net) : null;
   // A datacenter's gauge box sits under its buttons, always there (idle too), so that nothing above the buttons moves.
   const gauge = datacenterGauge(f);
-  if (controls) root.append(section('손으로', controls, ...(gauge ? [gaugeRow(gauge)] : [])));
+  if (controls) root.append(section('손으로', controls, ...(gauge ? [gaugeRow(gauge, pay)] : [])));
 
   // Damage: a wrecked facility is repaired, then its board is rebuilt; each is paid for on its own (10-10 spec §6).
   const repair = repairButton(s, f);

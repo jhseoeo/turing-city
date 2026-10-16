@@ -98,6 +98,11 @@ export interface DatacenterState {
   /** A cooling cycle covers steps coolFrom <= step < coolUntil. */
   coolFrom: number;
   coolUntil: number;
+  /** Steps of the current job that worked so far (the grid supplied it): the job pays for these at its last step. */
+  workedSteps: number;
+  /** The last job's pay: the step it came at (-1 before any) and its amount in micro-units, which the viewer shows as "+40". */
+  paidStep: number;
+  paidMicro: number;
 }
 
 export interface FarmState {
@@ -307,7 +312,16 @@ export function createWorld(scenario: Scenario): WorldState {
   const housing: Record<string, HousingState> = {};
   for (const f of scenario.facilities) {
     if (f.kind === 'datacenter') {
-      datacenters[f.id] = { tempMilli: t.datacenter.ambientMilli, busyFrom: -1, busyUntil: -1, coolFrom: -1, coolUntil: -1 };
+      datacenters[f.id] = {
+        tempMilli: t.datacenter.ambientMilli,
+        busyFrom: -1,
+        busyUntil: -1,
+        coolFrom: -1,
+        coolUntil: -1,
+        workedSteps: 0,
+        paidStep: -1,
+        paidMicro: 0,
+      };
     } else if (f.kind === 'farm') {
       farms[f.id] = { plantedAt: 0, outbox: 0 };
     } else if (f.kind === 'warehouse') {

@@ -264,7 +264,8 @@ export interface FacilityView {
   } | null;
   /**
    * Its temperature, whether it works or cools at this step, and how much of its job and of its cooling cycle is left, in per mille
-   * of a full one (0 when none runs): the viewer's gauges.
+   * of a full one (0 when none runs): the viewer's gauges. lastPay is the last finished job's pay, in whole units, and the step it
+   * came at (null before any): the viewer floats a "+40" when a new one comes.
    */
   readonly datacenter: {
     readonly tempC: number;
@@ -272,6 +273,7 @@ export interface FacilityView {
     readonly cooling: boolean;
     readonly jobLeft: number;
     readonly coolLeft: number;
+    readonly lastPay: { readonly step: number; readonly amount: number } | null;
   } | null;
   readonly farm: { readonly ripeness: number; readonly ripe: boolean; readonly outbox: number } | null;
   /** Whole food units in stock. */
@@ -313,6 +315,7 @@ function facilityView(ctx: SimContext, f: FacilityState): FacilityView {
           cooling: isCooling(ctx, f.id, step),
           jobLeft: windowLeft(dc.busyFrom, dc.busyUntil, jobSteps(ctx), step),
           coolLeft: windowLeft(dc.coolFrom, dc.coolUntil, coolSteps(ctx), step),
+          lastPay: dc.paidStep < 0 ? null : { step: dc.paidStep, amount: idiv(dc.paidMicro, MICRO) },
         }
       : null,
     farm: farm ? { ripeness: ripeness(ctx, farm, step), ripe: isRipe(ctx, farm, step), outbox: farm.outbox } : null,

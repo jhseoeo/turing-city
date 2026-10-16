@@ -95,7 +95,7 @@ function chargedAndPaid(s: Session, lastStep: number): { charged: number[]; paid
 }
 
 describe('datacenters', () => {
-  it('runs half a second of work from the step of a press by hand, and pays the job price for that time', () => {
+  it('runs half a second of work from the step of a press by hand, and pays the job price for it at its last step', () => {
     const s = powered();
     expect(jobSteps(s.ctx)).toBe(10); // 500 ms at 20 steps a second
     expect(s.hand('DA', { kind: 'process' })).toEqual({ ok: true });
@@ -106,8 +106,10 @@ describe('datacenters', () => {
       if (s.world.ledger.datacenterIncome > earned) paid.push(step);
       earned = s.world.ledger.datacenterIncome;
     }
-    expect(paid).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]); // the hand applies at once, between steps: the job is steps 0 to 9
+    // The hand applies at once, between steps: the job is steps 0 to 9, and pays all of it at step 9.
+    expect(paid).toEqual([9]);
     expect(s.world.ledger.datacenterIncome).toBe(20 * MICRO); // 40 a second for half a second
+    expect(s.world.datacenters.DA).toMatchObject({ paidStep: 9, paidMicro: 20 * MICRO });
   });
 
   it('runs a job to its end: a press while it runs is refused, and one after it starts the next job', () => {
@@ -126,7 +128,7 @@ describe('datacenters', () => {
     expect(s.hand('DA', { kind: 'process' })).toEqual({ ok: true }); // at step 10: the next job, steps 10 to 19
     expect([dc.busyFrom, dc.busyUntil]).toEqual([10, 20]);
     steps(s, 20);
-    expect(s.world.ledger.datacenterIncome).toBe(20 * 2 * MICRO); // steps 0 to 19, at 2 a step
+    expect(s.world.ledger.datacenterIncome).toBe(2 * 20 * MICRO); // two whole jobs, 20 each
   });
 
   it('charges and pays one process() call for half a second, longer than the tick period', () => {
@@ -138,7 +140,7 @@ describe('datacenters', () => {
     const { charged, paid } = chargedAndPaid(s, 20);
     const job = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13]; // DA's first beat is step 3: the call applies there, and the job runs 4 to 13
     expect(charged).toEqual(job);
-    expect(paid).toEqual(job);
+    expect(paid).toEqual([13]);
   });
 
   it('starts the next job on the first beat after one ends, while firmware calls process() on every beat', () => {
@@ -152,7 +154,37 @@ describe('datacenters', () => {
     const job = (from: number): number[] => Array.from({ length: 10 }, (_, i) => from + i);
     const working = [...job(4), ...job(16), ...job(28), 40];
     expect(charged).toEqual(working);
-    expect(paid).toEqual(working);
+    expect(paid).toEqual([13, 25, 37]); // each job pays at its last step
+  });
+
+  it("lets a job end and pay on its last step when firmware's next call comes on that step's beat", () => {
+    const host = new FakeHost();
+    const work = host.program('work', () => ({ actions: [{ kind: 'process' }] }));
+    // A job of 8 steps, two beats of DA's 5 Hz clock: the beat at step 11 falls on the last step of the job from step 4.
+    const s = powered(1, host, (j) => {
+      j.tuning.datacenter.jobMs = 400;
+    });
+    s.deploy('DA', work);
+    const { charged, paid } = chargedAndPaid(s, 36);
+    // The call at step 11 finds the job still running and does nothing; the one at step 15 starts the next job at 16.
+    const job = (from: number): number[] => Array.from({ length: 8 }, (_, i) => from + i);
+    expect(charged).toEqual([...job(4), ...job(16), ...job(28)]);
+    expect(paid).toEqual([11, 23, 35]);
+  });
+
+  it("lets a cooling cycle take off all its drop when firmware's next call comes on its last step's beat", () => {
+    const host = new FakeHost();
+    const chill = host.program('chill', () => ({ actions: [{ kind: 'cool' }] }));
+    const s = powered(1, host, (j) => {
+      j.tuning.datacenter.coolingCycleMs = 400; // 8 steps: the beat at step 11 falls on the last step of the cycle from step 4
+      j.tuning.datacenter.passiveCoolingPermillePerSecond = 0;
+    });
+    const dc = s.world.datacenters.DA!;
+    dc.tempMilli = 80_000;
+    s.deploy('DA', chill);
+    steps(s, 12); // the cycle runs steps 4 to 11
+    expect(dc.tempMilli).toBe(80_000 - s.scenario.tuning.datacenter.coolingDropMilli);
+    expect([dc.coolFrom, dc.coolUntil]).toEqual([4, 12]);
   });
 
   it('earns the job price and gains the tuned heat for every second of work', () => {
@@ -220,7 +252,7 @@ describe('datacenters', () => {
     steps(s, 10); // steps 4 to 13 cool and don't work
     // Four steps of work (+100 each), then ten parts of the cycle: 15,000 x 10 / 80 = 1,875.
     expect(dc.tempMilli).toBe(80_000 + 400 - 1_875);
-    expect(s.world.ledger.datacenterIncome).toBe(8 * MICRO);
+    expect(s.world.ledger.datacenterIncome).toBe(0); // the cycle cut the job short: it pays nothing
     expect(isProcessing(s.ctx, 'DA', 13)).toBe(false);
     steps(s, 70); // the cycle's last step is 83
     expect(s.hand('DA', { kind: 'process' })).toEqual({ ok: true }); // at step 84 it works again
@@ -275,8 +307,10 @@ describe('datacenters', () => {
     const s = town();
     expect(s.world.boards).toEqual([]); // the milestone-2 town starts with no board
     s.hand('DA', { kind: 'process' });
-    steps(s, 12); // a job of 1 s covers steps 0 to 19: all twelve pay 40 / 20 a step
-    expect(s.world.ledger.datacenterIncome).toBe(24 * MICRO);
+    steps(s, 19); // a job of 1 s covers steps 0 to 19
+    expect(s.world.ledger.datacenterIncome).toBe(0);
+    steps(s, 1); // and pays its 40 at step 19
+    expect(s.world.ledger.datacenterIncome).toBe(40 * MICRO);
     expect(s.world.datacenters.DA!.tempMilli).toBeGreaterThan(25_000);
   });
 
@@ -346,16 +380,41 @@ describe('datacenters', () => {
     expect(step).toBeGreaterThan(60 * s.scenario.time.stepsPerSecond); // 1,310 steps, 65.5 s, at 0.3% a second
   });
 
-  it('pays every working datacenter into the town money and the ledger alike', () => {
+  it('pays every datacenter that finishes a job into the town money and the ledger alike', () => {
     const s = powered();
-    for (const id of ['DA', 'DB']) {
-      s.world.datacenters[id]!.busyFrom = 0;
-      s.world.datacenters[id]!.busyUntil = 4;
-    }
+    for (const id of ['DA', 'DB']) Object.assign(s.world.datacenters[id]!, { busyFrom: 0, busyUntil: 10, workedSteps: 9 });
     const before = s.world.money;
-    runDatacenters(s.ctx, 0); // each pays 40 a second for a twentieth of a second
-    expect(s.world.money - before).toBe(4 * MICRO);
-    expect(s.world.ledger.datacenterIncome).toBe(4 * MICRO);
+    runDatacenters(s.ctx, 9); // each job's last step: 40 a second for half a second
+    expect(s.world.money - before).toBe(40 * MICRO);
+    expect(s.world.ledger.datacenterIncome).toBe(40 * MICRO);
+  });
+
+  it('pays a job only for the steps the grid supplied, at its last step', () => {
+    const s = powered();
+    const da = fac(s, 'DA');
+    const dc = s.world.datacenters.DA!;
+    s.hand('DA', { kind: 'process' }); // steps 0 to 9
+    steps(s, 5);
+    da.powered = false; // shed at step 5: the job's time goes on, but it does no work
+    runDatacenters(s.ctx, 5);
+    da.powered = true;
+    for (let step = 6; step <= 8; step++) runDatacenters(s.ctx, step);
+    expect(s.world.ledger.datacenterIncome).toBe(0); // nothing until the job's last step
+    runDatacenters(s.ctx, 9);
+    expect(dc.workedSteps).toBe(9);
+    expect(s.world.ledger.datacenterIncome).toBe(18 * MICRO); // nine of its ten steps, at 2 a step
+    expect(dc).toMatchObject({ paidStep: 9, paidMicro: 18 * MICRO });
+  });
+
+  it('pays nothing for a job that a cooling cycle from firmware cuts short, on the step the cycle comes', () => {
+    const s = holding();
+    const dc = s.world.datacenters.DA!;
+    s.hand('DA', { kind: 'process' }); // steps 0 to 9
+    steps(s, 5);
+    applyFacilityAction(s.ctx, fac(s, 'DA'), { kind: 'cool' }, 6); // firmware's call during step 5: the job ends after step 5
+    expect([dc.busyFrom, dc.busyUntil]).toEqual([0, 6]);
+    steps(s, 10);
+    expect(s.world.ledger.datacenterIncome).toBe(0);
   });
 
   it('raises the overheat alert at exactly 85 °C and not a milli-degree below', () => {

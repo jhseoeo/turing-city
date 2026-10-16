@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { wreckFacility } from '../src/boards.ts';
+import { MICRO } from '../src/fixed.ts';
 import { alertsView, firmwareView, inspectBoard, listBoards, logsView, mapView, snapshot, statusView, timeView } from '../src/queries.ts';
 import { sensorFrame } from '../src/sensors.ts';
 import { Session } from '../src/session.ts';
@@ -312,8 +313,8 @@ describe('views in detail', () => {
     expect(snap.facilities.map((f) => [f.id, f.demand, f.board, f.datacenter])).toEqual([
       ['P', 5, running, null],
       // DA's job runs steps 4 to 13: at step 8, 6 of its 10 steps are left.
-      ['DA', 163, running, { tempC: 61, processing: true, cooling: false, jobLeft: 600, coolLeft: 0 }],
-      ['DB', 13, { ...running, erroring: true }, { tempC: 25, processing: false, cooling: false, jobLeft: 0, coolLeft: 0 }],
+      ['DA', 163, running, { tempC: 61, processing: true, cooling: false, jobLeft: 600, coolLeft: 0, lastPay: null }],
+      ['DB', 13, { ...running, erroring: true }, { tempC: 25, processing: false, cooling: false, jobLeft: 0, coolLeft: 0, lastPay: null }],
     ]);
     expect(snap.facilities[1]).toEqual({
       id: 'DA',
@@ -326,7 +327,7 @@ describe('views in detail', () => {
       powered: true,
       demand: 163,
       board: running,
-      datacenter: { tempC: 61, processing: true, cooling: false, jobLeft: 600, coolLeft: 0 },
+      datacenter: { tempC: 61, processing: true, cooling: false, jobLeft: 600, coolLeft: 0, lastPay: null },
       farm: null,
       warehouse: null,
       housing: null,
@@ -540,7 +541,8 @@ describe('views of the whole town', () => {
     s.install('DA', 'board');
     for (let i = 0; i < 20; i++) s.step(); // a second: the crops planted at step 0 are ripe
     const w = s.world;
-    w.datacenters.DA = { tempMilli: 61_999, busyFrom: 15, busyUntil: 30, coolFrom: -1, coolUntil: -1 }; // 10 of 20 steps left
+    // 10 of 20 steps left, and a job of 40 paid at step 12.
+    w.datacenters.DA = { ...w.datacenters.DA!, tempMilli: 61_999, busyFrom: 15, busyUntil: 30, paidStep: 12, paidMicro: 40 * MICRO };
     w.farms.F2!.plantedAt = 10; // half ripe
     w.farms.F3!.outbox = 33;
     w.warehouses.W!.stockMilli = 12_999;
@@ -577,16 +579,17 @@ describe('views of the whole town', () => {
       tier: 1,
       demand: 163,
       board: { status: 'running', powered: true, hasFirmware: false, erroring: false },
-      datacenter: { tempC: 61, processing: true, cooling: false, jobLeft: 500, coolLeft: 0 },
+      datacenter: { tempC: 61, processing: true, cooling: false, jobLeft: 500, coolLeft: 0, lastPay: { step: 12, amount: 40 } },
     });
     // A cooling cycle of 5 s (100 steps) that started 10 steps ago has 90% left.
-    w.datacenters.DA = { tempMilli: 61_999, busyFrom: -1, busyUntil: -1, coolFrom: 10, coolUntil: 110 };
+    w.datacenters.DA = { ...w.datacenters.DA!, busyFrom: -1, busyUntil: -1, coolFrom: 10, coolUntil: 110 };
     expect(snapshot(s.ctx).facilities.find((f) => f.id === 'DA')!.datacenter).toEqual({
       tempC: 61,
       processing: false,
       cooling: true,
       jobLeft: 0,
       coolLeft: 900,
+      lastPay: { step: 12, amount: 40 },
     });
     expect(view('DB')).toEqual({
       ...plain,
@@ -596,7 +599,7 @@ describe('views of the whole town', () => {
       y: 8,
       tier: 0,
       demand: 0,
-      datacenter: { tempC: 25, processing: false, cooling: false, jobLeft: 0, coolLeft: 0 },
+      datacenter: { tempC: 25, processing: false, cooling: false, jobLeft: 0, coolLeft: 0, lastPay: null },
     });
     expect(view('F1')).toEqual({
       ...plain,
