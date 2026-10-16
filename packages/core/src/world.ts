@@ -172,9 +172,11 @@ export interface SimContext {
 
 export function createWorld(scenario: Scenario): WorldState {
   const t = scenario.tuning;
-  const boards = scenario.facilities.map((f, index): BoardState => {
+  const boards: BoardState[] = [];
+  scenario.facilities.forEach((f, index) => {
+    if (f.board === null) return; // housing takes no board
     const period = beatPeriod(scenario.time, f.board.clockHz);
-    return {
+    boards.push({
       id: f.id,
       index,
       kind: f.kind,
@@ -195,7 +197,7 @@ export function createWorld(scenario: Scenario): WorldState {
       readyAt: null,
       lastTick: null,
       log: [],
-    };
+    });
   });
   const datacenters: Record<string, DatacenterState> = {};
   for (const f of scenario.facilities) {

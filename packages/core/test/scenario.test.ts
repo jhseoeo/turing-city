@@ -1,10 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import m1 from '../../../scenarios/m1-power.json' with { type: 'json' };
-import { parseScenario, ScenarioError } from '../src/scenario.ts';
+import m2 from '../../../scenarios/m2-town.json' with { type: 'json' };
+import { BOARD_KINDS, parseScenario, ScenarioError, takesBoard } from '../src/scenario.ts';
+import { m2Scenario } from './helpers/scenarios.ts';
 
 /** A deep copy of the milestone-1 scenario to break in one place. */
 function m1Copy(): typeof m1 {
   return JSON.parse(JSON.stringify(m1)) as typeof m1;
+}
+
+/** A deep copy of the town to break in one place. */
+function m2Copy(): typeof m2 {
+  return JSON.parse(JSON.stringify(m2)) as typeof m2;
 }
 
 function problems(input: unknown): string {
@@ -32,13 +39,13 @@ describe('parseScenario', () => {
 
   it('rejects a clock that does not divide the step rate', () => {
     const s = m1Copy();
-    s.facilities[1]!.board.clockHz = 3;
+    s.facilities[1]!.board!.clockHz = 3;
     expect(problems(s)).toContain('facilities.1.board.clockHz: clockHz 3 must divide stepsPerSecond 20');
   });
 
   it('rejects a sensor the facility kind does not offer', () => {
     const s = m1Copy();
-    s.facilities[1]!.board.sensors.push('wind');
+    s.facilities[1]!.board!.sensors.push('wind');
     expect(problems(s)).toContain('facilities.1.board.sensors.5: a datacenter board has no wind sensor');
   });
 
@@ -100,5 +107,79 @@ describe('parseScenario', () => {
     const s = m1Copy() as Record<string, unknown>;
     delete (s.tuning as Record<string, unknown>).bankruptcyDays;
     expect(problems(s)).toContain('tuning.bankruptcyDays');
+    for (const group of ['farm', 'warehouse', 'housing', 'install', 'repair']) {
+      const t = m1Copy() as Record<string, unknown>;
+      delete (t.tuning as Record<string, unknown>)[group];
+      expect(problems(t), group).toContain(`tuning.${group}`);
+    }
+  });
+});
+
+describe('the town', () => {
+  it('has the nine facilities of the map, every one of them without a board at the start', () => {
+    const s = parseScenario(m2);
+    expect(s.facilities.map((f) => `${f.id}:${f.kind}`)).toEqual([
+      'H1:housing',
+      'H2:housing',
+      'P:power',
+      'DA:datacenter',
+      'W:warehouse',
+      'DB:datacenter',
+      'F1:farm',
+      'F2:farm',
+      'F3:farm',
+    ]);
+    expect(s.facilities.filter((f) => f.board === null).map((f) => f.id)).toEqual(['H1', 'H2']);
+    expect(s.facilities.some((f) => f.board?.startsInstalled)).toBe(false);
+    expect(s.tuning.install.boardPrice).toEqual({ farm: 200, warehouse: 400, power: 400, datacenter: 600 });
+    expect(s.tuning.farm).toEqual({ ripenSeconds: 40, rotSeconds: 20, yield: 40, outboxCapacity: 80 });
+    expect(s.tuning.housing.startFood).toBe(120);
+    expect(s.tuning.datacenter.coolingPower).toBe(250);
+    expect(s.tuning.emf.rumourThreshold).toBe(200_000);
+    expect(m2Scenario().id).toBe('m2-town');
+  });
+
+  it('starts the test scenario with its three boards installed', () => {
+    expect(parseScenario(m1).facilities.map((f) => f.board?.startsInstalled)).toEqual([true, true, true]);
+  });
+
+  it('takes a board on every kind but housing', () => {
+    expect(BOARD_KINDS.filter((k) => takesBoard(k))).toEqual(['power', 'datacenter', 'farm', 'warehouse']);
+    expect(takesBoard('housing')).toBe(false);
+  });
+
+  it('refuses a board on housing, and a board kind without one', () => {
+    const housed = m2Copy();
+    Object.assign(housed.facilities[0]!, { board: housed.facilities[6]!.board });
+    expect(problems(housed)).toContain('facilities.0.board: a housing takes no board');
+    const bare = m2Copy();
+    Object.assign(bare.facilities[6]!, { board: null });
+    expect(problems(bare)).toContain('facilities.6.board: a farm needs a board');
+  });
+
+  it('refuses a sensor a farm or the warehouse does not offer', () => {
+    const s = m2Copy();
+    s.facilities[6]!.board!.sensors.push('temp');
+    s.facilities[4]!.board!.sensors.push('ripeness');
+    const text = problems(s);
+    expect(text).toContain('facilities.6.board.sensors.2: a farm board has no temp sensor');
+    expect(text).toContain('facilities.4.board.sensors.4: a warehouse board has no ripeness sensor');
+  });
+
+  it('allows at most one warehouse', () => {
+    const s = m2Copy();
+    s.facilities.push({ ...s.facilities[4]!, id: 'W2', x: 12, y: 6 });
+    expect(problems(s)).toContain('facilities: at most one warehouse is allowed');
+  });
+
+  it('needs a press, a cooling cycle, and a truck cell to last whole steps', () => {
+    const s = m2Copy();
+    s.tuning.datacenter.jobMs = 525; // 10.5 steps at 20 a second
+    s.tuning.datacenter.coolingCycleMs = 4010;
+    s.tuning.warehouse.truckCellsPerSecond = 3;
+    const text = problems(s);
+    expect(text).toContain('tuning.datacenter.jobMs: jobMs 525 is not a whole number of steps at 20 steps per second');
+    expect(text).toContain('tuning.datacenter.coolingCycleMs: coolingCycleMs 4010 is not a whole number of steps at 20 steps per second');
+    expect(text).toContain('tuning.warehouse.truckCellsPerSecond: truckCellsPerSecond 3 must divide stepsPerSecond 20');
   });
 });

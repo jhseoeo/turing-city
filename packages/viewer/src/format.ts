@@ -47,7 +47,13 @@ export function firmwareLabel(installed: number | null, pending: number | null):
   return parts.length > 0 ? parts.join(' · ') : '펌웨어 없음';
 }
 
-export const KIND_LABELS: Record<FacilityKind, string> = { power: '발전소', datacenter: '데이터센터' };
+export const KIND_LABELS: Record<FacilityKind, string> = {
+  power: '발전소',
+  datacenter: '데이터센터',
+  farm: '밭',
+  warehouse: '물류창고',
+  housing: '주거지',
+};
 
 /** Heatmap opacity for a cell's EMF: nothing under 1, at most 0.6. */
 export function heatAlpha(units: number): number {

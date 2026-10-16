@@ -16,7 +16,8 @@
         "ramKb": 4,
         "sensors": ["wind", "demand", "fuelPrice"],
         "power": 5,
-        "baseEmfPerSecond": 20
+        "baseEmfPerSecond": 20,
+        "startsInstalled": true
       }
     },
     {
@@ -30,7 +31,8 @@
         "ramKb": 8,
         "sensors": ["temp", "powerHeadroom", "price", "emf", "ludditeDist"],
         "power": 10,
-        "baseEmfPerSecond": 25
+        "baseEmfPerSecond": 25,
+        "startsInstalled": true
       }
     },
     {
@@ -44,7 +46,8 @@
         "ramKb": 8,
         "sensors": ["temp", "powerHeadroom", "price", "emf", "ludditeDist"],
         "power": 10,
-        "baseEmfPerSecond": 25
+        "baseEmfPerSecond": 25,
+        "startsInstalled": true
       }
     }
   ],
@@ -63,22 +66,37 @@
       "coolingMilliPerLevelPerSecond": 800,
       "coolingPowerPerLevel": 20,
       "maxCoolingLevel": 3,
+      "passiveCoolingPermillePerSecond": 20,
+      "jobMs": 500,
+      "coolingCycleMs": 4000,
+      "coolingDropMilli": 15000,
+      "coolingPower": 400,
       "overheatAlertMilli": 85000,
       "fireThresholdMilli": 90000,
       "firePermillePerDegreePerSecond": 5
     },
+    "farm": { "ripenSeconds": 120, "rotSeconds": 40, "yield": 24, "outboxCapacity": 50 },
+    "warehouse": { "trucks": 2, "truckCapacity": 40, "truckCellsPerSecond": 2, "fuelPerCell": 1, "spoilagePctPerDay": 2 },
+    "housing": { "residents": 40, "foodPerPersonPerDay": 1, "power": 70, "taxPerPersonPerDay": 5, "startFood": 120 },
     "boardUpkeepPerDay": 10,
     "sleepPower": 1,
     "maxSleepSeconds": 40,
     "emf": {
       "instructionsPerUnit": 100,
       "perAction": 10,
+      "processingPerSecond": 50,
       "diffusionPctPerSecond": 10,
       "decayPctPerSecond": 10,
       "detectionThreshold": 5,
       "rumourThreshold": 100000
     },
     "luddites": { "groupSize": 3, "cellsPerSecond": 1, "quietSecondsToLeave": 10, "approachCells": 5 },
+    "install": {
+      "boardPrice": { "farm": 200, "warehouse": 400, "power": 400, "datacenter": 600 },
+      "commPrice": 300,
+      "commBaseEmfPerSecond": 5
+    },
+    "repair": { "cost": { "farm": 150, "warehouse": 300, "power": 300, "datacenter": 500 }, "seconds": 20 },
     "rebuild": { "cost": 500, "seconds": 20 },
     "bankruptcyDays": 3
   }
