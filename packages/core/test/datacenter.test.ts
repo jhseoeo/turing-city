@@ -450,6 +450,7 @@ describe('datacenters', () => {
     }
     expect(fac(s, 'DA').condition).toBe('wrecked');
     expect(s.world.boards.map((b) => b.status)).toEqual(['running', 'destroyed', 'running']);
+    expect(s.world.boards[1]!.log.at(-1)).toMatchObject({ kind: 'system', text: 'destroyed by fire' });
     expect(s.world.stats.wrecks).toBe(1);
     const burned = s.world.alerts.filter((a) => a.kind === 'fire' || a.kind === 'wrecked');
     expect(burned.map((a) => [a.kind, a.facilityId])).toEqual([

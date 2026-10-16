@@ -605,12 +605,15 @@ describe('Luddites', () => {
     expect(a.world.ended, 'the season is still running at the last step').toBeNull();
   });
 
-  it('counts as a machine a standing facility with a running or sleeping board, or a datacenter with or without one', () => {
+  it('counts as a machine a standing facility with a running or sleeping board, or a datacenter at work with or without one', () => {
     const s = town((j) => {
       Object.assign(j.facilities.find((f) => f.id === 'F1')!.board!, { startsInstalled: true });
     });
-    const is = (id: string): boolean => isMachine(s.world, fac(s, id));
-    expect(['H1', 'P', 'DA', 'W', 'DB', 'F1', 'F2'].map(is)).toEqual([false, false, true, false, true, true, false]);
+    const is = (id: string): boolean => isMachine(s.ctx, fac(s, id), 0);
+    expect(['H1', 'P', 'DA', 'W', 'DB', 'F1', 'F2'].map(is)).toEqual([false, false, false, false, false, true, false]);
+    s.hand('DA', { kind: 'process' }); // a job from step 0: 0.5 s
+    expect(is('DA')).toBe(true);
+    expect(isMachine(s.ctx, fac(s, 'DA'), 10), 'the job is over').toBe(false);
     const f1 = s.world.boards[0]!; // the town's only board
     f1.status = 'asleep';
     expect(is('F1')).toBe(true);
@@ -620,9 +623,12 @@ describe('Luddites', () => {
     expect(is('DA')).toBe(false);
   });
 
-  it('hunts a datacenter worked by hand, with no board, and wrecks it', () => {
+  it('hunts a datacenter worked by hand, with no board, while it works, warns of it, and wrecks it', () => {
     const s = town();
     const g = group(s, 5, 0); // DA is at (5, 4): four cells down the column
+    const dc = s.world.datacenters.DA!;
+    dc.busyFrom = 0;
+    dc.busyUntil = 1000;
     for (let beat = 0; beat < 4; beat++) {
       s.world.emf.fill(0);
       setEmf(s, 'DA', 50);
@@ -630,7 +636,18 @@ describe('Luddites', () => {
     }
     expect([g.x, g.y]).toEqual([5, 4]);
     expect(fac(s, 'DA').condition).toBe('wrecked');
+    expect(s.world.alerts.filter((a) => a.kind === 'ludditesNear').map((a) => a.facilityId)).toEqual(['DA']);
     expect(s.world.alerts.filter((a) => a.kind === 'wrecked').map((a) => a.facilityId)).toEqual(['DA']);
+  });
+
+  it('does not hunt an idle datacenter with no board, however loud its cell from a neighbour', () => {
+    const s = town();
+    setEmf(s, 'DA', 50);
+    expect(strongestTarget(s.ctx, 0)).toBeNull();
+    const g = group(s, 5, 0);
+    runLuddites(s.ctx, 0);
+    expect([g.x, g.y, g.targetId]).toEqual([5, 0, null]);
+    expect(s.world.alerts.filter((a) => a.kind === 'ludditesNear')).toEqual([]);
   });
 
   it('does not hunt a facility with no board whose own work is no machine, however loud its cell', () => {

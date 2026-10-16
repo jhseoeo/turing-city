@@ -1,24 +1,22 @@
 import { raiseAlert } from './alerts.ts';
 import { wreckFacility } from './boards.ts';
+import { isProcessing } from './datacenter.ts';
 import { fieldTotal } from './emf.ts';
 import { idiv, MILLI } from './fixed.ts';
-import type { FacilityKind } from './scenario.ts';
 import { cellIndex, type FacilityState, findBoard, type LudditeGroup, manhattan, type SimContext, type WorldState } from './world.ts';
 
 const SIDES = ['북쪽', '남쪽', '서쪽', '동쪽'] as const;
 
-/** Kinds whose own work is a machine's, because they process: such a facility is a target with or without a board. */
-const MACHINE_KINDS: ReadonlySet<FacilityKind> = new Set<FacilityKind>(['datacenter']);
-
 /**
- * What Luddites hunt: a standing facility that has a board that runs or sleeps, or whose own work is a machine's. A facility
- * worked only by hand, one whose board is destroyed or being rebuilt, and anything wrecked or being repaired are no machines.
+ * What Luddites hunt (10-10 spec §6): a standing facility that has a board that runs or sleeps, or that processes at this step,
+ * whoever started the job. A facility worked only by hand, an idle datacenter with no live board, one whose board is destroyed or
+ * being rebuilt, and anything wrecked or being repaired are no machines.
  */
-export function isMachine(world: WorldState, facility: FacilityState): boolean {
+export function isMachine(ctx: SimContext, facility: FacilityState, step: number): boolean {
   if (facility.condition !== 'ok') return false;
-  if (MACHINE_KINDS.has(facility.kind)) return true;
-  const board = findBoard(world, facility.id);
-  return board !== undefined && (board.status === 'running' || board.status === 'asleep');
+  const board = findBoard(ctx.world, facility.id);
+  if (board !== undefined && (board.status === 'running' || board.status === 'asleep')) return true;
+  return isProcessing(ctx, facility.id, step);
 }
 
 /** The cells from one point to another, along the row first, then the column. */
@@ -63,12 +61,12 @@ export function runRumour(ctx: SimContext, step: number): void {
 }
 
 /** The machine whose cell carries the strongest EMF at or above the detection threshold. */
-export function strongestTarget(ctx: SimContext): FacilityState | null {
+export function strongestTarget(ctx: SimContext, step: number = ctx.world.step): FacilityState | null {
   const threshold = ctx.scenario.tuning.emf.detectionThreshold * MILLI;
   let best: FacilityState | null = null;
   let bestValue = -1;
   for (const f of ctx.world.facilities) {
-    if (!isMachine(ctx.world, f)) continue;
+    if (!isMachine(ctx, f, step)) continue;
     const v = ctx.world.emf[cellIndex(ctx.scenario, f.x, f.y)]!;
     if (v >= threshold && v > bestValue) {
       best = f;
@@ -95,7 +93,7 @@ function nearestEdgeStep(ctx: SimContext, g: LudditeGroup): [number, number] | n
 function warnNearby(ctx: SimContext, g: LudditeGroup, step: number): void {
   const reach = ctx.scenario.tuning.luddites.approachCells;
   for (const f of ctx.world.facilities) {
-    if (!isMachine(ctx.world, f) || g.warned.includes(f.id)) continue;
+    if (!isMachine(ctx, f, step) || g.warned.includes(f.id)) continue;
     const d = manhattan(g.x, g.y, f.x, f.y);
     if (d <= reach) {
       g.warned.push(f.id);
@@ -119,7 +117,7 @@ export function runLuddites(ctx: SimContext, step: number): void {
       }
       continue;
     }
-    const target = strongestTarget(ctx);
+    const target = strongestTarget(ctx, step);
     if (!target) {
       g.targetId = null;
       g.quietSince ??= step;
