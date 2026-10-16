@@ -3,7 +3,7 @@ import { wreckFacility } from './boards.ts';
 import { isProcessing } from './datacenter.ts';
 import { fieldTotal } from './emf.ts';
 import { idiv, MILLI } from './fixed.ts';
-import { cellIndex, type FacilityState, findBoard, type LudditeGroup, manhattan, type SimContext, type WorldState } from './world.ts';
+import { cellIndex, type FacilityState, findBoard, type LudditeGroup, manhattan, type SimContext } from './world.ts';
 
 const SIDES = ['북쪽', '남쪽', '서쪽', '동쪽'] as const;
 
