@@ -150,6 +150,19 @@ describe('hostile firmware', () => {
     expect(reports[1]?.elapsedMs).toBeLessThan(BUDGET_MS);
   });
 
+  it('does not run firmware metamethods on a list or a record of readings, when the host writes the next frame into them', async () => {
+    // The firmware traps writes and lengths on a list of its readings and on a record in it, then clears a field and an item.
+    // The host writes the next frame into those very tables: with anything but raw access, the traps would run uncounted there.
+    const reports = await runTicks([
+      'function tick(io) local trap = { __newindex = function() while true do end end, __len = function() while true do end end } setmetatable(io.farms, trap) setmetatable(io.farms[1], trap) io.farms[1].outbox = nil io.farms[2] = nil end',
+      null,
+    ]);
+    expect(reports).not.toBe('hung');
+    if (reports === 'hung') return;
+    expect(reports[1]?.kind).toBeNull();
+    expect(reports[1]?.elapsedMs).toBeLessThan(BUDGET_MS);
+  });
+
   it('does not close a coroutine that the cap killed, on a later tick either', async () => {
     // Tick 1 starts a coroutine with a <close> handler and the cap kills it: it dies with its hooks off. Closing it on
     // tick 2 with coroutine.close would run the handler uncounted. The sandbox has no coroutine.close, so tick 2 fails

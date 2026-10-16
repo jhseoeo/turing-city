@@ -15,10 +15,20 @@ export interface TickReport {
 const sources = workerData as ReadonlyArray<string | null>;
 const lua = await createLuaRuntime();
 const vm = new BoardVm(lua, { kind: 'datacenter', facilityIds: ['P', 'DA', 'DB'], seed: 1, instructionCap: 2000, ramBytes: 8 * 1024 });
+const FRAME = {
+  temp: 50,
+  price: 40,
+  day: 1,
+  clock: 1,
+  farms: [
+    { id: 'F1', outbox: 1, distance: 2 },
+    { id: 'F2', outbox: 0, distance: 3 },
+  ],
+};
 const reports: TickReport[] = [];
 for (const source of sources) {
   const started = performance.now();
-  const r = vm.tick({ temp: 50, price: 40, day: 1, clock: 1 }, source);
+  const r = vm.tick(FRAME, source);
   reports.push({ kind: r.error?.kind ?? null, message: r.error?.message ?? null, elapsedMs: performance.now() - started, logs: r.logs });
 }
 vm.close();

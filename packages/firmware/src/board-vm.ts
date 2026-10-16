@@ -1,4 +1,4 @@
-import type { FacilityKind, SensorValue, TickError } from '@turing-city/core';
+import type { BoardKind, SensorValue, TickError } from '@turing-city/core';
 import { LuaEngine, LuaLibraries, type LuaWasm } from 'wasmoon';
 import { PRELUDE } from './prelude.ts';
 
@@ -17,10 +17,10 @@ const CPU_MESSAGE = 'CPU limit exceeded';
  */
 const STARTUP_BYTES = 4096;
 
-export const ACTION_CODES = { process: 1, cool: 2, setThermal: 3, setPriority: 4, sleep: 5 } as const;
+export const ACTION_CODES = { process: 1, cool: 2, setThermal: 3, setPriority: 4, sleep: 5, harvest: 6, dispatch: 7 } as const;
 
 export interface BoardVmOptions {
-  readonly kind: FacilityKind;
+  readonly kind: BoardKind;
   readonly facilityIds: readonly string[];
   readonly seed: number;
   readonly instructionCap: number;
@@ -51,7 +51,7 @@ export class BoardVm {
   private counting = false;
   /**
    * Memory in use by the board as it comes up, with no firmware: the runtime, the prelude with its queue and log at
-   * their limits, and io with the sensor keys of the first frame. None of it is the firmware's to pay for. It is
+   * their limits, and io with the readings of the first frame, their tables too. None of it is the firmware's to pay for. It is
    * measured on the first tick, after that frame, and fixed for the board's life.
    */
   private bootBytes = 0;
@@ -65,6 +65,8 @@ export class BoardVm {
    * tick(), and every tick after it would say only that, so the cause is kept here for the ticks that follow to name.
    */
   private installError: string | null = null;
+  /** The VM's own tables for the lists and records among the readings, by path, as registry references (see writeSensors). */
+  private readonly tables = new Map<string, number>();
 
   private readonly lua: LuaWasm;
   private readonly options: BoardVmOptions;
@@ -176,10 +178,12 @@ export class BoardVm {
     this.pushRef('release');
     const released = lua.lua_pcallk(L, 0, 1, 0, 0, null);
     if (released !== 0) throw new Error(`board release failed: ${this.errorText(-1)}`);
-    // The firmware that goes starts with nothing it left in io: the new one gets a table of its own.
+    // The firmware that goes starts with nothing it left in io: the new one gets an io of its own, and tables of its own for
+    // the readings, which the next frame makes.
     lua.luaL_unref(L, REGISTRY, this.refs.io);
     this.refs.io = lua.luaL_ref(L, REGISTRY);
     lua.lua_settop(L, 0);
+    this.dropSensorTables();
     this.collect();
     return null;
   }
@@ -227,18 +231,70 @@ export class BoardVm {
     return `(error object: ${this.lua.lua_typename(this.L, type)})`;
   }
 
+  /**
+   * Writes a frame of readings into io, with raw access only, so that no firmware metamethod runs outside a tick. A list or a
+   * record goes into a table the VM keeps for its path (`farms`, `farms/1`, ...) and fills again every tick. After the first
+   * frame, writing the readings allocates nothing, so a tick leaves no garbage for the RAM reading to count: the host writes
+   * outside the RAM cap. A list that comes shorter loses its last items. A deploy drops the tables, so each firmware gets its own.
+   */
   private writeSensors(sensors: Readonly<Record<string, SensorValue>>): void {
     const { lua, L } = this;
     this.pushRef('io');
     for (const [key, value] of Object.entries(sensors)) {
       lua.lua_pushstring(L, key);
-      // Only numbers so far: Task 12 writes strings, lists, and records too, which read as nil until then.
-      if (typeof value !== 'number') lua.lua_pushnil(L);
-      else if (Number.isInteger(value)) lua.lua_pushinteger(L, BigInt(value));
-      else lua.lua_pushnumber(L, value);
+      this.pushValue(value, key);
       lua.lua_rawset(L, -3);
     }
     lua.lua_settop(L, 0);
+  }
+
+  /** Pushes one reading: nil, an integer, a float, a string, or the VM's table for the list or record at this path, filled. */
+  private pushValue(value: SensorValue, path: string): void {
+    const { lua, L } = this;
+    if (value === undefined) lua.lua_pushnil(L);
+    else if (typeof value === 'number') {
+      if (Number.isInteger(value)) lua.lua_pushinteger(L, BigInt(value));
+      else lua.lua_pushnumber(L, value);
+    } else if (typeof value === 'string') lua.lua_pushstring(L, value);
+    else if (Array.isArray(value)) {
+      const list = value as readonly SensorValue[];
+      this.pushTable(path, list.length, 0);
+      list.forEach((item, i) => {
+        this.pushValue(item, `${path}/${i + 1}`);
+        lua.lua_rawseti(L, -2, BigInt(i + 1));
+      });
+      for (let i = lua.lua_rawlen(L, -1); i > list.length; i--) {
+        lua.lua_pushnil(L);
+        lua.lua_rawseti(L, -2, BigInt(i));
+      }
+    } else {
+      const fields = Object.entries(value as { readonly [key: string]: SensorValue });
+      this.pushTable(path, 0, fields.length);
+      for (const [key, field] of fields) {
+        lua.lua_pushstring(L, key);
+        this.pushValue(field, `${path}.${key}`);
+        lua.lua_rawset(L, -3);
+      }
+    }
+  }
+
+  /** Pushes the VM's table for this path, made with room for its items and fields the first time the path comes. */
+  private pushTable(path: string, items: number, fields: number): void {
+    const { lua, L } = this;
+    const ref = this.tables.get(path);
+    if (ref !== undefined) {
+      lua.lua_rawgeti(L, REGISTRY, BigInt(ref));
+      return;
+    }
+    lua.lua_createtable(L, items, fields);
+    lua.lua_pushvalue(L, -1);
+    this.tables.set(path, lua.luaL_ref(L, REGISTRY));
+  }
+
+  /** Lets go of the tables of the firmware that goes: the next frame makes new ones. */
+  private dropSensorTables(): void {
+    for (const ref of this.tables.values()) this.lua.luaL_unref(this.L, REGISTRY, ref);
+    this.tables.clear();
   }
 
   /** Reads and empties one of the prelude's lists, with raw access only. */
