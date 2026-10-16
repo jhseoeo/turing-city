@@ -182,7 +182,7 @@ describe('game server', () => {
     // DA has a board (T1) and no comm module: the agent is told how the player opens it.
     const refused = await deploy();
     expect(refused.isError).toBe(true);
-    expect(textOf(refused)).toBe("DA has no comm module: the player installs one from the board's panel");
+    expect(textOf(refused)).toBe("DA has no comm module: the player installs one from the facility's panel");
     await agent.callTool({ name: 'dev_install', arguments: { facility: 'DA', part: 'comm' } });
     expect((await deploy()).isError).toBeFalsy();
     await until(() => last(v.seen, 'deploy') !== undefined);

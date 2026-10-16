@@ -141,7 +141,7 @@ describe('MCP endpoint over the real controller', () => {
       ['DA', 1],
       ['DB', 1],
     ]);
-    const noComm = { isError: true, text: "DA has no comm module: the player installs one from the board's panel" };
+    const noComm = { isError: true, text: "DA has no comm module: the player installs one from the facility's panel" };
     expect(await call('get_datasheet', { board: 'DA' })).toEqual(noComm);
     expect(await call('get_firmware', { board: 'DA' })).toEqual(noComm);
     expect(await call('read_logs', { board: 'DA' })).toEqual(noComm);

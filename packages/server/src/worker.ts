@@ -94,7 +94,7 @@ function agentBoard(s: Session, id: string): BoardState | null {
   if (!facility || facility.boardSpec === null) return null;
   const board = findBoard(s.world, id);
   if (!board?.comm) {
-    throw new ToolError(`${id} has no comm module: the player installs one from the board's panel`, { code: 'noComm', board: id });
+    throw new ToolError(`${id} has no comm module: the player installs one from the facility's panel`, { code: 'noComm', board: id });
   }
   return board;
 }

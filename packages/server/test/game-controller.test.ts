@@ -286,7 +286,7 @@ describe('gameApi', () => {
         (error: unknown) => (error instanceof ToolError ? { message: error.message, refusal: error.refusal } : error),
       );
     const noComm = (id: string) => ({
-      message: `${id} has no comm module: the player installs one from the board's panel`,
+      message: `${id} has no comm module: the player installs one from the facility's panel`,
       refusal: { code: 'noComm', board: id },
     });
     // F1 has no board (T0); DA gets one but no comm module (T1).

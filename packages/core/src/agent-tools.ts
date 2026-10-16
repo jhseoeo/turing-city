@@ -72,7 +72,7 @@ export interface AgentTool {
 
 const board = z.string().describe('A board id, such as "DA". list_boards lists them.');
 const since = z.number().optional().describe('Only entries after this many game seconds into the season.');
-const code = FIRMWARE_SOURCE.describe('The Lua source, up to 64 KB.');
+const code = FIRMWARE_SOURCE.describe('The Lua source, up to 65,536 characters.');
 
 /** What a board tool says of whom it reaches: the worker refuses the agent every board without a comm module (spec §8). */
 const ONLY_COMM =

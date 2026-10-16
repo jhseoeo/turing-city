@@ -30,6 +30,13 @@ describe('command shapes', () => {
       { kind: 'dispatch', truck: 1, from: 'F1', to: 'W' },
       { kind: 'dispatch', truck: 1, from: 'F1', to: 'W', amount: 0 },
       { kind: 'dispatch', truck: 1, from: 'X'.repeat(33), to: 'W', amount: 24 },
+      { kind: 'dispatch', truck: 65, from: 'F1', to: 'W', amount: 24 },
+      { kind: 'dispatch', truck: 1, from: 'F1', to: 'W', amount: 1_000_001 },
+      { kind: 'dispatch', truck: 1, from: 'F1', to: 'W', amount: 24, extra: 1 },
+      { kind: 'setThermal', output: 1_000_001 },
+      { kind: 'setThermal', output: 120, extra: 1 },
+      { kind: 'setPriority', order: Array(65).fill('H1') },
+      JSON.parse('{"kind":"process","__proto__":{}}'),
     ];
     for (const action of bad) expect(FACILITY_ACTION.safeParse(action).success, JSON.stringify(action)).toBe(false);
   });
