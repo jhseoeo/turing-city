@@ -1,3 +1,4 @@
+import { ripeness } from './farm.ts';
 import { MILLI } from './fixed.ts';
 import type { SensorName } from './scenario.ts';
 import { gameTime } from './time.ts';
@@ -49,9 +50,13 @@ function read(ctx: SimContext, board: BoardState, sensor: SensorName): number | 
       return (w.emf[cellIndex(ctx.scenario, board.x, board.y)] ?? 0) / MILLI;
     case 'ludditeDist':
       return nearestLudditeDistance(ctx, board);
-    // Farms and the warehouse have no rules yet: their sensors read nil until Task 7 (farms) and Task 8 (the warehouse).
-    case 'ripeness':
+    case 'ripeness': {
+      const farm = w.farms[board.id];
+      return farm ? ripeness(ctx, farm, w.step) : undefined;
+    }
     case 'outbox':
+      return w.farms[board.id]?.outbox;
+    // The warehouse has no rules yet: its sensors read nil until Task 8.
     case 'stock':
     case 'farms':
     case 'housing':

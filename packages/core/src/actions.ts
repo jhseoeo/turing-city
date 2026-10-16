@@ -1,5 +1,6 @@
 import { startSleep } from './boards.ts';
 import { coolSteps, jobSteps } from './datacenter.ts';
+import { harvest } from './farm.ts';
 import type { FacilityAction } from './firmware-host.ts';
 import { clamp } from './fixed.ts';
 import type { FacilityKind } from './scenario.ts';
@@ -67,7 +68,7 @@ export function applyFacilityAction(ctx: SimContext, facility: FacilityState, ac
       break;
     }
     case 'harvest':
-      // Farms are worked from Task 7.
+      harvest(ctx, facility.id, startStep);
       break;
     case 'dispatch':
       // The warehouse's trucks run from Task 8.

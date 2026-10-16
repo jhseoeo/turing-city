@@ -6,6 +6,7 @@ export * from './datacenter.ts';
 export * from './datasheet.ts';
 export * from './economy.ts';
 export * from './emf.ts';
+export * from './farm.ts';
 export * from './firmware-host.ts';
 export * from './fixed.ts';
 export * from './hash.ts';
