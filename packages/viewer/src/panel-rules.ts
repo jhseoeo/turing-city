@@ -75,13 +75,16 @@ export function coolButton(f: FacilityView): ButtonState {
   return enabled('냉각');
 }
 
-/** A datacenter's two gauges: how much of its job and of its cooling cycle is left, in per mille, and whether each runs. */
-export function datacenterGauges(f: FacilityView): Array<{ label: string; kind: 'job' | 'cool'; left: number }> {
-  if (!f.datacenter) return [];
-  return [
-    { label: '처리', kind: 'job', left: f.datacenter.jobLeft },
-    { label: '냉각', kind: 'cool', left: f.datacenter.coolLeft },
-  ];
+/**
+ * A datacenter's one gauge: what it does now (a job or a cooling cycle, never both) and how far it has got, in per mille, filling
+ * up as the time passes; idle and empty when it does neither. Null for any other facility.
+ */
+export function datacenterGauge(f: FacilityView): { label: string; kind: 'job' | 'cool' | 'idle'; done: number } | null {
+  if (!f.datacenter) return null;
+  const { jobLeft, coolLeft } = f.datacenter;
+  if (coolLeft > 0) return { label: '냉각', kind: 'cool', done: 1000 - coolLeft };
+  if (jobLeft > 0) return { label: '처리', kind: 'job', done: 1000 - jobLeft };
+  return { label: '대기', kind: 'idle', done: 0 };
 }
 
 /** A trip the form offers, with what its source holds now. */

@@ -4,7 +4,7 @@ import {
   amountChoices,
   commButton,
   coolButton,
-  datacenterGauges,
+  datacenterGauge,
   dispatchAction,
   harvestButton,
   idleTrucks,
@@ -130,11 +130,12 @@ describe('panel rules: the hand', () => {
       reason: '냉각하는 동안에는 처리할 수 없어요',
     });
     const working = { tempC: 70, processing: true, cooling: false, jobLeft: 450, coolLeft: 0 };
-    expect(datacenterGauges(facility({ datacenter: working }))).toEqual([
-      { label: '처리', kind: 'job', left: 450 },
-      { label: '냉각', kind: 'cool', left: 0 },
-    ]);
-    expect(datacenterGauges(facility({ kind: 'farm', datacenter: null }))).toEqual([]);
+    // One gauge, for what runs now, filling up: 450 left of a job is 550 done.
+    expect(datacenterGauge(facility({ datacenter: working }))).toEqual({ label: '처리', kind: 'job', done: 550 });
+    expect(datacenterGauge(facility({ datacenter: coolingNow }))).toEqual({ label: '냉각', kind: 'cool', done: 400 });
+    const idle = { tempC: 30, processing: false, cooling: false, jobLeft: 0, coolLeft: 0 };
+    expect(datacenterGauge(facility({ datacenter: idle }))).toEqual({ label: '대기', kind: 'idle', done: 0 });
+    expect(datacenterGauge(facility({ kind: 'farm', datacenter: null }))).toBeNull();
   });
 
   it("moves a facility up or down the plant's supply order, and leaves the order alone at its ends", () => {

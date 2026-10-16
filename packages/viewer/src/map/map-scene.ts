@@ -133,14 +133,14 @@ export class MapScene extends Phaser.Scene {
         for (let k = 6; k < CELL; k += 7) g.lineBetween(px + 2, py + k, px + k, py + 2);
       }
       if (f.datacenter && !down) {
-        // The job's or the cooling cycle's time left, along the bottom of the cell (never both: they don't run at once).
+        // How far the job or the cooling cycle has got, filling up along the bottom of the cell (never both: they don't run at once).
         const cooling = f.datacenter.coolLeft > 0;
         const left = cooling ? f.datacenter.coolLeft : f.datacenter.jobLeft;
         if (left > 0) {
           g.fillStyle(0x0c0f13, 0.6);
           g.fillRect(px + 4, py + CELL - 5, CELL - 8, 3);
           g.fillStyle(cooling ? 0x4fb3ff : 0x3fd07a, 1);
-          g.fillRect(px + 4, py + CELL - 5, Math.max(1, Math.round(((CELL - 8) * left) / 1000)), 3);
+          g.fillRect(px + 4, py + CELL - 5, Math.max(1, Math.round(((CELL - 8) * (1000 - left)) / 1000)), 3);
         }
       }
       if (f.farm && !down) {
