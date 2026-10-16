@@ -77,14 +77,15 @@ export type Tone = 'normal' | 'warn' | 'good';
 /** What a facility's cell says under it. The plant says nothing: the top bar and its panel carry its numbers. */
 export function cellCaption(f: FacilityView, overheatC: number): { text: string; tone: Tone } | null {
   if (f.condition === 'wrecked') return { text: '부서짐', tone: 'warn' };
-  if (f.condition === 'repairing') return { text: `복구 중 ${f.repairHoursLeft ?? 0}시간`, tone: 'warn' };
+  if (f.condition === 'repairing') return { text: `복구\n${f.repairHoursLeft ?? 0}시간`, tone: 'warn' };
   if (f.datacenter) {
     const d = f.datacenter;
-    return { text: `${d.tempC}°C${d.processing ? ' ▲' : ''}${d.cooling ? ' ❄' : ''}`, tone: d.tempC >= overheatC ? 'warn' : 'normal' };
+    const work = `${d.processing ? '▲' : ''}${d.cooling ? '❄' : ''}`;
+    return { text: `${d.tempC}°C${work ? `\n${work}` : ''}`, tone: d.tempC >= overheatC ? 'warn' : 'normal' };
   }
-  if (f.farm) return { text: `${f.farm.ripeness}% · ${f.farm.outbox}`, tone: f.farm.ripe ? 'good' : 'normal' };
-  if (f.warehouse) return { text: `재고 ${f.warehouse.stock}`, tone: 'normal' };
-  if (f.housing) return { text: `식량 ${f.housing.food}`, tone: f.housing.fed ? 'normal' : 'warn' };
+  if (f.farm) return { text: `${f.farm.ripeness}%\n${f.farm.outbox}`, tone: f.farm.ripe ? 'good' : 'normal' };
+  if (f.warehouse) return { text: `재고\n${f.warehouse.stock}`, tone: 'normal' };
+  if (f.housing) return { text: `식량\n${f.housing.food}`, tone: f.housing.fed ? 'normal' : 'warn' };
   return null;
 }
 

@@ -205,6 +205,7 @@ export class Store {
 
   /** A new season: its boards are not the old ones, so the editor and its drafts go; the guide card shows unless dismissed. */
   private seasonStarted(): void {
+    this.inspection = null; // the last season's firmware and log, until the next inspect answers
     this.editorFor = null;
     this.deployResult = null;
     this.editorDrafts = {};

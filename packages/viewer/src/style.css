@@ -159,6 +159,10 @@ main {
   grid-template-columns: 100px 1fr;
   row-gap: 3px;
 }
+/* A list reading (a warehouse's farms, housing, and trucks) comes one item to a line. */
+#panel .kv span {
+  white-space: pre-line;
+}
 #panel pre {
   background: #0d1116;
   border: 1px solid var(--line);

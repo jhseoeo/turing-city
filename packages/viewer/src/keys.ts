@@ -3,7 +3,9 @@ import type { Store } from './store.ts';
 
 /** Whether the key goes to something the player types in: a form field. */
 function typing(target: EventTarget | null): boolean {
-  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
+  // A checkbox or a radio button takes no text: the game's keys still work while one has the focus (the guide card's checkbox).
+  if (target instanceof HTMLInputElement) return target.type !== 'checkbox' && target.type !== 'radio';
+  return target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
 }
 
 /** Space pauses or plays, 1-3 set the speed, H toggles the heatmap, Escape closes the guide card or clears the selection. */

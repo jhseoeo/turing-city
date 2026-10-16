@@ -92,27 +92,41 @@ describe('map rules: what a cell says', () => {
     const dc = (tempC: number, processing = false, cooling = false) =>
       facility({ kind: 'datacenter', datacenter: { tempC, processing, cooling } });
     expect(cellCaption(dc(40), 85)).toEqual({ text: '40°C', tone: 'normal' });
-    expect(cellCaption(dc(85, true), 85)).toEqual({ text: '85°C ▲', tone: 'warn' });
-    expect(cellCaption(dc(60, false, true), 85)).toEqual({ text: '60°C ❄', tone: 'normal' });
+    expect(cellCaption(dc(85, true), 85)).toEqual({ text: '85°C\n▲', tone: 'warn' });
+    expect(cellCaption(dc(60, false, true), 85)).toEqual({ text: '60°C\n❄', tone: 'normal' });
   });
 
   it("says a farm's ripeness and outbox, good when it is ripe", () => {
-    expect(cellCaption(facility({ farm: { ripeness: 40, ripe: false, outbox: 0 } }), 85)).toEqual({ text: '40% · 0', tone: 'normal' });
-    expect(cellCaption(facility({ farm: { ripeness: 100, ripe: true, outbox: 24 } }), 85)).toEqual({ text: '100% · 24', tone: 'good' });
+    expect(cellCaption(facility({ farm: { ripeness: 40, ripe: false, outbox: 0 } }), 85)).toEqual({ text: '40%\n0', tone: 'normal' });
+    expect(cellCaption(facility({ farm: { ripeness: 100, ripe: true, outbox: 24 } }), 85)).toEqual({ text: '100%\n24', tone: 'good' });
   });
 
   it("says a warehouse's stock and a housing block's food, warning when its people go hungry", () => {
-    expect(cellCaption(facility({ kind: 'warehouse', warehouse: { stock: 31 } }), 85)).toEqual({ text: '재고 31', tone: 'normal' });
+    expect(cellCaption(facility({ kind: 'warehouse', warehouse: { stock: 31 } }), 85)).toEqual({ text: '재고\n31', tone: 'normal' });
     expect(cellCaption(facility({ kind: 'housing', housing: { food: 0, residents: 40, fed: false } }), 85)).toEqual({
-      text: '식량 0',
+      text: '식량\n0',
       tone: 'warn',
     });
+  });
+
+  it('keeps every caption line within a cell, so that side-by-side facilities do not cover each other', () => {
+    // A cell is 34 px and a 10 px monospace glyph about 6 px (a Korean one about 10): at most 5 narrow or 3 wide per line.
+    const width = (line: string) => [...line].reduce((w, ch) => w + (ch.charCodeAt(0) > 0x2000 ? 10 : 6), 0);
+    const captions = [
+      facility({ farm: { ripeness: 100, ripe: true, outbox: 80 } }),
+      facility({ kind: 'datacenter', datacenter: { tempC: 140, processing: true, cooling: true } }),
+      facility({ kind: 'warehouse', warehouse: { stock: 9999 } }),
+      facility({ kind: 'housing', housing: { food: 999, residents: 40, fed: true } }),
+      facility({ condition: 'wrecked' }),
+      facility({ condition: 'repairing', repairHoursLeft: 24 }),
+    ].map((f) => cellCaption(f, 85)!.text);
+    for (const caption of captions) for (const line of caption.split('\n')) expect(width(line), line).toBeLessThanOrEqual(34);
   });
 
   it('says a wrecked or repairing facility is so, whatever else it is', () => {
     const wrecked = facility({ kind: 'datacenter', condition: 'wrecked', datacenter: { tempC: 92, processing: false, cooling: false } });
     expect(cellCaption(wrecked, 85)).toEqual({ text: '부서짐', tone: 'warn' });
-    expect(cellCaption(facility({ condition: 'repairing', repairHoursLeft: 7 }), 85)).toEqual({ text: '복구 중 7시간', tone: 'warn' });
+    expect(cellCaption(facility({ condition: 'repairing', repairHoursLeft: 7 }), 85)).toEqual({ text: '복구\n7시간', tone: 'warn' });
   });
 
   it('says nothing under the plant: the top bar and its panel carry its numbers', () => {
