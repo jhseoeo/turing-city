@@ -1,7 +1,7 @@
 import { applyActions } from './actions.ts';
 import { deployFirmware, runTransitions } from './boards.ts';
 import { runDatacenters, runFires } from './datacenter.ts';
-import { checkEnd, installPart, runEconomy, startRebuild } from './economy.ts';
+import { checkEnd, installPart, runEconomy, startRebuild, startRepair } from './economy.ts';
 import { runEmf } from './emf.ts';
 import type { FirmwareHost } from './firmware-host.ts';
 import { runLuddites, runRumour } from './luddites.ts';
@@ -35,6 +35,7 @@ export type RecordedInput =
       readonly by: DeployedBy;
     }
   | { readonly step: number; readonly kind: 'install'; readonly facilityId: string; readonly part: InstallPart }
+  | { readonly step: number; readonly kind: 'repair'; readonly facilityId: string }
   | { readonly step: number; readonly kind: 'rebuild'; readonly boardId: string }
   | { readonly step: number; readonly kind: 'pause' | 'resume' };
 
@@ -114,12 +115,18 @@ export class Session {
     return result;
   }
 
-  /** The human's rebuild of a destroyed board. Refused once the season has ended: money is the score, and a replay stops there. */
+  /** The player's repair of a wrecked facility. Refused once the season has ended. */
+  repair(facilityId: string): CommandResult {
+    if (this.world.ended) return SEASON_ENDED;
+    const result = startRepair(this.ctx, facilityId, this.world.step);
+    if (result.ok) this.record.inputs.push({ step: this.world.step, kind: 'repair', facilityId });
+    return result;
+  }
+
+  /** The player's rebuild of a destroyed board. Refused once the season has ended: money is the score, and a replay stops there. */
   rebuild(boardId: string): CommandResult {
     if (this.world.ended) return SEASON_ENDED;
-    const board = findBoard(this.world, boardId);
-    if (!board) return { ok: false, reason: `unknown board ${boardId}`, refusal: { code: 'unknownBoard', board: boardId } };
-    const result = startRebuild(this.ctx, board, this.world.step);
+    const result = startRebuild(this.ctx, boardId, this.world.step);
     if (result.ok) this.record.inputs.push({ step: this.world.step, kind: 'rebuild', boardId });
     return result;
   }
@@ -143,6 +150,7 @@ export function replay(scenario: Scenario, seed: number, record: SessionRecord, 
       const input = record.inputs[next]!;
       if (input.kind === 'deploy') session.deploy(input.boardId, input.source, input.by);
       else if (input.kind === 'install') session.install(input.facilityId, input.part);
+      else if (input.kind === 'repair') session.repair(input.facilityId);
       else if (input.kind === 'rebuild') session.rebuild(input.boardId);
       else session.mark(input.kind);
       next += 1;

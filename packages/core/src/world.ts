@@ -171,24 +171,29 @@ export interface Ledger {
 
 export interface Stats {
   raids: number;
-  boardsLost: number;
+  /** Facilities wrecked by Luddites or fire. */
+  wrecks: number;
   instructions: number;
   deploys: number;
 }
 
-export type EndKind = 'completed' | 'bankrupt' | 'fallen';
+/** How a season ends. There is no fall: a wrecked town can be repaired as long as the money lasts. */
+export type EndKind = 'completed' | 'bankrupt';
 
 /** Every kind of alert. Whatever names a kind from outside (the dev tools, the viewer's auto-pause) refuses any other. */
 export const ALERT_KINDS = [
   'raid',
   'ludditesNear',
-  'boardDestroyed',
+  'wrecked',
   'fire',
   'overheat',
   'powerShortage',
+  'hunger',
   'firmwareError',
   'moneyBelowZero',
   'seasonEnd',
+  // Raised by the server's controller when the player's agent drops, never by core.
+  'agentLost',
 ] as const;
 export type AlertKind = (typeof ALERT_KINDS)[number];
 
@@ -340,7 +345,7 @@ export function createWorld(scenario: Scenario): WorldState {
     luddites: [],
     nextLudditeId: 1,
     ledger: { datacenterIncome: 0, tax: 0, fuel: 0, truckFuel: 0, upkeep: 0, installs: 0, repairs: 0, rebuild: 0 },
-    stats: { raids: 0, boardsLost: 0, instructions: 0, deploys: 0 },
+    stats: { raids: 0, wrecks: 0, instructions: 0, deploys: 0 },
     alerts: [],
     nextAlertId: 1,
     flags: {},

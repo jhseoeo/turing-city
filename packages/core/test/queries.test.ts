@@ -128,8 +128,12 @@ describe('views', () => {
         'keeps its value through a sleep, while mem and globals are wiped',
       ],
       ['the settings named', rules, 'the thermal output, the priority list'],
-      ['a sleep ends the job and the cooling cycle', rules, "A sleep ends the datacenter's job and its cooling cycle"],
-      ['the thermal module works only while awake', rules, 'the thermal module only works while its board is awake'],
+      ['a sleep stops only the board', rules, 'A sleep stops only the board'],
+      [
+        'the job, the cooling cycle, and the thermal output go on through a sleep',
+        rules,
+        "a datacenter's job and cooling cycle run their course, and the thermal module keeps its output",
+      ],
       ['a board that is awake and powered emits base EMF', rules, 'a board that is awake and powered also emits its base EMF every second'],
       ['log lines are cut at 200 bytes, which is about 66 Korean characters', log, 'cut at 200 bytes (about 66 Korean characters)'],
       [

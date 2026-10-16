@@ -6,6 +6,7 @@ import {
   type BoardInspection,
   type BoardStatus,
   type BoardSummary,
+  type CommandResult,
   type ControllerEvent,
   type ControllerStatus,
   type Datasheet,
@@ -16,7 +17,6 @@ import {
   type LogView,
   type MapView,
   type Query,
-  type RebuildResult,
   type Scenario,
   type Snapshot,
   type StatusView,
@@ -95,7 +95,7 @@ export class GameController {
   private speed: 1 | 2 | 3 = 1;
   private agent: AgentStatus = { connected: false, clientName: null };
   private crash: string | null = null;
-  private autoPause: AlertKind[] = ['raid', 'boardDestroyed', 'fire', 'firmwareError'];
+  private autoPause: AlertKind[] = ['raid', 'wrecked', 'fire', 'firmwareError'];
   private snapshotNow: Snapshot | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastClock = 0;
@@ -233,9 +233,15 @@ export class GameController {
     return { ok: true, version: result.version, installsAt: installsAt(result.boardStatus, result.powered) };
   }
 
-  async rebuild(board: string): Promise<RebuildResult> {
+  async rebuild(board: string): Promise<CommandResult> {
     this.requireSeason();
-    return (await this.request({ type: 'rebuild', id: 0, board })) as RebuildResult;
+    return (await this.request({ type: 'rebuild', id: 0, board })) as CommandResult;
+  }
+
+  /** The player's repair of a wrecked facility, which must stand again before its board can be rebuilt. */
+  async repair(facility: string): Promise<CommandResult> {
+    this.requireSeason();
+    return (await this.request({ type: 'repair', id: 0, facility })) as CommandResult;
   }
 
   listBoards(): Promise<BoardSummary[]> {

@@ -7,7 +7,7 @@ import type { Store } from '../store.ts';
 const TOGGLABLE: readonly AlertKind[] = [
   'raid',
   'ludditesNear',
-  'boardDestroyed',
+  'wrecked',
   'fire',
   'overheat',
   'powerShortage',
@@ -27,7 +27,7 @@ export function renderFeed(root: HTMLElement, store: Store, net: Connection): vo
       );
     } else {
       const a = item.alert;
-      const cls = a.kind === 'raid' || a.kind === 'boardDestroyed' || a.kind === 'fire' ? 'bad' : 'warn';
+      const cls = a.kind === 'raid' || a.kind === 'wrecked' || a.kind === 'fire' ? 'bad' : 'warn';
       root.append(
         el('div', { class: 'item', onclick: () => store.select(a.facility) }, [
           el('span', { class: 't' }, [`${a.day}일 ${a.clock}`]),

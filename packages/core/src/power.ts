@@ -72,7 +72,9 @@ export function runPower(ctx: SimContext, step: number): void {
   const w = ctx.world;
   const plant = plantFacility(w);
   const plantBoard = findBoard(w, plant.id);
-  const thermal = plantBoard?.status === 'running' ? w.plant.thermalSetting : 0;
+  // The thermal module follows the town's setting whatever the plant's board is doing: the board only automates it. A wrecked plant
+  // makes nothing until it is repaired; the wind turbine is not the board's either, and it keeps turning.
+  const thermal = plant.condition === 'ok' ? w.plant.thermalSetting : 0;
   const generation = w.plant.wind + thermal;
   const plantDraw = facilityDemand(ctx, plant, step);
   const order = priorityOrder(w);

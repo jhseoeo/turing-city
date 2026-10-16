@@ -1,7 +1,9 @@
 -- Careful: buy only the fuel the working datacenters need, and go dark when they do.
 -- Demand of 8 or less means both datacenters sleep: Luddites are near, or no work pays.
+-- The thermal module keeps its setting while the board sleeps, so turn it off first.
 function tick(io, mem)
   if io.demand <= 8 then
+    io.set_thermal(0)
     io.sleep(5)
     return
   end

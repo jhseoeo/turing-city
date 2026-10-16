@@ -81,15 +81,17 @@ export function consumersOf(
 export const ALERT_LABELS: Record<AlertKind, string> = {
   raid: '러다이트 출현',
   ludditesNear: '러다이트 접근',
-  boardDestroyed: '보드 파괴',
+  wrecked: '시설 파괴',
   fire: '화재',
   overheat: '과열',
   powerShortage: '정전',
+  hunger: '굶주림',
   firmwareError: '펌웨어 에러',
   moneyBelowZero: '자금 마이너스',
   seasonEnd: '시즌 종료',
+  agentLost: '에이전트 끊김',
 };
 
 export function endingLabel(kind: EndKind): string {
-  return kind === 'completed' ? '시즌 완주' : kind === 'bankrupt' ? '파산' : '함락';
+  return kind === 'completed' ? '시즌 완주' : '파산';
 }

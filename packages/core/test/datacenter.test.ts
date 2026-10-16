@@ -160,7 +160,7 @@ describe('datacenters', () => {
       s.world.datacenters.DA!.tempMilli = 140_000;
       s.step();
     }
-    expect(s.world.alerts.map((a) => a.kind)).toEqual(expect.arrayContaining(['fire', 'boardDestroyed']));
+    expect(s.world.alerts.map((a) => a.kind)).toEqual(expect.arrayContaining(['fire', 'wrecked']));
   });
 
   it('never catches fire at or below 90 °C', () => {
@@ -450,11 +450,11 @@ describe('datacenters', () => {
       s.step();
     }
     expect(s.world.boards.map((b) => b.status)).toEqual(['running', 'destroyed', 'running']);
-    expect(s.world.stats.boardsLost).toBe(1);
-    const burned = s.world.alerts.filter((a) => a.kind === 'fire' || a.kind === 'boardDestroyed');
+    expect(s.world.stats.wrecks).toBe(1);
+    const burned = s.world.alerts.filter((a) => a.kind === 'fire' || a.kind === 'wrecked');
     expect(burned.map((a) => [a.kind, a.facilityId])).toEqual([
       ['fire', 'DA'],
-      ['boardDestroyed', 'DA'],
+      ['wrecked', 'DA'],
     ]);
     expect(s.world.boards[1]!.log.at(-1)).toMatchObject({ kind: 'system', text: 'destroyed by fire' });
   });

@@ -1,8 +1,8 @@
 import { raiseAlert } from './alerts.ts';
-import { destroyBoard } from './boards.ts';
+import { wreckFacility } from './boards.ts';
 import { fieldTotal } from './emf.ts';
 import { idiv, MILLI } from './fixed.ts';
-import { type BoardState, cellIndex, type LudditeGroup, manhattan, type SimContext } from './world.ts';
+import { type BoardState, cellIndex, findFacility, type LudditeGroup, manhattan, type SimContext } from './world.ts';
 
 const SIDES = ['북쪽', '남쪽', '서쪽', '동쪽'] as const;
 
@@ -118,6 +118,6 @@ export function runLuddites(ctx: SimContext, step: number): void {
       g.y = next[1];
     }
     warnNearby(ctx, g, step);
-    if (g.x === target.x && g.y === target.y) destroyBoard(ctx, target, step, 'luddites');
+    if (g.x === target.x && g.y === target.y) wreckFacility(ctx, findFacility(ctx.world, target.id)!, step, 'luddites');
   }
 }

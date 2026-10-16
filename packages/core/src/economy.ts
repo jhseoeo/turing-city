@@ -5,7 +5,7 @@ import type { Refusal } from './refusal.ts';
 import { takesBoard } from './scenario.ts';
 import type { CommandResult, InstallPart } from './session.ts';
 import { seasonSteps, stepsForSeconds, stepsPerDay } from './time.ts';
-import { type BoardState, createBoard, type EndKind, findBoard, findFacility, type SimContext } from './world.ts';
+import { createBoard, type EndKind, findBoard, findFacility, type SimContext } from './world.ts';
 
 /** Phase 10a: fuel for the thermal output the power phase made this step, and upkeep for every running or sleeping board. */
 export function runEconomy(ctx: SimContext): void {
@@ -27,7 +27,7 @@ function end(ctx: SimContext, step: number, kind: EndKind, message: string): voi
   raiseAlert(ctx.world, step, 'seasonEnd', null, message);
 }
 
-/** Phase 10b: bankruptcy, then the town's fall, then the season's last step. */
+/** Phase 10b: bankruptcy, then the season's last step. A town is never lost to a fall: wrecks are repaired, if the money lasts. */
 export function checkEnd(ctx: SimContext, step: number): void {
   const w = ctx.world;
   if (w.ended) return;
@@ -41,8 +41,6 @@ export function checkEnd(ctx: SimContext, step: number): void {
   const spd = stepsPerDay(ctx.scenario.time);
   if (w.belowZeroSince !== null && step - w.belowZeroSince + 1 >= ctx.scenario.tuning.bankruptcyDays * spd) {
     end(ctx, step, 'bankrupt', '파산했어요');
-  } else if (w.boards.length > 0 && w.boards.every((b) => b.status === 'destroyed' || b.status === 'rebuilding')) {
-    end(ctx, step, 'fallen', '마을이 함락됐어요');
   } else if (step + 1 >= seasonSteps(ctx.scenario.time)) {
     end(ctx, step, 'completed', '시즌이 끝났어요');
   }
@@ -97,12 +95,35 @@ export function installPart(ctx: SimContext, facilityId: string, part: InstallPa
   return { ok: true };
 }
 
-/** The human's rebuild of a destroyed board: it pays now and comes back after the rebuild time. */
-export function startRebuild(ctx: SimContext, board: BoardState, step: number): CommandResult {
+/**
+ * The player repairs a wrecked facility: it pays now and works again, by hand, after the repair time. Its board, if it had one, stays
+ * destroyed until the player rebuilds it, which is a separate payment.
+ */
+export function startRepair(ctx: SimContext, facilityId: string, step: number): CommandResult {
+  const facility = findFacility(ctx.world, facilityId);
+  if (!facility) return refuse(`unknown facility ${facilityId}`, { code: 'unknownFacility', facility: facilityId });
+  if (facility.condition !== 'wrecked' || !takesBoard(facility.kind)) {
+    return refuse(`${facilityId} is not wrecked`, { code: 'notWrecked', facility: facilityId });
+  }
+  const t = ctx.scenario.tuning.repair;
+  if (!pay(ctx, t.cost[facility.kind], 'repairs')) return refuse('not enough money', { code: 'tooPoor' });
+  facility.condition = 'repairing';
+  facility.repairReadyAt = step + stepsForSeconds(ctx.scenario.time, t.seconds);
+  return { ok: true };
+}
+
+/** The player's rebuild of a destroyed board, once its facility stands again: it pays now and comes back after the rebuild time. */
+export function startRebuild(ctx: SimContext, boardId: string, step: number): CommandResult {
+  const board = findBoard(ctx.world, boardId);
+  const facility = findFacility(ctx.world, boardId);
+  if (!facility) return refuse(`unknown board ${boardId}`, { code: 'unknownBoard', board: boardId });
+  if (!board) return refuse(`${boardId} has no board`, { code: 'noBoard', facility: boardId });
+  if (board.status !== 'destroyed') return refuse(`${boardId} is not destroyed`, { code: 'notDestroyed', board: boardId });
+  if (facility.condition !== 'ok') {
+    return refuse(`${boardId} must be repaired before its board is rebuilt`, { code: 'repairFirst', facility: boardId });
+  }
   const t = ctx.scenario.tuning.rebuild;
-  if (board.status !== 'destroyed')
-    return { ok: false, reason: `${board.id} is not destroyed`, refusal: { code: 'notDestroyed', board: board.id } };
-  if (!pay(ctx, t.cost, 'rebuild')) return { ok: false, reason: 'not enough money', refusal: { code: 'tooPoor' } };
+  if (!pay(ctx, t.cost, 'rebuild')) return refuse('not enough money', { code: 'tooPoor' });
   board.status = 'rebuilding';
   board.readyAt = step + stepsForSeconds(ctx.scenario.time, t.seconds);
   appendLog(board, step, 'system', `rebuilding (ready in ${t.seconds} s)`);
