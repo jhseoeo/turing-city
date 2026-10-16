@@ -20,6 +20,9 @@ const FEED_LIMIT = 50;
 /** How long the screen tells the player that the server refused a command. */
 export const ERROR_SHOWN_MS = 5000;
 
+/** How long [로그 복사] says whether the copy worked: the panel is rebuilt with every snapshot, so the button cannot keep it. */
+export const LOG_COPY_SHOWN_MS = 2000;
+
 /** Where the guide card's "다시 보지 않기" is kept. A per-browser convenience: a lost or blocked storage only shows the card again. */
 export const GUIDE_DISMISSED_KEY = 'turing-city:guide-dismissed';
 
@@ -76,11 +79,14 @@ export class Store {
   /** The text an editor held when it was closed without a deploy, by board: reopening it brings the text back. */
   editorDrafts: Record<string, string> = {};
   dispatchDraft: DispatchDraft = NO_DRAFT;
+  /** What the last [로그 복사] came to, for a moment: the board's log reached the clipboard, or not. */
+  logCopy: { board: string; ok: boolean } | null = null;
   private readonly storage: KeyValue | null;
   /** The season counter of the last status: when it changes, a new season has started. Null until the first status. */
   private seasonSeen: number | null = null;
   private readonly listeners = new Set<() => void>();
   private errorTimer: ReturnType<typeof setTimeout> | null = null;
+  private logCopyTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(storage: KeyValue | null = browserStorage()) {
     this.storage = storage;
@@ -206,6 +212,18 @@ export class Store {
   /** The editor sent a deploy: the last answer no longer describes the code on screen. */
   clearDeployResult(): void {
     this.deployResult = null;
+    this.notify();
+  }
+
+  /** [로그 복사] has copied a board's log, or failed to: the panel says which for a moment. */
+  noteLogCopy(board: string, ok: boolean): void {
+    this.logCopy = { board, ok };
+    if (this.logCopyTimer !== null) clearTimeout(this.logCopyTimer);
+    this.logCopyTimer = setTimeout(() => {
+      this.logCopyTimer = null;
+      this.logCopy = null;
+      this.notify();
+    }, LOG_COPY_SHOWN_MS);
     this.notify();
   }
 

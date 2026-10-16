@@ -116,16 +116,15 @@ export function renderPanel(root: HTMLElement, store: Store, net: Connection): v
                 'button',
                 {
                   disabled: !inspection,
-                  onclick: (event: Event) => {
+                  onclick: () => {
                     if (!inspection) return;
-                    const button = event.currentTarget as HTMLButtonElement;
                     navigator.clipboard.writeText(logText(inspection.logs)).then(
-                      () => (button.textContent = '복사했어요'),
-                      () => (button.textContent = '복사하지 못했어요'),
+                      () => store.noteLogCopy(f.id, true),
+                      () => store.noteLogCopy(f.id, false),
                     );
                   },
                 },
-                ['로그 복사'],
+                [store.logCopy?.board === f.id ? (store.logCopy.ok ? '복사했어요' : '복사하지 못했어요') : '로그 복사'],
               ),
             ]
           : []),

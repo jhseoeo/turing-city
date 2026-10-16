@@ -22,7 +22,9 @@ function typing(target: EventTarget | null): boolean {
 export function bindKeys(store: Store, net: Connection): void {
   window.addEventListener('keydown', (event) => {
     if (inEditor(event.target)) {
-      if (event.key === 'Escape' && !event.isComposing && store.editorFor !== null) closeEditorWindow(store);
+      // CodeMirror takes some Escapes itself and marks them handled (collapsing a selection to its cursor): the window closes only on an
+      // Escape the editor left alone.
+      if (event.key === 'Escape' && !event.isComposing && !event.defaultPrevented && store.editorFor !== null) closeEditorWindow(store);
       return;
     }
     if (typing(event.target)) return;

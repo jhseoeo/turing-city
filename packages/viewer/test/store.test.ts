@@ -1,6 +1,6 @@
 import type { ControllerStatus, Scenario, ServerToViewer, Snapshot } from '@turing-city/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ERROR_SHOWN_MS, GUIDE_DISMISSED_KEY, type KeyValue, Store } from '../src/store.ts';
+import { ERROR_SHOWN_MS, GUIDE_DISMISSED_KEY, type KeyValue, LOG_COPY_SHOWN_MS, Store } from '../src/store.ts';
 
 /** A storage in memory, the way localStorage behaves. */
 function memoryStorage(initial: Record<string, string> = {}): KeyValue & { readonly data: Record<string, string> } {
@@ -214,6 +214,35 @@ describe('Store: windows and drafts', () => {
     expect(store.manualFor).toBe('index');
     store.closeManual();
     expect(store.manualFor).toBeNull();
+  });
+});
+
+describe('Store: what [로그 복사] came to', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('is kept for a moment across the renders that rebuild the panel, and then goes, drawing the screen again', () => {
+    const store = new Store(null);
+    let draws = 0;
+    store.subscribe(() => {
+      draws += 1;
+    });
+    store.noteLogCopy('DA', true);
+    expect(store.logCopy).toEqual({ board: 'DA', ok: true });
+    store.apply(snapshotAt(3)); // a render in between keeps it
+    expect(store.logCopy).toEqual({ board: 'DA', ok: true });
+    vi.advanceTimersByTime(LOG_COPY_SHOWN_MS - 1);
+    store.noteLogCopy('P', false); // a newer copy starts the time over
+    vi.advanceTimersByTime(LOG_COPY_SHOWN_MS - 1);
+    expect(store.logCopy).toEqual({ board: 'P', ok: false });
+    const before = draws;
+    vi.advanceTimersByTime(1);
+    expect(store.logCopy).toBeNull();
+    expect(draws).toBe(before + 1);
   });
 });
 

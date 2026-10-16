@@ -39,9 +39,13 @@ export function starterFirmware(board: string): string {
 
 /**
  * Why the editor will not send this code, in Korean, or null when it may. A frame over the socket's size limit closes the connection
- * with no reason, so a source over the game's limit (counted in characters, as the server counts it) is stopped here.
+ * with no reason, so a source over the game's limit (counted in characters, as the server counts it) is stopped here, and so is one
+ * with a NUL character, which the server refuses too.
  */
 export function sourceProblem(code: string): string | null {
-  if (code.length <= MAX_FIRMWARE_CHARS) return null;
-  return `펌웨어가 너무 길어요 (${code.length.toLocaleString('en-US')}자). 최대 ${MAX_FIRMWARE_CHARS.toLocaleString('en-US')}자까지 보낼 수 있어요.`;
+  if (code.length > MAX_FIRMWARE_CHARS)
+    return `펌웨어가 너무 길어요 (${code.length.toLocaleString('en-US')}자). 최대 ${MAX_FIRMWARE_CHARS.toLocaleString('en-US')}자까지 보낼 수 있어요.`;
+  // The server refuses a NUL as a bad command (a board's Lua would cut the code off there), which the editor's line would not hear.
+  if (code.includes('\u0000')) return '코드에 NUL 문자(\\u0000)가 있어요. 보드가 그 자리에서 코드를 잘라 버리니 지우고 다시 보내세요.';
+  return null;
 }
