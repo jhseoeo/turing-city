@@ -633,7 +633,9 @@ try {
 
   // A raid, with the clock: the default auto-pause stops the game when the Luddites appear and when a board is smashed.
   await newSeason();
-  for (const [board, code] of Object.entries(loadFirmwareDir('scenarios/firmware/m1/careless')))
+  for (const [board, code] of Object.entries(loadFirmwareDir('scenarios/firmware/m2/careless')).filter(([id]) =>
+    ['P', 'DA', 'DB'].includes(id),
+  ))
     await agent.call('deploy_firmware', { board, code });
   await agent.call('dev_run_until', { seconds: 60 }); // the first raid comes at 68 s
   await page.keyboard.press('3');

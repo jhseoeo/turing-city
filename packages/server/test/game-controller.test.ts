@@ -1393,8 +1393,9 @@ describe('GameController: the watchdog', () => {
 });
 
 describe('a season through the controller', () => {
-  const careless = loadFirmwareDir('scenarios/firmware/m1/careless');
-  const careful = loadFirmwareDir('scenarios/firmware/m1/careful');
+  const town = parseScenario(JSON.parse(readFileSync('scenarios/m2-town.json', 'utf8')));
+  const careless = loadFirmwareDir('scenarios/firmware/m2/careless');
+  const careful = loadFirmwareDir('scenarios/firmware/m2/careful');
 
   it.each([
     { name: 'careless', firmware: careless, stepsPerBatch: 200 },
@@ -1402,11 +1403,12 @@ describe('a season through the controller', () => {
   ])(
     'ends where the headless runner says it does ($name firmware, $stepsPerBatch steps a batch)',
     async ({ firmware, stepsPerBatch }) => {
-      const headless = runSeason(scenario, 3, await WasmoonHost.create(), firmware);
-      const c = makeFor(scenario, { stepsPerBatch });
-      c.setAgent(AGENT);
+      const boards = Object.keys(firmware).sort();
+      const headless = runSeason(town, 3, await WasmoonHost.create(), firmware, { install: boards });
+      const c = makeFor(town, { stepsPerBatch });
       await c.startSeason(3);
-      for (const board of Object.keys(firmware).sort()) await c.deploy(board, firmware[board]!);
+      for (const board of boards) expect(await c.install(board, 'board')).toEqual({ ok: true });
+      for (const board of boards) await c.deploy(board, firmware[board]!);
       await c.runUntil({});
       expect(c.latestSnapshot()?.ended).toEqual(headless.ended);
       expect(c.latestSnapshot()?.money).toBe(headless.money);
