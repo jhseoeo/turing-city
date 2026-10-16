@@ -11,8 +11,6 @@ const unknown = (message: string): string => `서버가 명령을 받아들이�
 export function refusalText(message: string, refusal: Refusal | undefined): string {
   if (!refusal) return unknown(message);
   switch (refusal.code) {
-    case 'noAgent':
-      return '에이전트가 연결돼 있지 않아요. 에이전트를 연결한 뒤에 다시 해보세요.';
     case 'noSeason':
       return '시즌이 아직 시작되지 않았어요.';
     case 'crashed':

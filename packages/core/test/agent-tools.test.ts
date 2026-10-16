@@ -147,7 +147,7 @@ describe('agent tools', () => {
     const { description } = tool('deploy_firmware');
     expect(description).toContain("installs at the board's next tick");
     expect(description).toContain(
-      'asleep, smashed, being rebuilt, or without power has no ticks until it wakes, is rebuilt, or gets its power back',
+      'asleep, smashed, being rebuilt, or without power has no ticks until it wakes, is rebuilt (after its facility is repaired), or gets its power back',
     );
   });
 
@@ -234,16 +234,7 @@ describe('agent tools', () => {
 
   it('names every kind of alert the game raises, in get_alerts', () => {
     const { description } = tool('get_alerts');
-    for (const kind of [
-      'raids',
-      'wrecked facilities',
-      'fires',
-      'overheating',
-      'power shortages',
-      'hunger',
-      'firmware errors',
-      'connection lost',
-    ]) {
+    for (const kind of ['raids', 'wrecked facilities', 'fires', 'overheating', 'power shortages', 'hunger', 'firmware errors']) {
       expect(description, kind).toContain(kind);
     }
   });

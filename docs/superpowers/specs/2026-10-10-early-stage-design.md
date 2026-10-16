@@ -171,7 +171,7 @@ These rules change 10-09 §7.2 and §7.3.
   - What "connected" means, and the pings, are as in 10-09 §7.2.
 - **Town tools** answer any connected agent: `list_boards`, `get_map`, `get_status`, `get_alerts`.
   - `list_boards` lists every facility that can take a board, with its tier, and for a board its state, power, firmware version, latest error, and the instruction count and RAM use of its last tick (`lastInstructions`, `ramUsedBytes`).
-  - `get_alerts` tells of the agent's own lost connection too.
+  - `get_alerts` reads the town's alerts. The agent's own lost connection (`agentLost`) is the server's alert, which the viewers see; the agent does not.
 - **Board tools** reach T2 boards only: `get_datasheet` (now the board's manual, §9), `get_firmware`, `deploy_firmware`, `read_logs`.
   - On a T0 or T1 facility they answer a tool error that says the player can install a comm module from the facility's panel.
 - **Time is the player's,** as in 10-09 §3.

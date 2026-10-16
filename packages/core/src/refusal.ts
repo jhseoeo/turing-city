@@ -4,7 +4,6 @@
  * text is written. A refusal with no code is shown in a Korean sentence that carries the English one.
  */
 export type Refusal =
-  | { readonly code: 'noAgent' }
   | { readonly code: 'noSeason' }
   | { readonly code: 'crashed'; readonly reason: string }
   | { readonly code: 'seasonEnded' }

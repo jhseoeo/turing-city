@@ -25,9 +25,6 @@ export type InstallPart = 'board' | 'comm';
 /** Every command of the player answers this: done, or why not (English for agents and logs, a code for the viewer's Korean). */
 export type CommandResult = { readonly ok: true } | { readonly ok: false; readonly reason: string; readonly refusal: Refusal };
 
-/** Milestone 1's name for a rebuild's answer. */
-export type RebuildResult = CommandResult;
-
 export type RecordedInput =
   | {
       readonly step: number;

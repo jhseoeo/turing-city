@@ -4,7 +4,6 @@ import { refusalText } from '../src/refusals.ts';
 
 /** One refusal of every code. A Record, so that a code that core gets is a type error here until it is listed. */
 const SAMPLES: Record<Refusal['code'], Refusal> = {
-  noAgent: { code: 'noAgent' },
   noSeason: { code: 'noSeason' },
   crashed: { code: 'crashed', reason: 'the simulator stopped responding; the session stopped' },
   seasonEnded: { code: 'seasonEnded' },

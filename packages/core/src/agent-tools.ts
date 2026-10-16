@@ -105,7 +105,7 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
   },
   {
     name: 'deploy_firmware',
-    description: `Deploy Lua firmware to a board. It must define function tick(io, mem). A syntax error is refused with Lua's message and the old firmware keeps running; otherwise the new code installs at the board's next tick, keeping mem. A board that is asleep, smashed, being rebuilt, or without power has no ticks until it wakes, is rebuilt, or gets its power back, and the answer says when the code installs. ${ONLY_COMM}`,
+    description: `Deploy Lua firmware to a board. It must define function tick(io, mem). A syntax error is refused with Lua's message and the old firmware keeps running; otherwise the new code installs at the board's next tick, keeping mem. A board that is asleep, smashed, being rebuilt, or without power has no ticks until it wakes, is rebuilt (after its facility is repaired), or gets its power back, and the answer says when the code installs. ${ONLY_COMM}`,
     inputSchema: { board, code },
     run: (api, args) => api.deploy(args.board as string, args.code as string),
   },
@@ -131,7 +131,7 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
   },
   {
     name: 'get_alerts',
-    description: `Alerts: raids, Luddites approaching, wrecked facilities, fires, overheating, power shortages, hunger, firmware errors, money below zero, your own connection lost, and the season's end. Without since, the newest ${ALERTS_SHOWN}, oldest first, and how many older ones the log holds; with since, every alert after that time. The game does not push alerts to you; poll this.`,
+    description: `Alerts: raids, Luddites approaching, wrecked facilities, fires, overheating, power shortages, hunger, firmware errors, money below zero, and the season's end. Without since, the newest ${ALERTS_SHOWN}, oldest first, and how many older ones the log holds; with since, every alert after that time. The game does not push alerts to you; poll this.`,
     inputSchema: { since },
     run: async (api, args): Promise<AlertsReply> => {
       const since = args.since as number | undefined;
