@@ -155,6 +155,22 @@ describe('facilities and installed boards', () => {
     expect(s.install('P', 'board')).toEqual({ ok: false, reason: 'the season has ended', refusal: { code: 'seasonEnded' } });
   });
 
+  it('takes no firmware once the season has ended, and records none', () => {
+    const s = new Session(
+      m2Scenario((j) => {
+        j.time.secondsPerDay = 1;
+        j.time.seasonDays = 1;
+        Object.assign(j.facilities.find((f) => f.id === 'P')!.board!, { startsInstalled: true });
+      }),
+      1,
+      new FakeHost(),
+    );
+    steps(s, 20);
+    expect(s.world.ended?.kind).toBe('completed');
+    expect(() => s.deploy('P', 'late')).toThrow('the season has ended');
+    expect(s.record.inputs.filter((i) => i.kind === 'deploy')).toEqual([]);
+  });
+
   it('takes no firmware for a facility without a board, and records who deployed', () => {
     const s = town();
     expect(() => s.deploy('F1', 'x')).toThrow('F1 has no board');

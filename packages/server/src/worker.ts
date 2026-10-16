@@ -101,6 +101,7 @@ function agentBoard(s: Session, id: string): BoardState | null {
 
 /** Where a deploy goes: the player's needs a board, the agent's a comm module as well. */
 function deployTarget(s: Session, id: string, by: DeployedBy): BoardState {
+  if (s.world.ended) throw new ToolError('the season has ended', { code: 'seasonEnded' });
   const board = by === 'agent' ? agentBoard(s, id) : findBoard(s.world, id);
   if (board) return board;
   if (by === 'player' && findFacility(s.world, id)?.boardSpec) {

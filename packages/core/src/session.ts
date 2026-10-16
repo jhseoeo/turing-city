@@ -105,8 +105,12 @@ export class Session {
     return { step: w.step, alerts: w.alerts.filter((a) => a.id >= firstAlert), ended: w.ended };
   }
 
-  /** Queues firmware for a board; it becomes current at the board's next tick. A facility without a board takes no firmware. */
+  /**
+   * Queues firmware for a board; it becomes current at the board's next tick. A facility without a board takes no firmware, and
+   * nothing does once the season has ended.
+   */
   deploy(boardId: string, source: string, by: DeployedBy = 'player'): { version: number } {
+    if (this.world.ended) throw new Error('the season has ended');
     const board = findBoard(this.world, boardId);
     if (!board) throw new Error(findFacility(this.world, boardId) ? `${boardId} has no board` : `unknown board ${boardId}`);
     const version = deployFirmware(board, source);
