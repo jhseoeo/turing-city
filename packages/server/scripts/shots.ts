@@ -51,6 +51,11 @@ function check(name: string, ok: boolean, detail = ''): void {
   if (!ok) failures.push(name);
 }
 
+/** A precondition of the next check: when it does not hold, the run stops, so that the check cannot pass on an earlier state. */
+function must(ok: boolean, what: string): void {
+  if (!ok) throw new Error(`precondition failed: ${what}`);
+}
+
 const shot = async (name: string): Promise<void> => {
   await page.waitForTimeout(600);
   await page.screenshot({ path: join(out, `${name}.png`) });
@@ -708,7 +713,18 @@ try {
   );
   await clickOn('#topbar button', '⏸');
   await waitUntil(async () => (await status()).run.paused);
-  await setCode(logging); // back to the code the board runs, so closing keeps no draft
+  // Back to the code the board runs. The editor opened on a draft, and this text differs from it, so a close keeps it as the new draft.
+  await setCode(logging);
+  // Escape with the focus outside the code closes what is open nearest first: the editor, then the manual.
+  await clickOn('#panel h2');
+  await page.keyboard.press('Escape');
+  check(
+    'with the focus outside the editor, Escape closes the editor first, and leaves the manual open',
+    await waitUntil(async () => !(await isShown('#editor-window')) && (await isShown('#manual-window'))),
+  );
+  await clickOn('#panel button', '편집');
+  must(await waitUntil(async () => (await code()) === logging.replaceAll('\n', '')), 'the editor opens again on its draft');
+  await page.focus('#editor-window .cm-content');
   // Escape with the focus in the code: CodeMirror's own Escapes come first (its search panel, a selection), then the window's.
   await page.keyboard.press('ControlOrMeta+F');
   const searchOpen = await waitUntil(() => isShown('#editor-window .cm-search'));
@@ -741,16 +757,20 @@ try {
   );
   // The panel is rebuilt with every snapshot and every inspection (twice a second): the button's word must outlive those renders.
   const copiedSaid = await waitUntil(async () => (await buttonNamed('#panel', '복사했어요')) !== null);
-  await page.waitForTimeout(1200);
+  await page.waitForTimeout(800);
   check(
-    '[로그 복사] says that it copied, across the renders of the next second',
+    '[로그 복사] says that it copied, across the renders of the next moment',
     copiedSaid && (await buttonNamed('#panel', '복사했어요')) !== null,
   );
   check('and then it is [로그 복사] again', await waitUntil(async () => (await buttonNamed('#panel', '로그 복사')) !== null));
-  // A draft is what the player typed and did not deploy. The editor opens on the draft left by the last Escape, deploys it (v2), and is
-  // closed with nothing typed after that deploy: it keeps no draft, so it opens next on the board's newer code, the agent's.
+  // A draft is what the player typed and did not deploy. The editor opens on the draft left by the last Escape, gets a line more, deploys
+  // that (v2), and is closed with nothing typed after the deploy: it keeps no draft, so it opens next on the board's newer code, the
+  // agent's. The deployed text differs from the one the editor opened on, so only the deploy's answer can make the close keep nothing.
   await clickOn('#panel button', '편집');
-  await waitUntil(async () => (await code()).includes('io.log'));
+  must(await waitUntil(async () => (await code()).includes('io.log')), 'the editor opens on its draft');
+  await page.focus('#editor-window .cm-content');
+  await page.keyboard.press('ControlOrMeta+End');
+  await page.keyboard.insertText('\n-- v2');
   await clickOn('#editor-window button', '배포');
   const redeployed = await waitUntil(async () => (await result()).startsWith('v2 배포됨'));
   await clickOn('#editor-window button', '×');
@@ -959,9 +979,11 @@ try {
   await page.keyboard.insertText('\n-- for DA');
   await select('P', '발전소 P');
   await clickOn('#panel button', '편집');
-  const movedToP = await waitUntil(
-    async () => (await textOf('#editor-window header b')) === 'P 펌웨어' && !(await code()).includes('-- for DA'),
-  );
+  // P has no firmware: its editor opens on the starting one once P's inspection comes, and until then shows no code at all.
+  const movedToP = await waitUntil(async () => {
+    const text = await code();
+    return (await textOf('#editor-window header b')) === 'P 펌웨어' && text.includes('function tick') && !text.includes('-- for DA');
+  });
   await select('DA', '데이터센터 DA');
   await clickOn('#panel button', '편집');
   check(
@@ -991,7 +1013,7 @@ try {
   const target = wreckedRow ?? { id: 'P', kind: 'power' as const };
   await waitUntil(async () => (await centerOf('#feed .item', '부서졌어요')) !== null); // the page draws what the server just announced a moment later
   await page.keyboard.press('Escape'); // the plant is selected: the alert must select it again on its own
-  await waitUntil(async () => (await textOf('#panel')).includes('시설을 클릭하면'));
+  must(await waitUntil(async () => (await textOf('#panel')).includes('시설을 클릭하면')), 'Escape clears the selection');
   await clickOn('#feed .item', '부서졌어요');
   const repairCost = tuning.repair.cost[target.kind];
   const repairLabel = `시설 복구 (${repairCost.toLocaleString('en-US')} · ${hours(tuning.repair.seconds)}시간)`;
@@ -1175,7 +1197,7 @@ try {
   agent = await connectAgent('shots-2');
   await waitUntil(async () => (await textOf('#topbar')).includes('에이전트 연결 (shots-2)'));
   await agent.call('dev_play');
-  await waitUntil(async () => (await textOf('#topbar .speed button')) === '⏸');
+  must(await waitUntil(async () => (await textOf('#topbar .speed button')) === '⏸'), 'the game runs before the agent drops');
   await agent.disconnect();
   check(
     'an agent that drops raises an alert, and the game pauses by itself',

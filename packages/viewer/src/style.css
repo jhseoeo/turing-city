@@ -154,9 +154,11 @@ main {
   text-transform: uppercase;
   margin-bottom: 4px;
 }
+/* The key column fits its longest key (a sensor such as power_headroom), at least 100px. */
 #panel .kv {
   display: grid;
-  grid-template-columns: 100px 1fr;
+  grid-template-columns: minmax(100px, max-content) 1fr;
+  column-gap: 12px;
   row-gap: 3px;
 }
 /* A list reading (a warehouse's farms, housing, and trucks) comes one item to a line. */

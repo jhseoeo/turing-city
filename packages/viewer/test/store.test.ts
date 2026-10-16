@@ -244,6 +244,17 @@ describe('Store: what [로그 복사] came to', () => {
     expect(store.logCopy).toBeNull();
     expect(draws).toBe(before + 1);
   });
+
+  it('goes at a new season, whose boards are not the old ones', () => {
+    const store = new Store(null);
+    store.apply(snapshotAt(5));
+    store.noteLogCopy('DA', true);
+    store.apply(snapshotAt(0)); // a new season's first step
+    expect(store.logCopy).toBeNull();
+    store.noteLogCopy('P', true); // the old timer is gone: it cannot cut the new answer short
+    vi.advanceTimersByTime(LOG_COPY_SHOWN_MS - 1);
+    expect(store.logCopy).toEqual({ board: 'P', ok: true });
+  });
 });
 
 describe('Store: the server counts seasons', () => {

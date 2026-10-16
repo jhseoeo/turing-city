@@ -239,6 +239,9 @@ export class Store {
     this.deployResult = null;
     this.editorDrafts = {};
     this.dispatchDraft = NO_DRAFT;
+    this.logCopy = null; // about a board of the last season
+    if (this.logCopyTimer !== null) clearTimeout(this.logCopyTimer);
+    this.logCopyTimer = null;
     if (!this.guideDismissed()) this.guideOpen = true;
   }
 
