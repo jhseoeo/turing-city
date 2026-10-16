@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { type AddressInfo, connect, type Socket } from 'node:net';
 import { networkInterfaces } from 'node:os';
@@ -6,7 +6,14 @@ import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import { type AlertKind, type ControllerStatus, type ServerToViewer, ToolError, type ViewerToServer } from '@turing-city/core';
+import {
+  type AlertKind,
+  type ControllerStatus,
+  parseScenario,
+  type ServerToViewer,
+  ToolError,
+  type ViewerToServer,
+} from '@turing-city/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import { loadConfig } from '../src/config.ts';
@@ -33,6 +40,8 @@ afterEach(async () => {
 
 /** The tests that name P, DA, and DB play the milestone-1 town, whatever the server's default scenario is. */
 const M1 = 'scenarios/m1-power.json';
+/** The whole town, every facility at T0: the server's own scenario. */
+const TOWN = 'scenarios/m2-town.json';
 
 type GameServer = Awaited<ReturnType<typeof startGameServer>>;
 
@@ -484,6 +493,115 @@ describe('game server', () => {
     await until(() => last(v.seen, 'status')?.status.agent.connected === true);
   });
 
+  it("tells a viewer the game's scenario in hello, the whole town by default, so that it can render the boards' manuals", async () => {
+    const server = await startGameServer({ port: 0, configDir: tempDir('tc-server-'), viewerDist: null });
+    stop = server.close;
+    const v = await viewer(server.port);
+    await until(() => last(v.seen, 'hello') !== undefined);
+    expect(last(v.seen, 'hello')!.scenario).toEqual(parseScenario(JSON.parse(readFileSync(TOWN, 'utf8'))));
+  });
+
+  it("carries the player's deploys, hand actions, installs, and repairs, and answers the viewer that sent each", async () => {
+    const { server } = await start({ scenarioPath: TOWN });
+    const v = await viewer(server.port);
+    const other = await viewer(server.port);
+    await until(() => last(v.seen, 'status') !== undefined && last(other.seen, 'status') !== undefined);
+    v.send({ type: 'startSeason' });
+    await until(() => last(v.seen, 'status')?.status.state === 'paused');
+    const facility = (id: string) => last(v.seen, 'snapshot')!.snapshot.facilities.find((f) => f.id === id)!;
+
+    // A deploy to a facility with no board is refused, with the code the viewer says in Korean.
+    v.send({ type: 'deploy', board: 'F1', code: 'function tick() end' });
+    await until(() => last(v.seen, 'error') !== undefined);
+    expect(last(v.seen, 'error')!.refusal).toEqual({ code: 'noBoard', facility: 'F1' });
+    // With a board, the editor's code goes in: a syntax error and an accepted deploy both come back as the editor's answer.
+    v.send({ type: 'install', facility: 'F1', part: 'board' });
+    await until(() => facility('F1').tier === 1);
+    v.send({ type: 'deploy', board: 'F1', code: 'function tick( end' });
+    await until(() => last(v.seen, 'deployResult') !== undefined);
+    expect(last(v.seen, 'deployResult')).toMatchObject({
+      board: 'F1',
+      outcome: { ok: false, error: expect.stringMatching(/^firmware:1:/) },
+    });
+    v.send({ type: 'deploy', board: 'F1', code: 'function tick(io) io.log("hi") end' });
+    await until(() => last(v.seen, 'deployResult')?.outcome.ok === true);
+    expect(last(v.seen, 'deployResult')).toEqual({
+      type: 'deployResult',
+      board: 'F1',
+      outcome: { ok: true, version: 1, installsAt: "the board's next tick" },
+    });
+    // The deploy is everyone's news, with who made it.
+    await until(() => last(other.seen, 'deploy') !== undefined);
+    expect(last(other.seen, 'deploy')).toMatchObject({ board: 'F1', version: 1, by: 'player' });
+
+    // A hand action is taken (a datacenter is worked by hand without a board); one that cannot apply is refused, and so is a repair
+    // of a facility that stands.
+    v.send({ type: 'hand', facility: 'DA', action: { kind: 'process' } });
+    v.send({ type: 'hand', facility: 'F2', action: { kind: 'harvest' } }); // nothing is ripe yet
+    await until(() => last(v.seen, 'error')?.refusal?.code === 'cannotAct');
+    expect(last(v.seen, 'error')!.refusal).toMatchObject({ code: 'cannotAct', facility: 'F2' });
+    v.send({ type: 'repair', facility: 'DA' });
+    await until(() => last(v.seen, 'error')?.refusal?.code === 'notWrecked');
+    expect(v.seen.filter((m) => m.type === 'error')).toHaveLength(3); // noBoard, cannotAct, notWrecked: the hand on DA was taken
+    // The answers went to the viewer that asked, and to no other.
+    expect(other.seen.filter((m) => m.type === 'error' || m.type === 'deployResult')).toEqual([]);
+  });
+
+  it('refuses commands of the wrong shape, a source over 64 KB among them, before the game sees them', async () => {
+    const { server } = await start({ scenarioPath: TOWN });
+    const v = await viewer(server.port);
+    await until(() => last(v.seen, 'status') !== undefined);
+    const malformed = [
+      { type: 'hand', facility: 'DA' },
+      { type: 'hand', facility: 'DA', action: { kind: 'fly' } },
+      { type: 'hand', facility: 'DA', action: { kind: 'process', seconds: 5 } },
+      { type: 'hand', facility: 'P', action: { kind: 'setThermal', output: 'max' } },
+      { type: 'hand', facility: 'W', action: { kind: 'dispatch', truck: 0, from: 'F1', to: 'W', amount: 10 } },
+      { type: 'hand', facility: 'W', action: { kind: 'dispatch', truck: 1, from: 'F1', to: 'W' } },
+      { type: 'hand', facility: 'DA', action: { kind: 'process' }, by: 'agent' },
+      { type: 'install', facility: 'F1', part: 'shield' },
+      { type: 'install', facility: 'F1' },
+      { type: 'repair' },
+      { type: 'repair', facility: 'X'.repeat(40) },
+      { type: 'deploy', board: 'F1' },
+      { type: 'deploy', board: 'F1', code: 7 },
+      { type: 'deploy', board: 'F1', code: 'function tick() end', by: 'agent' }, // `by` is never the client's to say
+      { type: 'deploy', board: 'F1', code: 'function tick() end\u0000os.exit()' },
+      { type: 'deploy', board: 'F1', code: 'x'.repeat(70 * 1024) }, // over 64 KB, though well under what a message may weigh
+    ];
+    for (const command of malformed) v.ws.send(JSON.stringify(command));
+    const errors = () => v.seen.flatMap((m) => (m.type === 'error' ? [m] : []));
+    await until(() => errors().length === malformed.length);
+    for (const m of errors()) expect(m.refusal?.code, m.message).toBe('badCommand');
+    // None reached the controller, and the connection is still open.
+    v.send({ type: 'speed', speed: 2 });
+    await until(() => last(v.seen, 'status')?.status.speed === 2);
+    expect(errors()).toHaveLength(malformed.length);
+  });
+
+  it('accepts a 64 KB deploy with Korean text and refuses a larger one', async () => {
+    const { server } = await start({ scenarioPath: TOWN });
+    const v = await viewer(server.port);
+    await until(() => last(v.seen, 'status') !== undefined);
+    v.send({ type: 'startSeason' });
+    await until(() => last(v.seen, 'status')?.status.state === 'paused');
+    v.send({ type: 'install', facility: 'F1', part: 'board' });
+    await until(() => last(v.seen, 'snapshot')?.snapshot.facilities.find((f) => f.id === 'F1')?.tier === 1);
+    // 65,536 UTF-16 units of firmware, a tick and a Korean comment up to the limit: about 196 KB of UTF-8 in one message, which
+    // the milestone-1 socket (64 KiB) would have closed.
+    const head = 'function tick(io, mem) end\n-- ';
+    const full = head + '가'.repeat(65_536 - head.length);
+    v.send({ type: 'deploy', board: 'F1', code: full });
+    await until(() => last(v.seen, 'deployResult') !== undefined);
+    expect(last(v.seen, 'deployResult')!.outcome).toMatchObject({ ok: true, version: 1 });
+    // One unit over the limit is refused by the hub with a reason, and the connection stays open.
+    v.send({ type: 'deploy', board: 'F1', code: `${full}가` });
+    await until(() => last(v.seen, 'error') !== undefined);
+    expect(last(v.seen, 'error')!.refusal?.code).toBe('badCommand');
+    v.send({ type: 'speed', speed: 3 });
+    await until(() => last(v.seen, 'status')?.status.speed === 3);
+  });
+
   it('answers what a viewer sends that is not a command with an error, and nothing else happens', async () => {
     const { server } = await start();
     const v = await viewer(server.port);
@@ -491,7 +609,7 @@ describe('game server', () => {
     await until(() => last(v.seen, 'status') !== undefined && last(other.seen, 'status') !== undefined);
     const before = last(v.seen, 'status')!.status;
     // Every command with a field it does not have (a viewer cannot pick a season's seed, say), the commands the game
-    // understands being these eight.
+    // understands being these twelve.
     const commands = [
       { type: 'startSeason' },
       { type: 'play' },
@@ -501,6 +619,10 @@ describe('game server', () => {
       { type: 'autoPause', kinds: [] },
       { type: 'reissueToken' },
       { type: 'inspect', board: 'DA' },
+      { type: 'deploy', board: 'DA', code: 'function tick() end' },
+      { type: 'hand', facility: 'DA', action: { kind: 'process' } },
+      { type: 'install', facility: 'DA', part: 'comm' },
+      { type: 'repair', facility: 'DA' },
     ];
     // Text that is not JSON, JSON that is not an object, objects that name no command, a field no command has, a field
     // that is missing, values the game cannot take, and bytes.
@@ -529,8 +651,7 @@ describe('game server', () => {
     v.ws.send(Buffer.from([0xff, 0x00, 0x01]));
     const errors = (): string[] => v.seen.flatMap((m) => (m.type === 'error' ? [m.message] : []));
     await until(() => errors().length === notCommands.length + 1);
-    // Each is refused by the hub itself, not by the controller (which would also answer a play with no agent, or a rebuild
-    // with no season, with an error), with something to read, and short, whatever the message was.
+    // Each is refused by the hub itself, not by the controller, with something to read, and short, whatever the message was.
     expect(errors().every((message) => message.startsWith('bad command: ') && message.length <= 200)).toBe(true);
     // Each carries its code, with what is wrong as the detail, for the viewer to say in Korean.
     const badCommands = v.seen.flatMap((m) => (m.type === 'error' ? [m] : []));
@@ -608,12 +729,12 @@ describe('game server', () => {
     const { server } = await start();
     const other = await viewer(server.port);
     await until(() => last(other.seen, 'status') !== undefined);
-    // Under the limit a message is read and answered, however useless it is.
+    // Under the limit a message is read and answered, however useless it is: a firmware source of 64 KB can take 384 KiB of JSON.
     const reader = await viewer(server.port);
-    reader.ws.send('x'.repeat(60 * 1024));
+    reader.ws.send('x'.repeat(500 * 1024));
     await until(() => reader.seen.some((m) => m.type === 'error'));
     // Over it the connection is closed (1009, message too big): a little over, and a flood of auto-pause kinds.
-    const tooBig = ['x'.repeat(66 * 1024), JSON.stringify({ type: 'autoPause', kinds: Array.from({ length: 1_000_000 }, () => 'fire') })];
+    const tooBig = ['x'.repeat(513 * 1024), JSON.stringify({ type: 'autoPause', kinds: Array.from({ length: 1_000_000 }, () => 'fire') })];
     for (const text of tooBig) {
       const v = await viewer(server.port);
       const closed = new Promise<number>((resolve) => v.ws.once('close', resolve));
@@ -682,6 +803,12 @@ describe('game server', () => {
     await until(() => last(v.seen, 'error')?.refusal?.code === 'repairFirst');
     expect(last(v.seen, 'error')!.refusal).toEqual({ code: 'repairFirst', facility: lost });
     expect(late.seen.filter((m) => m.type === 'error')).toHaveLength(0);
+
+    // Repairing it is accepted: the game says nothing to the viewer, and the facility is being repaired.
+    const told = v.seen.filter((m) => m.type === 'error').length;
+    v.send({ type: 'repair', facility: lost });
+    await until(() => last(v.seen, 'snapshot')?.snapshot.facilities.find((f) => f.id === lost)?.condition === 'repairing');
+    expect(v.seen.filter((m) => m.type === 'error')).toHaveLength(told);
   });
 
   it("hands every status change to onStatus, the agent's comings and goings among them, and nothing else", async () => {

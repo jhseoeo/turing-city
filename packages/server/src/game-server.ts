@@ -35,7 +35,7 @@ function pathOf(req: IncomingMessage): string | null {
  */
 const VITE_ORIGINS = ['http://127.0.0.1:5173', 'http://localhost:5173'];
 
-const DEFAULT_SCENARIO = fileURLToPath(new URL('../../../scenarios/m1-power.json', import.meta.url));
+const DEFAULT_SCENARIO = fileURLToPath(new URL('../../../scenarios/m2-town.json', import.meta.url));
 const DEFAULT_VIEWER = fileURLToPath(new URL('../../viewer/dist', import.meta.url));
 
 export async function startGameServer(
@@ -101,7 +101,7 @@ export async function startGameServer(
   }
   const port = (http.address() as AddressInfo).port;
   const portConfig = () => ({ ...config, port });
-  const hello = (): ServerToViewer => ({ type: 'hello', connect: connectCommand(portConfig()), port });
+  const hello = (): ServerToViewer => ({ type: 'hello', connect: connectCommand(portConfig()), port, scenario });
   const hub = createViewerHub({
     controller,
     hello,
