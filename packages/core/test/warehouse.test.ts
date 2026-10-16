@@ -45,7 +45,7 @@ describe('the warehouse', () => {
     s.world.farms.F1!.outbox = 30;
     expect(stepsPerCell(s.ctx)).toBe(10); // 2 cells a second at 20 steps a second
     expect(s.hand('W', d({ amount: 40 }))).toEqual({ ok: true });
-    s.step(); // step 0 applies it: the truck sets out
+    s.step(); // the press set the truck out at once; step 0 moves nothing yet
     expect(truck).toMatchObject({
       status: 'outbound',
       x: 11,
@@ -164,12 +164,17 @@ describe('the warehouse', () => {
     expect(s.world.warehouses.W!.trucks[0]).toMatchObject({ status: 'outbound', job: { kind: 'collect', targetId: 'F2', amount: 20 } });
   });
 
-  it('lets its stock spoil by spoilagePctPerDay, split over the steps and rounded down', () => {
+  it('lets its stock spoil by spoilagePctPerDay once a day, on the last step of the day, a small stock too', () => {
     const s = town();
     const wh = s.world.warehouses.W!;
-    wh.stockMilli = 100_000;
-    runWarehouses(s.ctx, 0);
-    expect(wh.stockMilli).toBe(99_998); // 2% of 100 a day over 800 steps is 2.5 milli-units a step, taken as 2
+    wh.stockMilli = 30_000; // under one truck load
+    for (let step = 0; step < 799; step++) runWarehouses(s.ctx, step);
+    expect(wh.stockMilli).toBe(30_000);
+    runWarehouses(s.ctx, 799); // the last step of day 0: 800 steps a day
+    expect(wh.stockMilli).toBe(29_400); // 2% of 30
+    wh.stockMilli = 12_345;
+    runWarehouses(s.ctx, 1599);
+    expect(wh.stockMilli).toBe(12_099); // 2% of 12.345 is 246.9 milli, taken as 246
   });
 
   it('lets trucks on the road finish their trips when the warehouse is wrecked, and takes no new dispatch', () => {

@@ -50,8 +50,10 @@ describe('housing', () => {
   it('pays tax for a block that is fed and powered, and none for one hungry or without power', () => {
     const s = town();
     expect(taxMicro(s.ctx)).toBe(250_000); // 40 people x 5 a day, over 800 steps
+    const money = s.world.money;
     runHousing(s.ctx, 0);
     expect(s.world.ledger.tax).toBe(2 * 250_000); // both blocks
+    expect(s.world.money - money).toBe(2 * 250_000);
     findFacility(s.world, 'H2')!.powered = false;
     runHousing(s.ctx, 1);
     expect(s.world.ledger.tax).toBe(3 * 250_000); // H1 only

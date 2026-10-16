@@ -16,11 +16,11 @@ export function taxMicro(ctx: SimContext): number {
 }
 
 /**
- * What a housing block requests from the grid before transmission loss: people live there, so it uses power whatever anyone runs.
- * Any other kind of facility: nothing.
+ * What a facility where residents live (a housing block) requests from the grid before transmission loss: people live there, so it
+ * uses power whatever anyone runs. A facility with no residents: nothing.
  */
 export function housingDraw(ctx: SimContext, facility: FacilityState): number {
-  return facility.kind === 'housing' ? ctx.scenario.tuning.housing.power : 0;
+  return ctx.world.housing[facility.id] ? ctx.scenario.tuning.housing.power : 0;
 }
 
 /**

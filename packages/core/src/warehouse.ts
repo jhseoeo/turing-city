@@ -1,5 +1,5 @@
 import type { FacilityAction, SensorValue } from './firmware-host.ts';
-import { idiv, MICRO, MILLI } from './fixed.ts';
+import { idiv, MICRO, MILLI, mulDiv } from './fixed.ts';
 import { pathTo } from './luddites.ts';
 import { stepsPerDay } from './time.ts';
 import {
@@ -19,12 +19,15 @@ export function stepsPerCell(ctx: SimContext): number {
   return idiv(ctx.scenario.time.stepsPerSecond, ctx.scenario.tuning.warehouse.truckCellsPerSecond);
 }
 
-/** What a dispatch would do: collect from a farm to this warehouse, or deliver from it to a housing block; null when it is neither. */
+/**
+ * What a dispatch would do: collect from a facility with an outbox (a farm) to this warehouse, or deliver from it to a facility
+ * whose residents eat (a housing block); null when it is neither.
+ */
 function tripOf(ctx: SimContext, warehouseId: string, d: Dispatch): Pick<TruckJob, 'kind' | 'targetId'> | null {
   const from = findFacility(ctx.world, d.from);
   const to = findFacility(ctx.world, d.to);
-  if (from?.kind === 'farm' && d.to === warehouseId) return { kind: 'collect', targetId: from.id };
-  if (d.from === warehouseId && to?.kind === 'housing') return { kind: 'deliver', targetId: to.id };
+  if (from && ctx.world.farms[from.id] && d.to === warehouseId) return { kind: 'collect', targetId: from.id };
+  if (to && ctx.world.housing[to.id] && d.from === warehouseId) return { kind: 'deliver', targetId: to.id };
   return null;
 }
 
@@ -115,7 +118,10 @@ function moveTruck(ctx: SimContext, home: FacilityState, wh: WarehouseState, tru
   truck.cellsDone = 0;
 }
 
-/** Phase 6: every warehouse's trucks move, wrecked or not (a truck on the road finishes its trip), and its stock spoils. */
+/**
+ * Phase 6: every warehouse's trucks move, wrecked or not (a truck on the road finishes its trip). On the last step of each day its
+ * stock spoils by spoilagePctPerDay, rounded down: once a day, so that a small stock spoils too.
+ */
 export function runWarehouses(ctx: SimContext, step: number): void {
   const w = ctx.world;
   const spoilage = ctx.scenario.tuning.warehouse.spoilagePctPerDay;
@@ -124,7 +130,7 @@ export function runWarehouses(ctx: SimContext, step: number): void {
     const wh = w.warehouses[f.id];
     if (!wh) continue;
     for (const truck of wh.trucks) moveTruck(ctx, f, wh, truck, step);
-    wh.stockMilli -= idiv(wh.stockMilli * spoilage, 100 * spd);
+    if (step % spd === spd - 1) wh.stockMilli -= mulDiv(wh.stockMilli, spoilage, 100);
   }
 }
 
@@ -143,11 +149,11 @@ export function warehouseReading(ctx: SimContext, warehouseId: string, sensor: '
       return idiv(wh.stockMilli, MILLI);
     case 'farms':
       return w.facilities
-        .filter((f) => f.kind === 'farm')
+        .filter((f) => w.farms[f.id] !== undefined)
         .map((f) => ({ id: f.id, outbox: w.farms[f.id]?.outbox ?? 0, distance: manhattan(home.x, home.y, f.x, f.y) }));
     case 'housing':
       return w.facilities
-        .filter((f) => f.kind === 'housing')
+        .filter((f) => w.housing[f.id] !== undefined)
         .map((f) => ({
           id: f.id,
           food: idiv(w.housing[f.id]?.foodMilli ?? 0, MILLI),
