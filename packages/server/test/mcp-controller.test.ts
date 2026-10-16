@@ -5,7 +5,7 @@ import type { Transferable, Worker } from 'node:worker_threads';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import { parseScenario } from '@turing-city/core';
+import { boardManual, parseScenario } from '@turing-city/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GameController, gameApi } from '../src/game-controller.ts';
 import { createMcpEndpoint } from '../src/mcp.ts';
@@ -37,6 +37,9 @@ async function start(withSeason = true): Promise<Rig> {
       runUntil: (goal) => controller.runUntil(goal),
       newSeason: (seed) => controller.startSeason(seed),
       rebuild: (board) => controller.rebuild(board),
+      repair: (facility) => controller.repair(facility),
+      install: (facility, part) => controller.install(facility, part),
+      hand: (facility, action) => controller.hand(facility, action),
     },
   });
   const server: Server = createServer((req, res) => void endpoint.handle(req, res));
@@ -124,6 +127,43 @@ describe('MCP endpoint over the real controller', () => {
     const result = await r.client.callTool({ name: 'dev_run_until', arguments: { seconds: 1 } });
     expect(result.isError).toBe(true);
     expect(textOf(result)).toMatch(/already running.*try again/);
+  });
+
+  it("tells the agent it reaches a board only through its comm module, and hands over the board's manual as it is once it does", async () => {
+    const r = await start();
+    const call = async (name: string, args: Record<string, unknown>): Promise<{ isError: boolean; text: string }> => {
+      const result = await r.client.callTool({ name, arguments: args });
+      return { isError: result.isError === true, text: textOf(result) };
+    };
+    const boards = JSON.parse((await call('list_boards', {})).text) as Array<{ id: string; tier: number }>;
+    expect(boards.map((b) => [b.id, b.tier])).toEqual([
+      ['P', 1],
+      ['DA', 1],
+      ['DB', 1],
+    ]);
+    const noComm = { isError: true, text: "DA has no comm module: the player installs one from the board's panel" };
+    expect(await call('get_datasheet', { board: 'DA' })).toEqual(noComm);
+    expect(await call('get_firmware', { board: 'DA' })).toEqual(noComm);
+    expect(await call('read_logs', { board: 'DA' })).toEqual(noComm);
+    expect(await call('deploy_firmware', { board: 'DA', code: 'function tick() end' })).toEqual(noComm);
+    expect(JSON.parse((await call('dev_install', { facility: 'DA', part: 'comm' })).text)).toEqual({ ok: true });
+    expect(await call('get_datasheet', { board: 'DA' })).toEqual({ isError: false, text: boardManual(scenario, 'DA') });
+    expect(JSON.parse((await call('deploy_firmware', { board: 'DA', code: 'function tick() end' })).text)).toMatchObject({
+      ok: true,
+      version: 1,
+    });
+  });
+
+  it('gives the dev hand the answer of the game, a refusal included, and goes on', async () => {
+    const r = await start();
+    const hand = async (args: Record<string, unknown>): Promise<unknown> =>
+      JSON.parse(textOf(await r.client.callTool({ name: 'dev_hand', arguments: args })));
+    expect(await hand({ facility: 'ZZ', action: { kind: 'process' } })).toMatchObject({
+      ok: false,
+      refusal: { code: 'unknownFacility', facility: 'ZZ' },
+    });
+    expect(await hand({ facility: 'P', action: { kind: 'setThermal', output: 100 } })).toEqual({ ok: true });
+    expect(JSON.parse(textOf(await r.client.callTool({ name: 'get_status', arguments: {} }))).time).toBeDefined();
   });
 
   it('tells the agent what a call needs when there is no season to play', async () => {

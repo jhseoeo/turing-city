@@ -4,17 +4,32 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { EmptyResultSchema } from '@modelcontextprotocol/sdk/types.js';
-import { AGENT_INSTRUCTIONS, AGENT_TOOLS, type AgentStatus, ALERT_KINDS, type AlertKind, type GameApi } from '@turing-city/core';
+import {
+  AGENT_INSTRUCTIONS,
+  AGENT_TOOLS,
+  type AgentStatus,
+  ALERT_KINDS,
+  type AlertKind,
+  type CommandResult,
+  FACILITY_ACTION,
+  type FacilityAction,
+  type GameApi,
+  INSTALL_PART,
+  type InstallPart,
+} from '@turing-city/core';
 import { z } from 'zod';
 
-/** Time control for QA agents. Never part of the game: it exists only with the server's --dev flag. */
+/** Time control and the player's hand for QA agents. Never part of the game: it exists only with the server's --dev flag. */
 export interface DevTools {
   play(): void;
   pause(): void;
   setSpeed(speed: 1 | 2 | 3): void;
   runUntil(goal: { seconds?: number; alertKinds?: readonly AlertKind[] }): Promise<void>;
   newSeason(seed: number): Promise<void>;
-  rebuild(board: string): Promise<{ ok: true } | { ok: false; reason: string }>;
+  rebuild(board: string): Promise<CommandResult>;
+  repair(facility: string): Promise<CommandResult>;
+  install(facility: string, part: InstallPart): Promise<CommandResult>;
+  hand(facility: string, action: FacilityAction): Promise<CommandResult>;
 }
 
 export interface McpOptions {
@@ -39,8 +54,9 @@ interface McpSession {
   graceTimer: ReturnType<typeof setTimeout> | null;
 }
 
+/** A tool's result as text: a string as it is (a board's manual is markdown for the agent to read), anything else as JSON. */
 function text(value: unknown): { content: Array<{ type: 'text'; text: string }> } {
-  return { content: [{ type: 'text', text: JSON.stringify(value, null, 2) }] };
+  return { content: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value, null, 2) }] };
 }
 
 function toolError(error: unknown): { content: Array<{ type: 'text'; text: string }>; isError: true } {
@@ -48,7 +64,7 @@ function toolError(error: unknown): { content: Array<{ type: 'text'; text: strin
   return { content: [{ type: 'text', text: message }], isError: true };
 }
 
-/** A tool's result as JSON text; a refusal (ToolError) or any failure becomes a tool error the agent can read. */
+/** A tool's result as text; a refusal (ToolError) or any failure becomes a tool error the agent can read. */
 async function run(fn: () => Promise<unknown>): Promise<ReturnType<typeof text> | ReturnType<typeof toolError>> {
   try {
     return text(await fn());
@@ -152,6 +168,32 @@ export function createMcpEndpoint(options: McpOptions): {
         'dev_rebuild',
         { description: 'DEV: rebuild a destroyed board.', inputSchema: { board: z.string() } },
         async ({ board }) => run(() => dev.rebuild(board)),
+      );
+      mcp.registerTool(
+        'dev_repair',
+        {
+          description: 'DEV: repair a wrecked facility, paid from the town, as the player does from its panel.',
+          inputSchema: { facility: z.string() },
+        },
+        async ({ facility }) => run(() => dev.repair(facility)),
+      );
+      mcp.registerTool(
+        'dev_install',
+        {
+          description:
+            'DEV: install a board (T1) or a comm module (T2) in a facility, paid from the town, as the player does from its panel.',
+          inputSchema: { facility: z.string(), part: INSTALL_PART },
+        },
+        async ({ facility, part }) => run(() => dev.install(facility, part)),
+      );
+      mcp.registerTool(
+        'dev_hand',
+        {
+          description:
+            "DEV: do a facility's work by hand, as the player does from its panel: process, cool, setThermal, setPriority, harvest, or dispatch. It applies at once, between steps.",
+          inputSchema: { facility: z.string(), action: FACILITY_ACTION },
+        },
+        async ({ facility, action }) => run(() => dev.hand(facility, action)),
       );
     }
     return mcp;

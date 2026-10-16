@@ -47,7 +47,9 @@ const server = await startGameServer({
 process.stdout.write(`turing-city is running: open ${server.url} in a browser.\n`);
 process.stdout.write(`Connect your agent (Claude Code):\n  ${server.connect}\n`);
 if (dev)
-  process.stdout.write('Dev tools are on: agents get dev_play, dev_pause, dev_set_speed, dev_run_until, dev_new_season, dev_rebuild.\n');
+  process.stdout.write(
+    'Dev tools are on: agents get dev_play, dev_pause, dev_set_speed, dev_run_until, dev_new_season, dev_rebuild, dev_repair, dev_install, dev_hand.\n',
+  );
 const shutdown = (): void => {
   void server.close().then(() => process.exit(0));
 };

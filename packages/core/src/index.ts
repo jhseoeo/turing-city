@@ -2,6 +2,7 @@ export * from './actions.ts';
 export * from './agent-tools.ts';
 export * from './alerts.ts';
 export * from './boards.ts';
+export * from './commands.ts';
 export * from './datacenter.ts';
 export * from './economy.ts';
 export * from './emf.ts';
