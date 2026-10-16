@@ -65,12 +65,15 @@ function hoursOf(scenario: Scenario, seconds: number): number {
   return idiv(seconds * 24, scenario.time.secondsPerDay);
 }
 
-/** The game hours a repair has left, rounded up, so that a repair with time left never reads 0 hours; null unless repairing. */
+/**
+ * The game hours a repair has left, rounded up and at least 1, so that a repair never reads 0 hours: the step it is due still
+ * reads 1, since the repair finishes only in that step's first phase. Null unless repairing.
+ */
 function repairHoursLeft(ctx: SimContext, f: FacilityState): number | null {
   if (f.condition !== 'repairing' || f.repairReadyAt === null) return null;
   const left = Math.max(0, f.repairReadyAt - ctx.world.step);
   const perDay = stepsPerDay(ctx.scenario.time);
-  return idiv(left * 24 + perDay - 1, perDay);
+  return Math.max(1, idiv(left * 24 + perDay - 1, perDay));
 }
 
 /** Whole food units held in the town: the warehouses' stock, and what the housing blocks have left. */

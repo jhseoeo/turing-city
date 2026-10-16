@@ -617,7 +617,9 @@ describe('views of the whole town', () => {
     expect(f1()).toMatchObject({ condition: 'repairing', repairHoursLeft: 7, powered: false });
     for (let i = 0; i < 399; i++) s.step(); // one step left
     expect(f1().repairHoursLeft).toBe(1);
-    for (let i = 0; i < 2; i++) s.step(); // step 400 finishes the repair in its first phase
+    s.step(); // paused before step 400, the step the repair is due: it still reads 1 hour, not 0
+    expect(f1()).toMatchObject({ condition: 'repairing', repairHoursLeft: 1 });
+    s.step(); // step 400 finishes the repair in its first phase
     expect(f1()).toMatchObject({ condition: 'ok', repairHoursLeft: null, powered: true, board: { status: 'destroyed' } });
   });
 
