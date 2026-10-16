@@ -64,22 +64,6 @@ describe('power', () => {
     expect(facilityDemand(ctx, db!, 0)).toBe(13); // 16 cells: 10 + floor(10 * 32 / 100)
   });
 
-  it("adds a running job and a cooling cycle to a datacenter's draw on the steps their windows cover", () => {
-    const s = calm(120);
-    const ctx = s.ctx;
-    const dc = s.world.datacenters.DA!;
-    dc.busyFrom = 5;
-    dc.busyUntil = 9;
-    dc.coolFrom = 4;
-    dc.coolUntil = 6;
-    const da = s.world.facilities[1]!;
-    expect(facilityDemand(ctx, da, 3)).toBe(10); // the board alone, 1 cell from the plant: 10 + floor(10 * 2 / 100)
-    expect(facilityDemand(ctx, da, 4)).toBe(410 + 8); // + 400 for the cooling cycle, + 2%
-    expect(facilityDemand(ctx, da, 5)).toBe(560 + 11); // + 150 for the job
-    expect(facilityDemand(ctx, da, 6)).toBe(160 + 3); // the cycle's window is over
-    expect(facilityDemand(ctx, da, 9)).toBe(10); // and so is the job's
-  });
-
   it('draws only sleep power while asleep and nothing while destroyed', () => {
     const s = calm(120);
     const ctx = s.ctx;

@@ -1,5 +1,6 @@
 import { clearFlag, raiseOnce } from './alerts.ts';
 import { appendLog } from './boards.ts';
+import { datacenterDraw } from './datacenter.ts';
 import { mulDiv } from './fixed.ts';
 import { stepsForSeconds } from './time.ts';
 import { type BoardState, type FacilityState, findBoard, manhattan, type SimContext, type WorldState } from './world.ts';
@@ -27,11 +28,7 @@ export function facilityDemand(ctx: SimContext, facility: FacilityState, step: n
   if (facility.condition !== 'ok') return 0;
   const t = ctx.scenario.tuning;
   let base = boardDraw(ctx, findBoard(ctx.world, facility.id));
-  const dc = ctx.world.datacenters[facility.id];
-  if (dc) {
-    if (dc.busyFrom <= step && step < dc.busyUntil) base += t.datacenter.processPower;
-    if (dc.coolFrom <= step && step < dc.coolUntil) base += t.datacenter.coolingPower;
-  }
+  base += datacenterDraw(ctx, facility, step);
   if (facility.kind === 'housing') base += t.housing.power;
   const plant = plantFacility(ctx.world);
   const distance = manhattan(facility.x, facility.y, plant.x, plant.y);

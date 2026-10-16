@@ -76,11 +76,6 @@ const TuningSchema = z.object({
     processPower: int(0),
     ambientMilli: int(0),
     heatMilliPerSecond: int(0),
-    // Milestone 1's four cooling keys stay until Task 5 replaces passive cooling and removes them.
-    passiveCoolingPctPerSecond: int(0),
-    coolingMilliPerLevelPerSecond: int(0),
-    coolingPowerPerLevel: int(0),
-    maxCoolingLevel: int(0),
     passiveCoolingPermillePerSecond: int(0),
     /** How long one press of [처리], or one process(), runs the datacenter. */
     jobMs: int(1),
