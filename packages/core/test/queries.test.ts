@@ -56,18 +56,26 @@ describe('views', () => {
     expect(timeView(s.scenario, 800 + 400)).toEqual({ day: 2, clock: '12:00', seconds: 60 });
   });
 
-  it('lists boards with their firmware state', () => {
+  it("lists boards with their firmware state, and the last tick's instructions and RAM", () => {
     const { s } = session();
     s.deploy('DA', 'hello');
     expect(listBoards(s.world)[1]).toMatchObject({
       id: 'DA',
       kind: 'datacenter',
       tier: 1,
-      board: { firmwareVersion: null, pendingVersion: 1 },
+      board: { firmwareVersion: null, pendingVersion: 1, lastInstructions: null, ramUsedBytes: null },
     });
     for (let i = 0; i < 4; i++) s.step();
+    const da = s.world.boards[1]!;
     expect(listBoards(s.world)[1]).toMatchObject({
-      board: { firmwareVersion: 1, pendingVersion: null, status: 'running', lastError: null },
+      board: {
+        firmwareVersion: 1,
+        pendingVersion: null,
+        status: 'running',
+        lastError: null,
+        lastInstructions: da.lastTick!.instructions,
+        ramUsedBytes: da.lastTick!.ramUsedBytes,
+      },
     });
   });
 
@@ -139,6 +147,10 @@ describe('views in detail', () => {
     for (let i = 0; i < 4; i++) s.step();
     s.world.boards[0]!.status = 'asleep';
     const board = { pendingVersion: null };
+    const tick = (i: number) => ({
+      lastInstructions: s.world.boards[i]!.lastTick?.instructions ?? null,
+      ramUsedBytes: s.world.boards[i]!.lastTick?.ramUsedBytes ?? null,
+    });
     expect(listBoards(s.world)).toEqual([
       {
         id: 'P',
@@ -147,7 +159,7 @@ describe('views in detail', () => {
         y: 4,
         tier: 1,
         condition: 'ok',
-        board: { ...board, status: 'asleep', powered: true, firmwareVersion: null, lastError: null },
+        board: { ...board, ...tick(0), status: 'asleep', powered: true, firmwareVersion: null, lastError: null },
       },
       {
         id: 'DA',
@@ -156,7 +168,7 @@ describe('views in detail', () => {
         y: 4,
         tier: 1,
         condition: 'ok',
-        board: { ...board, status: 'running', powered: true, firmwareVersion: 1, lastError: 'runtime: boom' },
+        board: { ...board, ...tick(1), status: 'running', powered: true, firmwareVersion: 1, lastError: 'runtime: boom' },
       },
       {
         id: 'DB',
@@ -165,7 +177,7 @@ describe('views in detail', () => {
         y: 8,
         tier: 1,
         condition: 'ok',
-        board: { ...board, status: 'running', powered: false, firmwareVersion: null, lastError: null },
+        board: { ...board, ...tick(2), status: 'running', powered: false, firmwareVersion: null, lastError: null },
       },
     ]);
   });
@@ -436,7 +448,15 @@ describe('views of the whole town', () => {
     expect(s.install('DA', 'board')).toEqual({ ok: true });
     expect(s.install('DA', 'comm')).toEqual({ ok: true });
     expect(s.install('F1', 'board')).toEqual({ ok: true });
-    const running = { status: 'running', powered: true, firmwareVersion: null, pendingVersion: null, lastError: null };
+    const running = {
+      status: 'running',
+      powered: true,
+      firmwareVersion: null,
+      pendingVersion: null,
+      lastError: null,
+      lastInstructions: null,
+      ramUsedBytes: null,
+    };
     const bare = (id: string, kind: string, x: number, y: number) => ({ id, kind, x, y, tier: 0, condition: 'ok', board: null });
     expect(listBoards(s.world)).toEqual([
       bare('P', 'power', 4, 4),

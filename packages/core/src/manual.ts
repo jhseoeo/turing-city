@@ -125,7 +125,7 @@ function sensorDocs(scenario: Scenario): Record<SensorName, SensorDoc> {
       range: `주거지 ${ofKind(scenario, 'housing').length}곳, 지도 순서`,
     },
     trucks: {
-      meaning: `트럭마다 ${code('{ id, status, x, y, load, target }')}: status는 "idle"(창고에서 대기), "outbound"(가는 중), "returning"(돌아오는 중). x와 y는 지금 칸, load는 실은 식량, target은 가는 곳의 id(대기 중이면 nil)`,
+      meaning: `트럭마다 ${code('{ id, status, x, y, load, target }')}: status는 "idle"(창고에서 대기), "outbound"(가는 중), "returning"(돌아오는 중). x와 y는 지금 칸, load는 실은 식량, target은 이번에 들르는 곳의 id(돌아오는 중에도 그곳, 대기 중이면 nil)`,
       unit: '목록',
       range: `트럭 ${t.warehouse.trucks}대, id 1~${t.warehouse.trucks}`,
     },
@@ -208,7 +208,7 @@ function facilityRules(scenario: Scenario, f: FacilitySpec, kind: BoardKind, boa
         list([
           `발전량은 풍력과 화력의 합이다. 풍력은 날씨를 따라 0~${t.wind.max} 사이에서 초당 최대 ${t.wind.maxChangePerSecond}씩 변하고, 비용이 없다.`,
           `화력은 정한 출력 그대로 나온다(0~${t.thermal.max}). 출력 1단위에 하루 ${code('fuel_price')}(${t.fuelPrice.min}~${t.fuelPrice.max}, 매일 바뀐다)가 든다. 하루는 ${day}초이므로 출력 1단위의 초당 연료비: ${code('fuel_price')} / ${day}.`,
-          `${code('io.set_thermal(output)')}와 손의 [화력], ${code('io.set_priority({ids})')}와 손의 [공급 순서]는 같은 설정을 바꾼다. 나중에 바꾼 쪽이 이긴다.`,
+          `${code('io.set_thermal(output)')}과 손의 [화력], ${code('io.set_priority({ids})')}와 손의 [공급 순서]는 같은 설정을 바꾼다. 나중에 바꾼 쪽이 이긴다.`,
           '화력 설정과 공급 순서는 마을의 것이다. 보드가 자거나 부서져도 남는다. 발전소가 부서져 있는 동안 화력은 0이고 풍력만 나온다.',
           `공급 순서에 쓸 수 있는 id: ${consumers.join(', ')}. 기본 순서는 이 지도 순서다.`,
           '발전소 자신의 보드는 끊기지 않는다.',
@@ -237,7 +237,7 @@ function facilityRules(scenario: Scenario, f: FacilitySpec, kind: BoardKind, boa
       return [
         list([
           `작물은 심은 지 ${span(scenario, t.farm.ripenSeconds)} 뒤에 익는다. ${code('ripeness')}는 그동안 0에서 100으로 오른다.`,
-          `익은 채로 ${span(scenario, t.farm.rotSeconds)}이 지나면 썩어서 사라지고, 그 자리에 바로 다시 심는다.`,
+          `익은 채로 ${span(scenario, t.farm.rotSeconds)} 동안 두면 썩어서 사라지고, 그 자리에 바로 다시 심는다.`,
           `${code('io.harvest()')}와 손의 [수확]은 같은 일을 한다: ${t.farm.yield}의 식량을 출고함에 넣고 바로 다시 심는다. 출고함은 ${t.farm.outboxCapacity}까지이고, 넘치는 만큼은 버려진다.`,
           '출고함의 식량은 물류창고의 트럭이 가져간다.',
           '밭은 보드가 없어도 자란다. 보드는 수확을 대신할 뿐이다.',
@@ -489,7 +489,7 @@ function commonSections(scenario: Scenario): Section[] {
       blocks: [
         list([
           `무리는 ${l.groupSize}명이고, 지도 가장자리의 한 점에서 나타난다.`,
-          `초당 ${l.cellsPerSecond}칸씩 걷고, 칸마다 감지되는 가장 강한 전자파로 다시 겨눈다. 감지되는 것은 전자파가 ${e.detectionThreshold} 이상인 칸이고, 노리는 것은 기계다: 보드가 돌거나 자고 있는 시설, 그리고 처리하는 중인 데이터센터(보드가 없어도 된다). 손으로만 돌리는 시설과 쉬는 데이터센터는 표적이 아니다.`,
+          `초당 ${l.cellsPerSecond}칸씩 걷고, 칸마다 감지되는 가장 강한 전자파로 다시 겨눈다. 감지되는 것은 전자파가 ${e.detectionThreshold} 이상인 칸이고, 노리는 것은 기계다: 보드가 돌거나 자고 있는 시설, 그리고 처리하는 중인 데이터센터(보드가 없어도 된다). 손으로만 돌리는 시설과 보드 없이 쉬는 데이터센터는 표적이 아니다.`,
           '표적에 닿으면 그 시설을 보드째 통째로 부순다. 부서진 시설은 손으로도 돌릴 수 없다.',
           `감지되는 것이 ${l.quietSecondsToLeave}초 동안 없으면 가장 가까운 가장자리로 떠난다.`,
           `무리가 시설에서 ${l.approachCells}칸 안으로 들어오면 접근 알림이 뜬다.`,

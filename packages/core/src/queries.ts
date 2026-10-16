@@ -103,6 +103,9 @@ export interface BoardSummary {
     readonly firmwareVersion: number | null;
     readonly pendingVersion: number | null;
     readonly lastError: string | null;
+    /** The last tick's instruction count and RAM use, which the manual tells the agent to watch; null before the first tick. */
+    readonly lastInstructions: number | null;
+    readonly ramUsedBytes: number | null;
   } | null;
 }
 
@@ -127,6 +130,8 @@ export function listBoards(world: WorldState): BoardSummary[] {
             firmwareVersion: b.firmware?.version ?? null,
             pendingVersion: b.pending?.version ?? null,
             lastError: b.lastTick?.error ? `${b.lastTick.error.kind}: ${b.lastTick.error.message}` : null,
+            lastInstructions: b.lastTick?.instructions ?? null,
+            ramUsedBytes: b.lastTick?.ramUsedBytes ?? null,
           }
         : null,
     });

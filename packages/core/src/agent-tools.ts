@@ -95,7 +95,7 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
   {
     name: 'list_boards',
     description:
-      'Every facility of the town that can take a board: its kind, its position, and its tier (0: no board, the player works it by hand; 1: a board the player programs in the game; 2: a board with a comm module, which you can program), whether the facility stands (ok, wrecked, or being repaired), and, under board (null when there is none), its state (running, asleep, destroyed, rebuilding), power, firmware version, and latest error.',
+      'Every facility of the town that can take a board: its kind, its position, and its tier (0: no board, the player works it by hand; 1: a board the player programs in the game; 2: a board with a comm module, which you can program), whether the facility stands (ok, wrecked, or being repaired), and, under board (null when there is none), its state (running, asleep, destroyed, rebuilding), power, firmware version, latest error, and the instruction count and RAM use of its last tick (null before its first tick).',
     inputSchema: {},
     run: (api) => api.listBoards(),
   },
@@ -139,7 +139,7 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
   },
   {
     name: 'get_alerts',
-    description: `Alerts: raids, Luddites approaching, wrecked facilities, fires, overheating, power shortages, hunger, firmware errors, money below zero, and the season's end. Without since, the newest ${ALERTS_SHOWN}, oldest first, and how many older ones the log holds; with since, every alert after that time. The game does not push alerts to you; poll this.`,
+    description: `Alerts: raids, Luddites approaching, wrecked facilities, fires, overheating, power shortages, hunger, firmware errors, money below zero, your own connection lost, and the season's end. Without since, the newest ${ALERTS_SHOWN}, oldest first, and how many older ones the log holds; with since, every alert after that time. The game does not push alerts to you; poll this.`,
     inputSchema: { since },
     run: async (api, args): Promise<AlertsReply> => {
       const since = args.since as number | undefined;

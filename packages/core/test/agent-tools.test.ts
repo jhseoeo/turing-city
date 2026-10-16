@@ -234,7 +234,16 @@ describe('agent tools', () => {
 
   it('names every kind of alert the game raises, in get_alerts', () => {
     const { description } = tool('get_alerts');
-    for (const kind of ['raids', 'wrecked facilities', 'fires', 'overheating', 'power shortages', 'hunger', 'firmware errors']) {
+    for (const kind of [
+      'raids',
+      'wrecked facilities',
+      'fires',
+      'overheating',
+      'power shortages',
+      'hunger',
+      'firmware errors',
+      'connection lost',
+    ]) {
       expect(description, kind).toContain(kind);
     }
   });

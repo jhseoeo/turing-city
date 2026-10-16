@@ -172,12 +172,14 @@ describe('the town', () => {
     expect(problems(s)).toContain('facilities: at most one warehouse is allowed');
   });
 
-  it('needs a press, a cooling cycle, and a truck cell to last whole steps', () => {
+  it('needs a press, a cooling cycle, a truck cell, and a Luddite cell to last whole steps', () => {
     const s = m2Copy();
     s.tuning.datacenter.jobMs = 525; // 10.5 steps at 20 a second
     s.tuning.datacenter.coolingCycleMs = 4010;
     s.tuning.warehouse.truckCellsPerSecond = 3;
+    s.tuning.luddites.cellsPerSecond = 40; // more than one cell a step: they would never move
     const text = problems(s);
+    expect(text).toContain('tuning.luddites.cellsPerSecond: cellsPerSecond 40 must divide stepsPerSecond 20');
     expect(text).toContain('tuning.datacenter.jobMs: jobMs 525 is not a whole number of steps at 20 steps per second');
     expect(text).toContain('tuning.datacenter.coolingCycleMs: coolingCycleMs 4010 is not a whole number of steps at 20 steps per second');
     expect(text).toContain('tuning.warehouse.truckCellsPerSecond: truckCellsPerSecond 3 must divide stepsPerSecond 20');

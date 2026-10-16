@@ -202,6 +202,14 @@ const ScenarioSchema = z
         message: `truckCellsPerSecond ${cellsPerSecond} must divide stepsPerSecond ${sps}`,
       });
     }
+    const walk = s.tuning.luddites.cellsPerSecond;
+    if (sps % walk !== 0) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['tuning', 'luddites', 'cellsPerSecond'],
+        message: `cellsPerSecond ${walk} must divide stepsPerSecond ${sps}`,
+      });
+    }
     // A series starts inside its range and stays there (the wind's range is 0..max). An inverted range or a start
     // outside it is a mistake in the file, so it is refused here rather than met in the middle of a session.
     const { wind, fuelPrice, jobPrice } = s.tuning;
