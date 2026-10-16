@@ -8,7 +8,17 @@ export function renderOverlay(root: HTMLElement, store: Store, net: GameLink): v
   clear(root);
   const status = store.status;
   const s = store.snapshot;
-  const newSeason = el('button', { class: 'primary', onclick: () => net.send({ type: 'startSeason' }) }, ['새 시즌']);
+  const newSeason = el(
+    'button',
+    {
+      class: 'primary',
+      onclick: () => {
+        store.requestStart();
+        net.send({ type: 'startSeason' });
+      },
+    },
+    ['새 시즌'],
+  );
   let box: HTMLElement | null = null;
   if (status?.state === 'crashed') {
     box = el('div', { class: 'box bad' }, [

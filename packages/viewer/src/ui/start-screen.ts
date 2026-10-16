@@ -13,7 +13,18 @@ export function renderStartScreen(root: HTMLElement, store: Store, net: GameLink
     el('div', { class: 'start' }, [
       el('h1', {}, ['turing-city']),
       el('p', { class: 'dim' }, [store.status?.scenarioName ?? '']),
-      el('button', { class: 'start-button', disabled: !store.socketOpen, onclick: () => net.send({ type: 'startSeason' }) }, ['시즌 시작']),
+      el(
+        'button',
+        {
+          class: 'start-button',
+          disabled: !store.socketOpen,
+          onclick: () => {
+            store.requestStart();
+            net.send({ type: 'startSeason' });
+          },
+        },
+        ['시즌 시작'],
+      ),
       ...noticeLines(store),
       store.webDemo ? webDemoNote() : agentSection(store, net),
     ]),

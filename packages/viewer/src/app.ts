@@ -31,6 +31,7 @@ export function startViewer(connect: (onMessage: Store['apply'], onOpenChange: S
 
   function render(): void {
     renderOwed = false;
+    if (store.takeStartPlay()) net.send({ type: 'play' });
     const inSeason = store.status !== null && store.status.state !== 'idle';
     $('#start').hidden = inSeason;
     $('#game').hidden = !inSeason;

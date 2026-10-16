@@ -75,6 +75,11 @@ export class Store {
   selected: string | null = null;
   heatmap = false;
   guideOpen = false;
+  /**
+   * The player pressed 시즌 시작 or 새 시즌: once the new season is there and the guide card is closed, the clock starts. A season
+   * starts paused on the server (an agent's dev_new_season too), and a press of [처리] in a paused game would never end.
+   */
+  playWhenReady = false;
   /** What the manual window shows: a board slot's id, the index, or nothing (closed). */
   manualFor: string | 'index' | null = null;
   /** The board whose firmware the editor window edits, or null (closed). */
@@ -166,6 +171,18 @@ export class Store {
   toggleHeatmap(): void {
     this.heatmap = !this.heatmap;
     this.notify();
+  }
+
+  /** The player starts a season from the screen: it plays as soon as it stands and the guide card is closed. */
+  requestStart(): void {
+    this.playWhenReady = true;
+  }
+
+  /** Whether the clock should start now: a season the player started stands at its first step, paused, with the guide closed. */
+  takeStartPlay(): boolean {
+    const ready = this.playWhenReady && this.status?.state === 'paused' && this.snapshot?.step === 0 && !this.guideOpen;
+    if (ready) this.playWhenReady = false;
+    return ready;
   }
 
   openGuide(): void {

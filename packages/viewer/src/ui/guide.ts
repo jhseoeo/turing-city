@@ -33,7 +33,7 @@ export function renderGuide(root: HTMLElement, store: Store): void {
             : '보드에 통신 모듈을 달면 MCP로 연결한 에이전트(Claude Code 등)가 그 보드를 맡을 수 있어요.',
         ]),
         el('li', {}, ['보드는 전자파를 내요. 일하는 데이터센터는 더 많이 내고요. 러다이트가 그 전자파를 따라와 시설을 부숴요.']),
-        el('li', {}, ['스페이스로 멈추고 재생해요. 시즌은 멈춘 채로 시작해요.']),
+        el('li', {}, ['이 카드를 닫으면 시간이 흐르기 시작해요. 스페이스로 멈추고 다시 재생해요.']),
       ]),
       el('div', { class: 'row' }, [
         el('label', { class: 'dismiss' }, [dontShowAgain, ' 다시 보지 않기']),

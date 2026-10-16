@@ -42,7 +42,10 @@ function readings(s: Snapshot, f: FacilityView): Array<[string, string]> {
   }
   if (f.datacenter) {
     rows.push(['온도', `${f.datacenter.tempC}°C`]);
-    rows.push(['상태', f.datacenter.cooling ? '냉각 중' : f.datacenter.processing ? '처리 중' : '대기']);
+    const dc = f.datacenter;
+    const run = dc.coolLeft > 0 ? '냉각' : dc.jobLeft > 0 ? '처리' : null;
+    // A job or a cycle on a datacenter the grid has shed runs out its time doing nothing: say so, or the press looks lost.
+    rows.push(['상태', run === null ? '대기' : dc.cooling || dc.processing ? `${run} 중` : `${run} 중 (전력이 끊겨 멈춤)`]);
   }
   if (f.farm) rows.push(['익음', `${f.farm.ripeness}%${f.farm.ripe ? ' (수확 가능)' : ''}`], ['출고함', String(f.farm.outbox)]);
   if (f.warehouse) rows.push(['재고', String(f.warehouse.stock)]);

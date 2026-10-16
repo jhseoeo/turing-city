@@ -115,7 +115,9 @@ export function renderControls(s: Snapshot, f: FacilityView, store: Store, net: 
       el('button', { class: cls, disabled: state.disabled, title: state.reason ?? '', onclick: () => hand(action) }, [state.label]);
     children = [
       el('div', { class: 'choices' }, [button(process, { kind: 'process' }, 'primary'), button(cool, { kind: 'cool' })]),
-      el('p', { class: 'dim reason' }, [process.reason ?? cool.reason ?? '\u00a0']),
+      el('p', { class: 'dim reason' }, [
+        process.reason ?? cool.reason ?? (f.powered ? '\u00a0' : '전력이 끊겨서 처리도 냉각도 하지 못해요'),
+      ]),
     ];
   } else if (f.kind === 'power') children = plantControls(s, f, net);
   else if (f.kind === 'warehouse') children = warehouseControls(s, f, store, net);

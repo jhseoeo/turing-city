@@ -241,7 +241,9 @@ These rules change 10-09 §8.
   - that every facility works by hand from its panel;
   - that a board takes a facility's work over, with firmware written in the editor from the manual;
   - that a comm module lets an agent take a board over by MCP;
-  - that boards and busy datacenters leak EMF, which Luddites follow.
+  - that boards and busy datacenters leak EMF, which Luddites follow;
+  - that closing it starts the clock.
+- A season the player starts from the screen ("시즌 시작" or "새 시즌") stands still while the guide card is open, and plays once it closes (at once when the card stays away). The server still starts every season paused, so an agent's `dev_new_season` doesn't run on its own; the viewer sends the play (2026-10-16: a press of [처리] in a paused game never ended, which read as a job that never returns).
 
 ### 10.3 Main screen
 - **Top bar:**

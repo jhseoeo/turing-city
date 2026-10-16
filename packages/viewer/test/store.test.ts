@@ -122,6 +122,25 @@ describe('Store: what the server says', () => {
   });
 });
 
+describe('Store: a season the player starts', () => {
+  it('plays it once it stands at its first step and the guide card is closed, and only once', () => {
+    const store = new Store(memoryStorage());
+    store.apply(status('paused', 1));
+    store.apply(snapshotAt(0));
+    expect(store.takeStartPlay()).toBe(false); // the player didn't start this one (an agent did, or a page joined)
+    store.requestStart();
+    store.apply(status('idle', 2));
+    expect(store.takeStartPlay()).toBe(false); // still starting
+    store.apply(snapshotAt(0));
+    store.apply(status('paused', 2));
+    expect(store.guideOpen).toBe(true);
+    expect(store.takeStartPlay()).toBe(false); // the card is read with the clock still
+    store.closeGuide(false);
+    expect(store.takeStartPlay()).toBe(true);
+    expect(store.takeStartPlay()).toBe(false);
+  });
+});
+
 describe('Store: the guide card', () => {
   it('opens when a season starts, and not for a page that joins a season in the middle', () => {
     const joining = new Store(memoryStorage());

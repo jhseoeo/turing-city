@@ -399,11 +399,22 @@ try {
     await waitUntil(async () => (await isShown('#guide')) && (await textOf('#guide')).includes('이렇게 해요'), 5000),
   );
   await shot('2-guide');
+  // The guide card is read with the clock still; closing it starts the season the player started (a press would never end otherwise).
+  const clockText = (): Promise<string> => page.evaluate(() => document.querySelector('#topbar b')?.textContent ?? '');
+  const atOpen = await clockText();
+  await page.waitForTimeout(600);
+  const stillWhileOpen = (await clockText()) === atOpen;
   await clickOn('#guide button', '알겠어요');
   check('"알겠어요" closes the card', await waitUntil(async () => !(await isShown('#guide'))));
+  check(
+    'the season stood still while the card was open, and plays once it closes',
+    stillWhileOpen && (await waitUntil(async () => (await clockText()) !== atOpen, 5000)),
+    `${atOpen} -> ${await clockText()}`,
+  );
 
   // The scripted agent: game time run as fast as the server can while the game is paused, and seasons with a fixed seed.
   let agent: Agent = await connectAgent('shots');
+  await agent.call('dev_pause'); // from here the scripted agent runs the time itself
   const status = async (): Promise<Status> => (await agent.call('get_status')) as Status;
   const boards = async (): Promise<BoardRow[]> => (await agent.call('list_boards')) as BoardRow[];
   const boardOf = async (id: string): Promise<BoardRow | undefined> => (await boards()).find((b) => b.id === id);

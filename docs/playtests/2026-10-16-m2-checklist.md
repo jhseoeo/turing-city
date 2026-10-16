@@ -12,7 +12,7 @@ Every facility starts without a board, and you work it by hand. A board takes a 
 ## Getting started
 1. Run `pnpm start` in a terminal and open http://127.0.0.1:7840 in a browser.
 2. Press "시즌 시작". No agent is needed.
-   - The season starts paused, with the guide card ("이렇게 해요") over the town. "다시 보지 않기" keeps it away, and the top bar's [도움말] brings it back.
+   - The season stands still under the guide card ("이렇게 해요") and starts running when you close it. "다시 보지 않기" keeps it away, and the top bar's [도움말] brings it back.
    - Each "시즌 시작" and "새 시즌" draws a random seed that the screen doesn't show, so two seasons are two different towns.
 3. The keys:
    - Space plays and pauses; 1, 2, and 3 set the speed; H shows the EMF heatmap.
