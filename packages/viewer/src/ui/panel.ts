@@ -1,3 +1,4 @@
+import type { SensorValue } from '@turing-city/core';
 import { clear, el } from '../dom.ts';
 import { firmwareLabel, KIND_LABELS, LED_LABELS, ledOf, moneyLabel } from '../format.ts';
 import type { Connection } from '../net.ts';
@@ -23,41 +24,60 @@ function scrollOffsets(root: HTMLElement): Map<string, number> {
   return offsets;
 }
 
+/** A reading on one line: a number to two decimals, nil for none, and a list or a record as JSON. */
+function readingText(v: SensorValue): string {
+  if (v === undefined) return 'nil';
+  if (typeof v === 'number') return String(Math.round(v * 100) / 100);
+  if (typeof v === 'string') return v;
+  return JSON.stringify(v);
+}
+
+/** The selected facility's panel. An interim version: Task 17 replaces it, and Task 19 brings the hand controls, installs, and repairs. */
 export function renderPanel(root: HTMLElement, store: Store, net: Connection): void {
   // The panel is rebuilt on every change, so a block the player scrolled would jump back to its top: put each one back.
   const scrolled = scrollOffsets(root);
   clear(root);
   const s = store.snapshot;
-  const board = s?.boards.find((b) => b.id === store.selected);
-  if (!s || !board) {
+  const f = s?.facilities.find((x) => x.id === store.selected);
+  if (!s || !f) {
     root.append(el('p', { class: 'dim' }, ['시설을 클릭하면 여기에 정보가 떠요']));
     return;
   }
-  const led = ledOf(board);
-  const inspection = store.inspection?.board === board.id ? store.inspection.inspection : null;
+  const led = ledOf(f);
+  const inspection = store.inspection?.board === f.id ? store.inspection.inspection : null;
   root.append(
-    el('h2', {}, [`${KIND_LABELS[board.kind]} ${board.id}`]),
+    el('h2', {}, [`${KIND_LABELS[f.kind]} ${f.id}`]),
     el('div', {}, [
-      el('span', { class: led === 'running' ? 'ok' : led === 'error' || led === 'destroyed' ? 'bad' : 'warn' }, [`● ${LED_LABELS[led]}`]),
-      el('span', { class: 'dim' }, [` · ${firmwareLabel(inspection?.firmware?.version ?? null, inspection?.pending?.version ?? null)}`]),
+      led === null
+        ? el('span', { class: 'dim' }, ['보드 없음'])
+        : el('span', { class: led === 'running' ? 'ok' : led === 'error' || led === 'destroyed' ? 'bad' : 'warn' }, [
+            `● ${LED_LABELS[led]}`,
+          ]),
+      f.board
+        ? el('span', { class: 'dim' }, [` · ${firmwareLabel(inspection?.firmware?.version ?? null, inspection?.pending?.version ?? null)}`])
+        : '',
     ]),
   );
-  if (board.status === 'destroyed') {
+  if (f.condition === 'wrecked') {
+    root.append(section('피해', el('span', { class: 'bad' }, ['시설이 부서졌어요'])));
+  } else if (f.condition === 'repairing') {
+    root.append(section('피해', el('span', { class: 'warn' }, [`복구 중… (${f.repairHoursLeft ?? 0}시간 남음)`])));
+  } else if (f.board?.status === 'destroyed') {
     // The server refuses a rebuild the money cannot pay for, and the game screen shows no refusal: do not offer the click.
-    const tooPoor = s.money < s.rebuild.cost;
+    const tooPoor = s.money < s.prices.rebuild;
     root.append(
       section(
         '재건',
-        el('button', { class: 'primary', disabled: tooPoor, onclick: () => net.send({ type: 'rebuild', board: board.id }) }, [
-          `재건 (${moneyLabel(s.rebuild.cost)} · ${s.rebuild.hours}시간)`,
+        el('button', { class: 'primary', disabled: tooPoor, onclick: () => net.send({ type: 'rebuild', board: f.id }) }, [
+          `재건 (${moneyLabel(s.prices.rebuild)} · ${s.prices.rebuildHours}시간)`,
         ]),
         tooPoor ? el('p', { class: 'dim' }, ['자금이 모자라서 재건할 수 없어요']) : '',
       ),
     );
-  } else if (board.status === 'rebuilding') {
+  } else if (f.board?.status === 'rebuilding') {
     root.append(section('재건', el('span', { class: 'warn' }, ['재건 중…'])));
   }
-  if (board.kind === 'power') {
+  if (f.kind === 'power') {
     root.append(
       section(
         '발전',
@@ -73,38 +93,26 @@ export function renderPanel(root: HTMLElement, store: Store, net: Connection): v
       ),
     );
   }
+  // A facility with no board has nothing more to show until Task 19's controls.
+  if (!f.board) return;
   if (!inspection) {
     root.append(el('p', { class: 'dim' }, ['불러오는 중…']));
     return;
   }
-  const parts = inspection.datasheet.parts;
+  const parts = inspection.parts;
   root.append(
     section(
       '부품',
       kv([
         ['CPU', `${parts.clockHz}Hz · 틱당 ${parts.instructionsPerTick}명령`],
-        ['RAM', `${Math.round(parts.ramBytes / 1024)}KB (사용 ${((inspection.datasheet.firmware.ramUsedBytes ?? 0) / 1024).toFixed(1)}KB)`],
-        ['기본 전자파', String(inspection.datasheet.baseEmfPerSecond)],
+        ['RAM', `${Math.round(parts.ramBytes / 1024)}KB (사용 ${((parts.ramUsedBytes ?? 0) / 1024).toFixed(1)}KB)`],
+        ['기본 전자파', String(inspection.baseEmfPerSecond)],
       ]),
     ),
-    section(
-      '실시간 센서',
-      kv(
-        Object.entries(inspection.sensors).map(([k, v]): [string, string] => [
-          k,
-          v === undefined
-            ? 'nil'
-            : typeof v === 'number'
-              ? String(Math.round(v * 100) / 100)
-              : typeof v === 'string'
-                ? v
-                : JSON.stringify(v),
-        ]),
-      ),
-    ),
+    section('실시간 센서', kv(Object.entries(inspection.sensors).map(([k, v]): [string, string] => [k, readingText(v)]))),
     section(
       '로그',
-      el('pre', { [SCROLL_KEY]: `${board.id}/log` }, [
+      el('pre', { [SCROLL_KEY]: `${f.id}/log` }, [
         [...inspection.logs]
           .reverse()
           .map((l) => `${l.day}일 ${l.clock}  ${l.kind === 'log' ? '' : `[${l.kind}] `}${l.text}${l.repeat > 1 ? ` ×${l.repeat}` : ''}`)
@@ -116,13 +124,13 @@ export function renderPanel(root: HTMLElement, store: Store, net: Connection): v
       ? [
           section(
             `설치 대기 중인 펌웨어 v${inspection.pending.version} (읽기 전용)`,
-            el('pre', { [SCROLL_KEY]: `${board.id}/pending` }, [inspection.pending.source]),
+            el('pre', { [SCROLL_KEY]: `${f.id}/pending` }, [inspection.pending.source]),
           ),
         ]
       : []),
     section(
       `펌웨어${inspection.firmware ? ` v${inspection.firmware.version}` : ''} (읽기 전용)`,
-      el('pre', { [SCROLL_KEY]: `${board.id}/firmware` }, [inspection.firmware?.source ?? '(없음)']),
+      el('pre', { [SCROLL_KEY]: `${f.id}/firmware` }, [inspection.firmware?.source ?? '(없음)']),
     ),
   );
   // Only now are the blocks in the page with a layout, which setting scrollTop needs. Another board's blocks have other keys.

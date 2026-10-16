@@ -10,6 +10,8 @@ const STATUS: StatusWithRun = {
   seasonDays: 30,
   money: 4999,
   power: { generation: 20, demand: 28, shed: ['DB'] },
+  food: { warehouse: 12, housing: 240 },
+  population: { fed: 40, hungry: 40, unpowered: 0 },
   ended: null,
   run: { paused: true, speed: 2 },
 };

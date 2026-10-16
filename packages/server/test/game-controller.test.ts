@@ -193,7 +193,7 @@ describe('GameController', () => {
     await c.runUntil({ seconds: 1 });
     await c.startSeason(1);
     expect(c.latestSnapshot()?.step).toBe(0);
-    expect((await c.listBoards())[1]!.firmwareVersion).toBeNull();
+    expect((await c.listBoards())[1]!.board!.firmwareVersion).toBeNull();
   });
 });
 
@@ -592,7 +592,7 @@ describe('GameController: events', () => {
     const events: ControllerEvent[] = [];
     c.onEvent((event) => events.push(event));
     const heard = (): string[] => events.splice(0).map(line);
-    const boardDA = () => c.latestSnapshot()!.boards.find((b) => b.id === 'DA')!;
+    const boardDA = () => c.latestSnapshot()!.facilities.find((f) => f.id === 'DA')!.board!;
 
     expect(boardDA().hasFirmware).toBe(false);
     await c.deploy('DA', 'function tick() end');
@@ -634,7 +634,7 @@ describe('GameController: events', () => {
     expect(await c.rebuild(lost)).toEqual({ ok: true });
     const after = c.latestSnapshot()!;
     expect(after.step).toBe(repaired.step);
-    expect(after.boards.find((b) => b.id === lost)!.status).toBe('rebuilding');
+    expect(after.facilities.find((f) => f.id === lost)!.board!.status).toBe('rebuilding');
     expect(after.money).toBe(repaired.money - scenario.tuning.rebuild.cost);
     expect(events.map(line)).toEqual([`snapshot ${repaired.step}`]);
   });
@@ -686,7 +686,7 @@ describe('GameController: requests', () => {
     expect((refusal as ToolError).message).toBe('A new season started while the code was being checked; deploy it again.');
     await restarting;
     expect(c.status()).toMatchObject({ state: 'paused', crash: null });
-    expect(await c.listBoards()).toMatchObject([{}, { firmwareVersion: null, pendingVersion: null }, {}]); // and nothing landed in it
+    expect(await c.listBoards()).toMatchObject([{}, { board: { firmwareVersion: null, pendingVersion: null } }, {}]); // and nothing landed in it
     await expect(c.deploy('DA', 'function tick() end')).resolves.toMatchObject({ ok: true, version: 1 });
   });
 
@@ -817,7 +817,7 @@ describe('GameController: requests', () => {
     expect(await api.alerts(1000)).toEqual([]);
     const inspection = await c.inspect('DA');
     expect(inspection?.firmware).toEqual({ version: 1, source: FAILING });
-    expect(inspection?.datasheet.parts.clockHz).toBe(5);
+    expect(inspection?.parts.clockHz).toBe(5);
     expect(await c.inspect('ZZ')).toBeNull();
   });
 
@@ -829,7 +829,7 @@ describe('GameController: requests', () => {
     await c.runUntil({ seconds: 2 }); // DA beats every 4 steps: the install tick, then nine that find no tick()
     const why = "firmware:1: attempt to call a nil value (global 'nil_function')";
     const da = (await c.listBoards()).find((b) => b.id === 'DA')!;
-    expect(da.lastError).toBe(`noTick: the last deploy failed to install: ${why}`);
+    expect(da.board!.lastError).toBe(`noTick: the last deploy failed to install: ${why}`);
     const errors = (await c.logs('DA', undefined))!.filter((l) => l.kind === 'error');
     expect(errors.map((l) => l.text)).toEqual([`runtime: ${why}`, `noTick: the last deploy failed to install: ${why}`]);
     expect(errors[1]!.repeat).toBe(9);
@@ -848,7 +848,7 @@ describe('GameController: requests', () => {
     // DA sleeps from its first beat (step 3) for 30 seconds.
     await c.deploy('DA', 'function tick(io) io.sleep(30) end');
     await c.runUntil({ seconds: 1 });
-    expect((await c.listBoards()).find((b) => b.id === 'DA')?.status).toBe('asleep');
+    expect((await c.listBoards()).find((b) => b.id === 'DA')?.board?.status).toBe('asleep');
     expect(await installsAt('DA')).toBe("the board's next tick, after it wakes");
     // No firmware elsewhere, so the Luddites wreck a facility in the fifth game day.
     await c.runUntil({ alertKinds: ['wrecked'] });
@@ -869,7 +869,7 @@ describe('GameController: requests', () => {
     await c.startSeason(1);
     await c.runUntil({ seconds: 1 });
     const boards = await c.listBoards();
-    expect(boards.map((b) => [b.id, b.status, b.powered])).toEqual([
+    expect(boards.map((b) => [b.id, b.board?.status, b.board?.powered])).toEqual([
       ['P', 'running', true],
       ['DA', 'running', true],
       ['DB', 'running', false],
@@ -914,7 +914,7 @@ describe('GameController: requests', () => {
     });
     await c.runUntil({ alertKinds: ['wrecked'] }); // no firmware: the Luddites wreck a facility in the fifth game day
     const lost = (await c.alerts(undefined)).find((a) => a.kind === 'wrecked')!.facility!;
-    expect((await c.listBoards()).find((b) => b.id === lost)?.status).toBe('destroyed');
+    expect((await c.listBoards()).find((b) => b.id === lost)?.board?.status).toBe('destroyed');
     expect(await c.rebuild(lost)).toEqual({
       ok: false,
       reason: `${lost} must be repaired before its board is rebuilt`,
@@ -924,7 +924,7 @@ describe('GameController: requests', () => {
     expect(await c.repair(lost)).toEqual({ ok: false, reason: `${lost} is not wrecked`, refusal: { code: 'notWrecked', facility: lost } });
     await c.runUntil({ seconds: 21 }); // a repair takes 20 game seconds
     expect(await c.rebuild(lost)).toEqual({ ok: true });
-    expect((await c.listBoards()).find((b) => b.id === lost)?.status).toBe('rebuilding');
+    expect((await c.listBoards()).find((b) => b.id === lost)?.board?.status).toBe('rebuilding');
     expect(await c.rebuild(lost)).toEqual({
       ok: false,
       reason: `${lost} is not destroyed`,

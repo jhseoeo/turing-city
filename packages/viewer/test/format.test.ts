@@ -2,21 +2,24 @@ import type { Snapshot } from '@turing-city/core';
 import { describe, expect, it } from 'vitest';
 import { consumersOf, firmwareLabel, heatAlpha, ledOf, moneyLabel, timeLabel } from '../src/format.ts';
 
-type Board = Snapshot['boards'][number];
-const board = (over: Partial<Board>): Board => ({
+type Facility = Snapshot['facilities'][number];
+type Board = NonNullable<Facility['board']>;
+/** DA with a running board that has firmware; `over` changes the board. */
+const board = (over: Partial<Board>): Facility => ({
   id: 'DA',
   kind: 'datacenter',
   x: 5,
   y: 4,
-  status: 'running',
+  tier: 1,
+  condition: 'ok',
+  repairHoursLeft: null,
   powered: true,
-  hasFirmware: true,
-  erroring: false,
-  tempC: 40,
-  processing: false,
-  cooling: 0,
   demand: 10,
-  ...over,
+  board: { status: 'running', powered: true, hasFirmware: true, erroring: false, ...over },
+  datacenter: { tempC: 40, processing: false, cooling: false },
+  farm: null,
+  warehouse: null,
+  housing: null,
 });
 
 describe('format', () => {
@@ -46,6 +49,10 @@ describe('format', () => {
     expect(ledOf(board({ erroring: true, hasFirmware: false }))).toBe('error');
   });
 
+  it('shows no light for a facility without a board', () => {
+    expect(ledOf({ ...board({}), tier: 0, board: null })).toBeNull();
+  });
+
   it('names the firmware a board runs and the deploy waiting to install on it', () => {
     expect(firmwareLabel(null, null)).toBe('펌웨어 없음');
     expect(firmwareLabel(2, null)).toBe('펌웨어 v2');
@@ -64,13 +71,20 @@ describe('format', () => {
   });
 
   it("lists the plant's consumers with draw, priority, and shedding, only when the plant is selected", () => {
+    const facility = (id: string, kind: Facility['kind'], demand: number): Facility => ({ ...board({}), id, kind, demand });
     const snapshot = {
-      boards: [board({ id: 'P', kind: 'power' }), board({ id: 'DA', demand: 163 }), board({ id: 'DB', demand: 211 })],
-      plant: { priority: ['DA', 'DB'], shed: ['DB'] },
+      facilities: [
+        facility('H1', 'housing', 77),
+        facility('P', 'power', 0),
+        facility('DA', 'datacenter', 163),
+        facility('DB', 'datacenter', 211),
+      ],
+      plant: { priority: ['H1', 'DA', 'DB'], shed: ['DB'] },
     } as unknown as Snapshot;
     expect(consumersOf(snapshot, 'P')).toEqual([
-      { id: 'DA', demand: 163, rank: 1, shed: false },
-      { id: 'DB', demand: 211, rank: 2, shed: true },
+      { id: 'H1', demand: 77, rank: 1, shed: false },
+      { id: 'DA', demand: 163, rank: 2, shed: false },
+      { id: 'DB', demand: 211, rank: 3, shed: true },
     ]);
     expect(consumersOf(snapshot, 'DA')).toBeNull();
     expect(consumersOf(snapshot, null)).toBeNull();

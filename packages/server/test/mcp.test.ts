@@ -27,6 +27,8 @@ function fakeApi(): GameApi & { deployed: Array<[string, string]> } {
       seasonDays: 30,
       money: 5000,
       power: { generation: 0, demand: 0, shed: [] },
+      food: { warehouse: 0, housing: 0 },
+      population: { fed: 0, hungry: 0, unpowered: 0 },
       ended: null,
       run: { paused: true, speed: 1 },
     }),
