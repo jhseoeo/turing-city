@@ -3,7 +3,7 @@ import {
   alertsView,
   alertView,
   type BootInfo,
-  datasheet,
+  boardManual,
   type FirmwareHost,
   findBoard,
   firmwareView,
@@ -82,8 +82,8 @@ function answer(s: Session, query: Query): unknown {
   switch (query.kind) {
     case 'listBoards':
       return listBoards(s.world);
-    case 'datasheet':
-      return datasheet(ctx, query.board);
+    case 'manual':
+      return boardManual(s.scenario, query.board);
     case 'firmware':
       return firmwareView(s.world, query.board);
     case 'logs':

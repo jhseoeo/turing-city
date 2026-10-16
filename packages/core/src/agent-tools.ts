@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { LOG_LIMIT } from './boards.ts';
-import type { Datasheet } from './datasheet.ts';
 import type { AlertView, BoardSummary, FirmwareView, LogView, MapView, StatusView } from './queries.ts';
 import type { Refusal } from './refusal.ts';
 
@@ -24,7 +23,8 @@ export interface StatusWithRun extends StatusView {
 /** What the tools need from the game; the server implements it on top of the session. */
 export interface GameApi {
   listBoards(): Promise<BoardSummary[]>;
-  datasheet(board: string): Promise<Datasheet | null>;
+  /** A board's manual: Korean markdown generated from the scenario (manual.ts). Null for an id that names no board slot. */
+  manual(board: string): Promise<string | null>;
   firmware(board: string): Promise<FirmwareView | null>;
   deploy(board: string, code: string): Promise<DeployOutcome>;
   logs(board: string, sinceSeconds: number | undefined): Promise<LogView[] | null>;
@@ -82,6 +82,10 @@ const code = z
   )
   .describe('The Lua source, up to 64 KB.');
 
+/** What a board tool says of whom it reaches: the worker refuses the agent every board without a comm module (spec §8). */
+const ONLY_COMM =
+  'It reaches only a board with a comm module (tier 2): for any other the game refuses, and you can ask the player to install one.';
+
 function known<T>(value: T | null, id: unknown): T {
   if (value === null) throw new ToolError(`unknown board ${String(id)}; list_boards lists the boards`);
   return value;
@@ -91,54 +95,51 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
   {
     name: 'list_boards',
     description:
-      'Every board in the town: its facility, position, state (running, asleep, destroyed, rebuilding), whether it has power, its firmware version, and its latest error.',
+      'Every facility of the town that can take a board: its kind, its position, and its tier (0: no board, the player works it by hand; 1: a board the player programs in the game; 2: a board with a comm module, which you can program), whether the facility stands (ok, wrecked, or being repaired), and, under board (null when there is none), its state (running, asleep, destroyed, rebuilding), power, firmware version, and latest error.',
     inputSchema: {},
     run: (api) => api.listBoards(),
   },
   {
     name: 'get_datasheet',
-    description:
-      "A board's datasheet: its clock and instruction cap, RAM, the io fields its sensors give and the actions it can take, its power draw and base EMF, and the firmware rules. Everything needed to write its firmware.",
+    description: `A board's manual, as markdown in Korean: what the board is for, its parts, every io field it reads and every action it can take, its facility's rules, and the rules every board runs under, with the town's own numbers. Everything needed to write its firmware. ${ONLY_COMM}`,
     inputSchema: { board },
-    run: async (api, args) => known(await api.datasheet(args.board as string), args.board),
+    run: async (api, args) => known(await api.manual(args.board as string), args.board),
   },
   {
     name: 'get_firmware',
-    description:
-      "The Lua source deployed on a board, and the one waiting to install at its next tick, if any. Read it before editing a board's firmware.",
+    description: `The Lua source deployed on a board, and the one waiting to install at its next tick, if any. The player can change a board's firmware too, so read it before you edit it. ${ONLY_COMM}`,
     inputSchema: { board },
     run: async (api, args) => known(await api.firmware(args.board as string), args.board),
   },
   {
     name: 'deploy_firmware',
-    description:
-      "Deploy Lua firmware to a board. It must define function tick(io, mem). A syntax error is refused with Lua's message and the old firmware keeps running; otherwise the new code installs at the board's next tick, keeping mem. A board that is asleep, smashed, being rebuilt, or without power has no ticks until it wakes, is rebuilt, or gets its power back, and the answer says when the code installs.",
+    description: `Deploy Lua firmware to a board. It must define function tick(io, mem). A syntax error is refused with Lua's message and the old firmware keeps running; otherwise the new code installs at the board's next tick, keeping mem. A board that is asleep, smashed, being rebuilt, or without power has no ticks until it wakes, is rebuilt, or gets its power back, and the answer says when the code installs. ${ONLY_COMM}`,
     inputSchema: { board, code },
     run: (api, args) => api.deploy(args.board as string, args.code as string),
   },
   {
     name: 'read_logs',
-    description: `A board's log, up to its last ${LOG_LIMIT} lines: what its firmware logged, its errors (runtime, CPU limit, out of RAM), and system events such as deploys, power loss, sleep, and destruction.`,
+    description: `A board's log, up to its last ${LOG_LIMIT} lines: what its firmware logged, its errors (runtime, CPU limit, out of RAM), and system events such as deploys, power loss, sleep, and destruction. ${ONLY_COMM}`,
     inputSchema: { board, since },
     run: async (api, args) => known(await api.logs(args.board as string, args.since as number | undefined), args.board),
   },
   {
     name: 'get_map',
     description:
-      'The town map: each facility, its position on the grid, its state, and its distance to the power plant (power is lost in transmission over distance; the datasheet gives the rate). EMF and Luddites are not on it: boards learn of them through their sensors.',
+      'The town map: each facility, its kind, its position on the grid, its tier, whether it stands and has power, and its distance to the power plant (power is lost in transmission over distance; the manual gives the rate). EMF and Luddites are not on it: boards learn of them through their sensors.',
     inputSchema: {},
     run: (api) => api.map(),
   },
   {
     name: 'get_status',
     description:
-      "The season's state: day and time, money, power generation and demand, which facilities are shed, and whether the season has ended. run.paused says whether the player has stopped the clock, and run.speed how many times as fast as normal it runs; pausing and speed are the player's to set, not yours.",
+      "The season's state: day and time, money, power generation and demand, which facilities are shed, the food in the warehouse and in the housing, the residents who are fed, hungry, or without power, and whether the season has ended. run.paused says whether the player has stopped the clock, and run.speed how many times as fast as normal it runs; pausing and speed are the player's to set, not yours.",
     inputSchema: {},
     run: (api) => api.status(),
   },
   {
     name: 'get_alerts',
-    description: `Alerts: raids, Luddites approaching, destroyed boards, fires, overheating, power shortages, firmware errors, money below zero. Without since, the newest ${ALERTS_SHOWN}, oldest first, and how many older ones the log holds; with since, every alert after that time. The game does not push alerts to you; poll this.`,
+    description: `Alerts: raids, Luddites approaching, wrecked facilities, fires, overheating, power shortages, hunger, firmware errors, money below zero, and the season's end. Without since, the newest ${ALERTS_SHOWN}, oldest first, and how many older ones the log holds; with since, every alert after that time. The game does not push alerts to you; poll this.`,
     inputSchema: { since },
     run: async (api, args): Promise<AlertsReply> => {
       const since = args.since as number | undefined;
@@ -155,9 +156,9 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
 ];
 
 export const AGENT_INSTRUCTIONS = [
-  'You are the firmware engineer of a small town in turing-city, a game. The player places the hardware and directs you; you write the Lua firmware that runs on its boards.',
-  'Start with list_boards and get_datasheet for each board: a datasheet tells you the io fields, the actions, the caps, and the rules.',
-  'Every board runs tick(io, mem) on its own clock. Work leaks EMF, and Luddites hunt the loudest board: quieter firmware draws fewer of them. It raises no income, though: a datacenter earns by processing.',
-  'Deploy with deploy_firmware; read_logs and get_alerts tell you what happened. Money comes from the datacenters; fuel and rebuilds cost it.',
-  'Luddites smash boards: a smashed board stays down until the player rebuilds it, for money. You cannot, so tell the player and ask.',
+  'You help the player of turing-city, a game, by writing the Lua firmware of the boards in their small town. The player runs the town: they work its facilities by hand, buy and install boards, and can write firmware themselves in the game. A board with a comm module is one they have handed to you.',
+  "Start with list_boards. You can program only the boards at tier two, the ones with a comm module; for any other, ask the player to install one. get_datasheet gives a board's manual, in Korean: its io fields, its actions, its caps, and the rules, with the town's own numbers.",
+  'Every board runs tick(io, mem) on its own clock. Boards and busy datacenters leak EMF, and Luddites come for the loudest machines: quieter firmware draws fewer of them. It raises no income, though: a datacenter earns by processing, and housing pays tax when its residents are fed and powered.',
+  "Deploy with deploy_firmware; read_logs and get_alerts tell you what happened. The player may change a board's firmware too, so read get_firmware before you edit it.",
+  'Luddites and fire wreck a whole facility, board and all. Only the player can repair a facility and rebuild its board, for money. You cannot, so tell the player and ask.',
 ].join('\n');

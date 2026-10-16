@@ -14,7 +14,7 @@ function fakeApi(): GameApi & { deployed: Array<[string, string]> } {
   return {
     deployed,
     listBoards: async () => [],
-    datasheet: async () => null,
+    manual: async () => null,
     firmware: async () => null,
     deploy: async (board, code) => {
       deployed.push([board, code]);
@@ -261,7 +261,7 @@ describe('a failure inside the game', () => {
     };
     Object.assign(r.api, {
       listBoards: rejects,
-      datasheet: rejects,
+      manual: rejects,
       firmware: rejects,
       deploy: rejects,
       logs: rejects,
