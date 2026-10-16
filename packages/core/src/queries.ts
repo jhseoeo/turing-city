@@ -247,7 +247,7 @@ export function snapshot(ctx: SimContext): Snapshot {
       };
     }),
     luddites: w.luddites.map((g) => {
-      const target = g.targetId === null ? undefined : findBoard(w, g.targetId);
+      const target = g.targetId === null ? undefined : findFacility(w, g.targetId);
       return {
         id: g.id,
         x: g.x,

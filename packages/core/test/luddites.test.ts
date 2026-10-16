@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { stateHash } from '../src/hash.ts';
-import { pathTo, runLuddites, spawnRaid, strongestTarget } from '../src/luddites.ts';
+import { isMachine, pathTo, runLuddites, spawnRaid, strongestTarget } from '../src/luddites.ts';
 import type { Rng } from '../src/rng.ts';
 import { Session } from '../src/session.ts';
-import { cellIndex, type LudditeGroup } from '../src/world.ts';
+import { cellIndex, type FacilityState, findFacility, type LudditeGroup } from '../src/world.ts';
 import { FakeHost } from './helpers/fake-host.ts';
-import { m1Scenario } from './helpers/scenarios.ts';
+import { m1Scenario, m2Scenario } from './helpers/scenarios.ts';
 
 function session(change?: Parameters<typeof m1Scenario>[0], host = new FakeHost(), seed = 3): Session {
   const s = new Session(
@@ -22,8 +22,8 @@ function session(change?: Parameters<typeof m1Scenario>[0], host = new FakeHost(
 }
 
 function setEmf(s: Session, id: string, units: number): void {
-  const b = s.world.boards.find((x) => x.id === id)!;
-  s.world.emf[cellIndex(s.scenario, b.x, b.y)] = units * 1000;
+  const f = findFacility(s.world, id)!;
+  s.world.emf[cellIndex(s.scenario, f.x, f.y)] = units * 1000;
 }
 
 function group(s: Session, x: number, y: number): LudditeGroup {
@@ -32,10 +32,30 @@ function group(s: Session, x: number, y: number): LudditeGroup {
   return g;
 }
 
-/** Puts an exact amount of milli-EMF in the cell under a board. */
+/** Puts an exact amount of milli-EMF in the cell under a facility. */
 function setMilli(s: Session, id: string, milli: number): void {
-  const b = s.world.boards.find((x) => x.id === id)!;
-  s.world.emf[cellIndex(s.scenario, b.x, b.y)] = milli;
+  const f = findFacility(s.world, id)!;
+  s.world.emf[cellIndex(s.scenario, f.x, f.y)] = milli;
+}
+
+const fac = (s: Session, id: string): FacilityState => findFacility(s.world, id)!;
+
+/** The milestone-2 town, which starts with no board; its field neither spreads nor fades, and no raid comes unless a test brings one. */
+function town(change?: Parameters<typeof m2Scenario>[0]): Session {
+  const s = new Session(
+    m2Scenario((j) => {
+      j.tuning.wind.start = 220;
+      j.tuning.wind.maxChangePerSecond = 0;
+      j.tuning.emf.diffusionPctPerSecond = 0;
+      j.tuning.emf.decayPctPerSecond = 0;
+      j.tuning.emf.rumourThreshold = 1_000_000_000;
+      change?.(j);
+    }),
+    3,
+    new FakeHost(),
+  );
+  s.world.plant.thermalSetting = 300;
+  return s;
 }
 
 /** Like session(), but the field neither spreads nor fades, and the gauge is out of reach unless a test lowers it. */
@@ -75,13 +95,13 @@ describe('Luddites', () => {
     expect(pathTo(4, 3, 4, 3)).toEqual([]);
   });
 
-  it('targets the intact board with the strongest detectable EMF', () => {
+  it('targets the machine with the strongest detectable EMF', () => {
     const s = session();
     s.world.emf.fill(0);
     setEmf(s, 'DA', 30);
     setEmf(s, 'DB', 50);
     expect(strongestTarget(s.ctx)?.id).toBe('DB');
-    s.world.boards[2]!.status = 'destroyed';
+    fac(s, 'DB').condition = 'wrecked';
     expect(strongestTarget(s.ctx)?.id).toBe('DA');
     setEmf(s, 'DA', 4); // below the threshold of 5
     setEmf(s, 'P', 0);
@@ -111,7 +131,7 @@ describe('Luddites', () => {
     expect(spawnRaid(a.ctx, 0)).toEqual(spawnRaid(b.ctx, 0));
   });
 
-  it('steps one cell a second toward its target and smashes it on arrival', () => {
+  it('steps one cell a second toward its target and wrecks it on arrival', () => {
     const s = session();
     const g = group(s, 16, 4); // DB is at (16, 8): four cells down
     for (let second = 0; second < 6; second++) {
@@ -119,6 +139,7 @@ describe('Luddites', () => {
       setEmf(s, 'DB', 50);
       runLuddites(s.ctx, second * 20);
     }
+    expect(fac(s, 'DB').condition).toBe('wrecked');
     expect(s.world.boards[2]!.status).toBe('destroyed');
     expect(g).toMatchObject({ x: 16, y: 8 });
     expect(s.world.alerts.filter((a) => a.kind === 'wrecked')).toHaveLength(1);
@@ -280,13 +301,13 @@ describe('Luddites', () => {
     expect(strongestTarget(s.ctx)?.id).toBe('DB');
   });
 
-  it('keeps hunting a sleeping board while its cell is loud, but not a board that is being rebuilt', () => {
+  it('keeps hunting a sleeping board while its cell is loud, but not a plant whose board is being rebuilt', () => {
     const s = session();
     s.world.emf.fill(0);
-    setEmf(s, 'DB', 50);
-    s.world.boards[2]!.status = 'asleep';
-    expect(strongestTarget(s.ctx)?.id).toBe('DB');
-    s.world.boards[2]!.status = 'rebuilding';
+    setEmf(s, 'P', 50);
+    s.world.boards[0]!.status = 'asleep';
+    expect(strongestTarget(s.ctx)?.id).toBe('P');
+    s.world.boards[0]!.status = 'rebuilding'; // a plant is a machine only through its board
     expect(strongestTarget(s.ctx)).toBeNull();
   });
 
@@ -407,10 +428,10 @@ describe('Luddites', () => {
     expect(near!.message).toContain('4칸'); // the distance it was raised at
   });
 
-  it('raises no approach alert for a board that is destroyed or being rebuilt', () => {
+  it('raises no approach alert for a facility that is no machine: a plant whose board is down, or a wrecked datacenter', () => {
     const s = session();
     s.world.boards[0]!.status = 'destroyed'; // P at (4, 4)
-    s.world.boards[1]!.status = 'rebuilding'; // DA at (5, 4)
+    fac(s, 'DA').condition = 'wrecked'; // DA at (5, 4)
     group(s, 7, 4); // after its first step it is 4 cells from P and 3 from DA, on its way to DB
     setEmf(s, 'DB', 50);
     runLuddites(s.ctx, 0);
@@ -582,5 +603,53 @@ describe('Luddites', () => {
     expect(a.world.boards.map((x) => x.status)).toEqual(['destroyed', 'destroyed', 'destroyed', 'running']); // all three they can see, not the fourth
     expect(a.world.luddites).toEqual([]); // and every group has left
     expect(a.world.ended, 'the season is still running at the last step').toBeNull();
+  });
+
+  it('counts as a machine a standing facility with a running or sleeping board, or a datacenter with or without one', () => {
+    const s = town((j) => {
+      Object.assign(j.facilities.find((f) => f.id === 'F1')!.board!, { startsInstalled: true });
+    });
+    const is = (id: string): boolean => isMachine(s.world, fac(s, id));
+    expect(['H1', 'P', 'DA', 'W', 'DB', 'F1', 'F2'].map(is)).toEqual([false, false, true, false, true, true, false]);
+    const f1 = s.world.boards[0]!; // the town's only board
+    f1.status = 'asleep';
+    expect(is('F1')).toBe(true);
+    f1.status = 'destroyed';
+    expect(is('F1')).toBe(false);
+    fac(s, 'DA').condition = 'repairing';
+    expect(is('DA')).toBe(false);
+  });
+
+  it('hunts a datacenter worked by hand, with no board, and wrecks it', () => {
+    const s = town();
+    const g = group(s, 5, 0); // DA is at (5, 4): four cells down the column
+    for (let beat = 0; beat < 4; beat++) {
+      s.world.emf.fill(0);
+      setEmf(s, 'DA', 50);
+      runLuddites(s.ctx, beat * 20);
+    }
+    expect([g.x, g.y]).toEqual([5, 4]);
+    expect(fac(s, 'DA').condition).toBe('wrecked');
+    expect(s.world.alerts.filter((a) => a.kind === 'wrecked').map((a) => a.facilityId)).toEqual(['DA']);
+  });
+
+  it('does not hunt a facility with no board whose own work is no machine, however loud its cell', () => {
+    const s = town();
+    for (const id of ['H1', 'P', 'W', 'F1']) {
+      s.world.emf.fill(0);
+      setEmf(s, id, 50);
+      expect(strongestTarget(s.ctx), id).toBeNull();
+    }
+  });
+
+  it('wrecks the whole facility it reaches: a farm and its board alike', () => {
+    const s = town((j) => {
+      Object.assign(j.facilities.find((f) => f.id === 'F1')!.board!, { startsInstalled: true });
+    });
+    group(s, 2, 8); // F1 is at (2, 9): one cell down
+    setEmf(s, 'F1', 50);
+    runLuddites(s.ctx, 0);
+    expect(fac(s, 'F1').condition).toBe('wrecked');
+    expect(s.world.boards[0]!.status).toBe('destroyed');
   });
 });
