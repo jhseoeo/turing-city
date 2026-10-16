@@ -157,7 +157,7 @@ describe('EMF', () => {
     const host = new FakeHost();
     let seen: number | undefined;
     const probe = host.program('probe', (sensors) => {
-      seen = sensors.emf;
+      seen = sensors.emf as number | undefined;
       return {};
     });
     const s = powered(host);
@@ -341,7 +341,7 @@ describe('EMF', () => {
     const host = new FakeHost();
     const seen: Array<number | undefined> = [];
     const probe = host.program('probe', (sensors) => {
-      seen.push(sensors.emf);
+      seen.push(sensors.emf as number | undefined);
       return {};
     });
     const s = dry(host);

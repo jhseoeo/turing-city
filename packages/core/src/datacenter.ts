@@ -3,6 +3,11 @@ import { wreckFacility } from './boards.ts';
 import { idiv, MICRO, MILLI, mulDiv } from './fixed.ts';
 import { findFacility, type SimContext } from './world.ts';
 
+/** Steps one job lasts: a press of [처리], or one process(). The scenario makes it a whole number. */
+export function jobSteps(ctx: SimContext): number {
+  return idiv(ctx.scenario.tuning.datacenter.jobMs * ctx.scenario.time.stepsPerSecond, 1000);
+}
+
 /** Steps one cooling cycle lasts. The scenario makes it a whole number. */
 export function coolSteps(ctx: SimContext): number {
   return idiv(ctx.scenario.tuning.datacenter.coolingCycleMs * ctx.scenario.time.stepsPerSecond, 1000);

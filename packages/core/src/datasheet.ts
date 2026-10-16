@@ -48,11 +48,11 @@ export function actionDocs(t: Tuning): Record<BoardKind | 'any', ReadonlyArray<{
     datacenter: [
       {
         call: 'io.process()',
-        meaning: `run one job until your next tick: earns price x seconds, draws ${dc.processPower} power, and heats the datacenter (+${milli(dc.heatMilliPerSecond)} °C/s)`,
+        meaning: `run the datacenter for ${milli(dc.jobMs)} s from the next step; a call while it runs makes it run ${milli(dc.jobMs)} s from then, not longer. It earns price x seconds, draws ${dc.processPower} power, and heats the datacenter (+${milli(dc.heatMilliPerSecond)} °C/s)`,
       },
       {
         call: 'io.cool(level)',
-        meaning: `a cooling cycle (level above 0; 0 does nothing): it takes ${milli(dc.coolingDropMilli)} °C off over ${dc.coolingCycleMs / 1000} s, in even steps, and draws ${dc.coolingPower} power while it runs; a call during a cycle does nothing`,
+        meaning: `start a cooling cycle from the next step (the level is ignored): it takes ${milli(dc.coolingDropMilli)} °C off over ${dc.coolingCycleMs / 1000} s, in even steps, and draws ${dc.coolingPower} power while it runs; a call during a cycle does nothing`,
       },
     ],
     power: [

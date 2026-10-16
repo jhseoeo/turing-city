@@ -1,12 +1,25 @@
 import type { BoardKind, BoardSpec } from './scenario.ts';
 
-/** An action a board's firmware asked for during one tick. */
-export type Action =
+/** What a facility can be told to do, by its board's firmware or by the player's hand (10-10 §4.3). */
+export type FacilityAction =
   | { readonly kind: 'process' }
-  | { readonly kind: 'cool'; readonly level: number }
+  /** One cooling cycle: it has no level. */
+  | { readonly kind: 'cool' }
   | { readonly kind: 'setThermal'; readonly output: number }
   | { readonly kind: 'setPriority'; readonly order: readonly string[] }
-  | { readonly kind: 'sleep'; readonly seconds: number };
+  | { readonly kind: 'harvest' }
+  | { readonly kind: 'dispatch'; readonly truck: number; readonly from: string; readonly to: string; readonly amount: number };
+
+/** What firmware can ask for during one tick: the facility actions, plus sleep. */
+export type Action = FacilityAction | { readonly kind: 'sleep'; readonly seconds: number };
+
+/** The actions that count toward a board's action EMF, machine labor: all but process and sleep (10-10 §5). */
+export function countsAsAction(kind: Action['kind']): boolean {
+  return kind !== 'process' && kind !== 'sleep';
+}
+
+/** A sensor reading as firmware sees it in io: a number, a string, nil, or a list or record of them. */
+export type SensorValue = number | string | undefined | readonly SensorValue[] | { readonly [key: string]: SensorValue };
 
 export type TickErrorKind = 'runtime' | 'cpu' | 'ram' | 'noTick';
 
@@ -26,7 +39,7 @@ export interface BootInfo {
 
 export interface TickInput {
   /** Sensor values by their Lua name; undefined reads as nil. */
-  readonly sensors: Readonly<Record<string, number | undefined>>;
+  readonly sensors: Readonly<Record<string, SensorValue>>;
   /** Firmware to install before this tick: a deploy, or the board's image after a reboot. */
   readonly newSource: string | null;
 }

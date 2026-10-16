@@ -1,9 +1,9 @@
-import { applyActions } from './actions.ts';
+import { applyActions, applyFacilityAction, kindProblem } from './actions.ts';
 import { deployFirmware, runTransitions } from './boards.ts';
 import { runDatacenters, runFires } from './datacenter.ts';
 import { checkEnd, installPart, runEconomy, startRebuild, startRepair } from './economy.ts';
 import { runEmf } from './emf.ts';
-import type { FirmwareHost } from './firmware-host.ts';
+import type { FacilityAction, FirmwareHost } from './firmware-host.ts';
 import { runLuddites, runRumour } from './luddites.ts';
 import { runPower } from './power.ts';
 import type { Refusal } from './refusal.ts';
@@ -37,6 +37,7 @@ export type RecordedInput =
   | { readonly step: number; readonly kind: 'install'; readonly facilityId: string; readonly part: InstallPart }
   | { readonly step: number; readonly kind: 'repair'; readonly facilityId: string }
   | { readonly step: number; readonly kind: 'rebuild'; readonly boardId: string }
+  | { readonly step: number; readonly kind: 'hand'; readonly facilityId: string; readonly action: FacilityAction }
   | { readonly step: number; readonly kind: 'pause' | 'resume' };
 
 const SEASON_ENDED: CommandResult = { ok: false, reason: 'the season has ended', refusal: { code: 'seasonEnded' } };
@@ -131,6 +132,28 @@ export class Session {
     return result;
   }
 
+  /**
+   * The player works a facility by hand, as its firmware would: the action applies at once, between steps, from world.step on.
+   * Firmware that sets the same thing in a later step wins over it, as the hand wins over firmware that set it before: the last
+   * writer wins. Refused for a facility that isn't there, isn't standing, or doesn't take the action.
+   */
+  hand(facilityId: string, action: FacilityAction): CommandResult {
+    if (this.world.ended) return SEASON_ENDED;
+    const facility = findFacility(this.world, facilityId);
+    if (!facility)
+      return { ok: false, reason: `unknown facility ${facilityId}`, refusal: { code: 'unknownFacility', facility: facilityId } };
+    if (facility.condition !== 'ok')
+      return { ok: false, reason: `${facilityId} is wrecked`, refusal: { code: 'wrecked', facility: facilityId } };
+    const problem = kindProblem(facility, action);
+    if (problem !== null) {
+      return { ok: false, reason: `${facilityId}: ${problem}`, refusal: { code: 'cannotAct', facility: facilityId, detail: problem } };
+    }
+    this.record.inputs.push({ step: this.world.step, kind: 'hand', facilityId, action });
+    this.world.stats.handActions += 1;
+    applyFacilityAction(this.ctx, facility, action, this.world.step);
+    return { ok: true };
+  }
+
   /** Records a pause or a resume; the world doesn't change. */
   mark(kind: 'pause' | 'resume'): void {
     this.record.inputs.push({ step: this.world.step, kind });
@@ -152,6 +175,7 @@ export function replay(scenario: Scenario, seed: number, record: SessionRecord, 
       else if (input.kind === 'install') session.install(input.facilityId, input.part);
       else if (input.kind === 'repair') session.repair(input.facilityId);
       else if (input.kind === 'rebuild') session.rebuild(input.boardId);
+      else if (input.kind === 'hand') session.hand(input.facilityId, input.action);
       else session.mark(input.kind);
       next += 1;
     }

@@ -212,7 +212,7 @@ describe('datacenters', () => {
     expect(isProcessing(s.ctx, 'ZZ', 0)).toBe(false);
   });
 
-  it('charges and pays the job of one process() call on the same steps: one tick period, no more', () => {
+  it('charges and pays the job of one process() call on the same steps: half a second, longer than the tick period', () => {
     const host = new FakeHost();
     let calls = 0;
     const once = host.program('once', () => ({ actions: calls++ === 0 ? [{ kind: 'process' }] : [] }));
@@ -229,8 +229,9 @@ describe('datacenters', () => {
       if (s.world.ledger.datacenterIncome > earned) paid.push(step);
       earned = s.world.ledger.datacenterIncome;
     }
-    expect(charged).toEqual([4, 5, 6, 7]); // DA's first beat is step 3, and its next is step 7
-    expect(paid).toEqual([4, 5, 6, 7]);
+    const job = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13]; // DA's first beat is step 3: the job is the next 10 steps, 0.5 s
+    expect(charged).toEqual(job);
+    expect(paid).toEqual(job);
   });
 
   it('charges and pays a process()-every-beat firmware on exactly the same steps, period after period', () => {
@@ -264,13 +265,13 @@ describe('datacenters', () => {
   it('leaves a real gap where a beat skips process(): nothing in it is charged or paid, and the next job starts after its call', () => {
     const host = new FakeHost();
     let beats = 0;
-    // calls process() on beats 1, 3 and 4 (steps 3, 11 and 15), skipping beat 2 (step 7) and every beat after the fourth
-    const patchy = host.program('patchy', () => ({ actions: ++beats === 2 || beats > 4 ? [] : [{ kind: 'process' }] }));
+    // calls process() on beats 1 and 5 (steps 3 and 19), skipping the three beats between them and every beat after the fifth
+    const patchy = host.program('patchy', () => ({ actions: ++beats === 1 || beats === 5 ? [{ kind: 'process' }] : [] }));
     const s = holding(host);
     s.deploy('DA', patchy);
-    const { charged, paid } = chargedAndPaid(s, 24);
-    // the first job ends at 7 and the skipped beat leaves 8 to 11 idle; the call at 11 starts at 12, and the one at 15 goes on to 19
-    const expected = [4, 5, 6, 7, 12, 13, 14, 15, 16, 17, 18, 19];
+    const { charged, paid } = chargedAndPaid(s, 32);
+    // the first job is 4 to 13, and the beats at 7, 11, and 15 call nothing, so 14 to 19 are idle; the call at 19 runs 20 to 29
+    const expected = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29];
     expect(charged).toEqual(expected);
     expect(paid).toEqual(expected);
   });
