@@ -54,10 +54,10 @@ describe('Store: a command the server refused', () => {
         state: 'paused',
         speed: 1,
         agent: { connected: true, clientName: 'agent' },
-        blockedByAgent: false,
         crash: null,
         autoPause: [],
         scenarioName: 'm1',
+        season: 1,
       },
     });
     expect(store.error).toBeNull();

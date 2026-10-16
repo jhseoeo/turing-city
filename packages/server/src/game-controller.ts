@@ -9,10 +9,13 @@ import {
   type CommandResult,
   type ControllerEvent,
   type ControllerStatus,
+  type DeployedBy,
   type DeployOutcome,
+  type FacilityAction,
   type FirmwareView,
   type GameApi,
   type GameState,
+  type InstallPart,
   type LogView,
   type MapView,
   type Query,
@@ -48,16 +51,18 @@ const CATCH_UP_MS = 200;
  */
 const STALL_MS = 1000;
 const NO_SEASON = "The season hasn't started: ask the player to press Start.";
-
-/** The player cannot start or play without the agent that their game is for (spec 7.2). */
-const noAgent = (): ToolError => new ToolError('connect an agent first', { code: 'noAgent' });
+/** What the feed says when the agent that was connected drops while a season is in play. */
+const AGENT_LOST = '에이전트 연결이 끊겼어요';
+/** The alert kinds that pause the game until the player turns them off (spec 10-10 §8 adds the dropped agent). */
+const DEFAULT_AUTO_PAUSE: readonly AlertKind[] = ['raid', 'wrecked', 'fire', 'firmwareError', 'agentLost'];
 
 /**
  * When a deploy installs: at the board's next tick, which a board that sleeps, is smashed, or is being rebuilt reaches only later, and
  * which a board the grid has shed does not reach until its power returns. A smashed or rebuilding board draws nothing, so its power
- * flag says nothing: the rebuild comes first.
+ * flag says nothing: the rebuild comes first, and when the facility itself is wrecked or being repaired (`standing` false), its repair
+ * comes before that.
  */
-export function installsAt(status: BoardStatus, powered: boolean): string {
+export function installsAt(status: BoardStatus, powered: boolean, standing = true): string {
   const next = "the board's next tick";
   switch (status) {
     case 'running':
@@ -65,7 +70,9 @@ export function installsAt(status: BoardStatus, powered: boolean): string {
     case 'asleep':
       return powered ? `${next}, after it wakes` : `${next}, after it wakes and its power returns`;
     case 'destroyed':
-      return `${next}, after the player rebuilds it`;
+      return standing
+        ? `${next}, after the player rebuilds it`
+        : `${next}, after the facility is repaired and the player rebuilds the board`;
     case 'rebuilding':
       return `${next}, after its rebuild finishes`;
   }
@@ -73,9 +80,12 @@ export function installsAt(status: BoardStatus, powered: boolean): string {
 
 type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => void };
 
+/** A command of the player that the worker answers with a CommandResult. */
+type CommandRequest = Extract<WorkerRequest, { type: 'install' | 'repair' | 'rebuild' | 'hand' }>;
+
 /**
- * The main thread's side of a season: the clock, the worker, the watchdog, and the rules
- * of play (an agent must be connected to start or play).
+ * The main thread's side of a season: the clock, the worker, the watchdog, and the player's commands. An agent is a helper the
+ * player may connect for boards with a comm module; nothing waits for one (spec 10-10 §8).
  *
  * A call that needs a season rejects with a ToolError while there is none (before the first, while one starts, after the
  * session failed), and so does a request the worker refuses, such as a deploy to a board that does not exist.
@@ -94,7 +104,8 @@ export class GameController {
   private speed: 1 | 2 | 3 = 1;
   private agent: AgentStatus = { connected: false, clientName: null };
   private crash: string | null = null;
-  private autoPause: AlertKind[] = ['raid', 'wrecked', 'fire', 'firmwareError'];
+  private autoPause: AlertKind[] = [...DEFAULT_AUTO_PAUSE];
+  private season = 0;
   private snapshotNow: Snapshot | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastClock = 0;
@@ -116,10 +127,10 @@ export class GameController {
       state: this.state,
       speed: this.speed,
       agent: this.agent,
-      blockedByAgent: !this.agent.connected,
       crash: this.crash,
       autoPause: [...this.autoPause],
       scenarioName: this.scenario.name,
+      season: this.season,
     };
   }
 
@@ -127,10 +138,22 @@ export class GameController {
     return this.snapshotNow;
   }
 
+  /**
+   * The agent's connection. An agent that was connected and drops while a season is in play raises an agentLost alert (the core
+   * knows nothing of the connection, so the alert comes from here), and that pauses a running game when the player kept it in
+   * autoPause. Play never waits for an agent to come back.
+   */
   setAgent(agent: AgentStatus): void {
+    const dropped = this.agent.connected && !agent.connected;
     this.agent = agent;
-    if (!agent.connected && this.state === 'running') this.pause();
-    else this.emitStatus();
+    if (dropped && (this.state === 'running' || this.state === 'paused')) {
+      this.emit({ kind: 'alerts', alerts: [this.agentLostAlert()] });
+      if (this.state === 'running' && this.autoPause.includes('agentLost')) {
+        this.pause(); // it tells the new status, the agent's with it
+        return;
+      }
+    }
+    this.emitStatus();
   }
 
   setAutoPause(kinds: readonly AlertKind[]): void {
@@ -145,12 +168,12 @@ export class GameController {
 
   /** A new season in a fresh worker (a fresh Lua runtime). It starts paused. */
   async startSeason(seed = Math.floor(Math.random() * 2 ** 31)): Promise<void> {
-    if (!this.agent.connected) throw noAgent();
     this.stopClock();
     this.terminate('a new season started');
     // Until the new worker answers 'started', reads and deploys get "the season hasn't started".
     this.state = 'idle';
     this.crash = null;
+    this.season += 1;
     this.progress = new Int32Array(new SharedArrayBuffer(8));
     this.progress[0] = -1;
     // Node strips the worker's types itself and warns about it once per thread; the server runs with this flag already.
@@ -178,7 +201,6 @@ export class GameController {
   }
 
   play(): void {
-    if (!this.agent.connected) throw noAgent();
     if (this.state === 'idle' || this.state === 'crashed') throw this.noSeason(); // nothing to play, and the caller is to hear it
     if (this.state !== 'paused') return;
     this.state = 'running';
@@ -210,7 +232,11 @@ export class GameController {
     }
   }
 
-  async deploy(board: string, code: string): Promise<DeployOutcome> {
+  /**
+   * A deploy, by the player (the editor, to any board) or by the agent (MCP, to a board with a comm module only). The worker refuses
+   * the rest with the code the viewer says in Korean.
+   */
+  async deploy(board: string, code: string, by: DeployedBy = 'player'): Promise<DeployOutcome> {
     const worker = this.requireSeason();
     this.checker ??= SyntaxChecker.create();
     const problem = (await this.checker).check(code);
@@ -222,31 +248,41 @@ export class GameController {
         ? this.noSeason()
         : new ToolError('A new season started while the code was being checked; deploy it again.');
     }
-    const result = (await this.request({ type: 'deploy', id: 0, board, code })) as {
+    const result = (await this.request({ type: 'deploy', id: 0, board, code, by })) as {
       version: number;
       boardStatus: BoardStatus;
       powered: boolean;
+      standing: boolean;
     };
     const time = timeView(this.scenario, this.snapshotNow?.step ?? 0);
-    this.emit({ kind: 'deploy', board, version: result.version, time });
-    return { ok: true, version: result.version, installsAt: installsAt(result.boardStatus, result.powered) };
+    this.emit({ kind: 'deploy', board, version: result.version, time, by });
+    return { ok: true, version: result.version, installsAt: installsAt(result.boardStatus, result.powered, result.standing) };
   }
 
-  async rebuild(board: string): Promise<CommandResult> {
-    this.requireSeason();
-    return (await this.request({ type: 'rebuild', id: 0, board })) as CommandResult;
+  /** The player's purchase of a board (T1) or a comm module (T2) for a facility. */
+  install(facility: string, part: InstallPart): Promise<CommandResult> {
+    return this.command({ type: 'install', id: 0, facility, part });
   }
 
   /** The player's repair of a wrecked facility, which must stand again before its board can be rebuilt. */
-  async repair(facility: string): Promise<CommandResult> {
-    this.requireSeason();
-    return (await this.request({ type: 'repair', id: 0, facility })) as CommandResult;
+  repair(facility: string): Promise<CommandResult> {
+    return this.command({ type: 'repair', id: 0, facility });
+  }
+
+  /** The player's rebuild of a smashed board, once its facility stands again. */
+  rebuild(board: string): Promise<CommandResult> {
+    return this.command({ type: 'rebuild', id: 0, board });
+  }
+
+  /** A facility's work done by the player's hand; it applies at once, between steps. */
+  hand(facility: string, action: FacilityAction): Promise<CommandResult> {
+    return this.command({ type: 'hand', id: 0, facility, action });
   }
 
   listBoards(): Promise<BoardSummary[]> {
     return this.query({ kind: 'listBoards' }) as Promise<BoardSummary[]>;
   }
-  /** A board's manual, as markdown; null for an id that names no board slot. */
+  /** A board's manual for the agent, as markdown (a board with a comm module only); null for an id that names no board slot. */
   manual(board: string): Promise<string | null> {
     return this.query({ kind: 'manual', board }) as Promise<string | null>;
   }
@@ -362,7 +398,7 @@ export class GameController {
       case 'refused': {
         const p = this.pending.get(m.id);
         this.pending.delete(m.id);
-        p?.reject(new ToolError(m.message));
+        p?.reject(new ToolError(m.message, m.refusal));
         return;
       }
       case 'fatal':
@@ -388,6 +424,16 @@ export class GameController {
     this.state = 'crashed';
     this.crash = message;
     this.emitStatus();
+  }
+
+  /** The alert the feed shows for a dropped agent; the core never raises it, so it has no id of the season's. */
+  private agentLostAlert(): AlertView {
+    return { ...timeView(this.scenario, this.snapshotNow?.step ?? 0), id: -1, kind: 'agentLost', facility: null, message: AGENT_LOST };
+  }
+
+  private async command(message: CommandRequest): Promise<CommandResult> {
+    this.requireSeason();
+    return (await this.request(message)) as CommandResult;
   }
 
   private query(query: Query): Promise<unknown> {
@@ -453,13 +499,13 @@ export class GameController {
   }
 }
 
-/** The agent tools' view of the controller. */
+/** The agent tools' view of the controller: its deploys are the agent's, which reach a board with a comm module only. */
 export function gameApi(c: GameController): GameApi {
   return {
     listBoards: () => c.listBoards(),
     manual: (board) => c.manual(board),
     firmware: (board) => c.firmware(board),
-    deploy: (board, code) => c.deploy(board, code),
+    deploy: (board, code) => c.deploy(board, code, 'agent'),
     logs: (board, since) => c.logs(board, since),
     map: () => c.map(),
     status: () => c.statusOf(),

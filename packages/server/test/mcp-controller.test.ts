@@ -23,7 +23,7 @@ interface Rig {
 
 let rig: Rig | null = null;
 
-/** An agent connected to a server whose game is a real controller, with the connection rule and the dev tools wired to it. */
+/** An agent connected to a server whose game is a real controller, with the agent's connection and the dev tools wired to it. */
 async function start(withSeason = true): Promise<Rig> {
   const controller = new GameController({ scenario });
   const endpoint = createMcpEndpoint({
@@ -47,7 +47,7 @@ async function start(withSeason = true): Promise<Rig> {
   });
   const client = new Client({ name: 'test-client', version: '0.0.1' });
   await client.connect(transport as Transport);
-  await until(() => controller.status().agent.connected); // a season starts only for a connected agent
+  await until(() => controller.status().agent.connected); // a season starts without an agent, but these tests speak as the connected one
   if (withSeason) await controller.startSeason(1);
   const started: Rig = {
     controller,

@@ -1,12 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { Worker } from 'node:worker_threads';
-import { type ControllerEvent, parseScenario, runSeason, type Scenario, ToolError } from '@turing-city/core';
+import { type AlertView, type ControllerEvent, parseScenario, runSeason, type Scenario, ToolError } from '@turing-city/core';
 import { WasmoonHost } from '@turing-city/firmware';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadFirmwareDir } from '../src/firmware-files.ts';
 import { GameController, gameApi, installsAt } from '../src/game-controller.ts';
 
 const scenario = parseScenario(JSON.parse(readFileSync('scenarios/m1-power.json', 'utf8')));
+/** The whole town, every facility at T0: no boards. */
+const m2 = parseScenario(JSON.parse(readFileSync('scenarios/m2-town.json', 'utf8')));
 const AGENT = { connected: true, clientName: 'test-agent' };
 let controller: GameController | null = null;
 
@@ -83,18 +85,27 @@ function line(event: ControllerEvent): string {
     case 'alerts':
       return `alerts ${event.alerts.map((a) => `${a.kind}@${a.facility}`).join(',')}`;
     case 'deploy':
-      return `deploy ${event.board} v${event.version} at ${event.time.seconds}`;
+      return `deploy ${event.board} v${event.version} at ${event.time.seconds} by ${event.by}`;
   }
 }
 
 describe('GameController', () => {
-  it('refuses to start a season without an agent, and starts paused with one', async () => {
+  it('starts a season without an agent, paused at its first step, and plays it', async () => {
     const c = make();
-    await expect(c.startSeason(1)).rejects.toThrow('connect an agent first');
-    c.setAgent(AGENT);
     await c.startSeason(1);
-    expect(c.status().state).toBe('paused');
+    expect(c.status()).toMatchObject({ state: 'paused', agent: { connected: false, clientName: null } });
     expect(c.latestSnapshot()?.step).toBe(0);
+    c.play(); // an agent is a helper the player may never connect
+    expect(c.status().state).toBe('running');
+  });
+
+  it('counts the seasons, so the viewer knows when a new one starts', async () => {
+    const c = make();
+    expect(c.status().season).toBe(0);
+    await c.startSeason(1);
+    expect(c.status().season).toBe(1);
+    await c.startSeason(1);
+    expect(c.status().season).toBe(2);
   });
 
   it("deploys through the syntax check and installs on the board's next tick", async () => {
@@ -104,7 +115,7 @@ describe('GameController', () => {
     await expect(c.deploy('DA', 'function tick( end')).resolves.toMatchObject({ ok: false });
     await expect(c.deploy('DA', 'function tick(io) io.log("hi") end')).resolves.toMatchObject({ ok: true, version: 1 });
     await c.runUntil({ seconds: 1 });
-    const logs = await c.logs('DA', undefined);
+    const logs = (await c.inspect('DA'))?.logs;
     expect(logs?.some((l) => l.text === 'hi')).toBe(true);
   });
 
@@ -114,9 +125,10 @@ describe('GameController', () => {
     await expect(c.listBoards()).rejects.toThrow('season');
     await c.startSeason(1);
     expect((await c.listBoards()).map((b) => b.id)).toEqual(['P', 'DA', 'DB']);
+    expect(await c.install('DA', 'comm')).toEqual({ ok: true }); // the agent reaches a board through its comm module
     expect(await c.manual('DA')).toContain('| 클럭 | 5 Hz: 1초에 5번 틱 |');
     expect(await c.manual('ZZ')).toBeNull();
-    expect((await c.statusOf()).money).toBe(5000);
+    expect((await c.statusOf()).money).toBe(scenario.startMoney - scenario.tuning.install.commPrice);
   });
 
   it('plays in real time and pauses', async () => {
@@ -135,16 +147,40 @@ describe('GameController', () => {
     expect(c.status().state).toBe('paused');
   });
 
-  it('pauses on a disconnect and refuses to play until the agent is back', async () => {
+  it('tells of an agent that drops during a season, pauses for it as the player picked by default, and plays on without it', async () => {
     const c = make();
     c.setAgent(AGENT);
     await c.startSeason(1);
+    const alerts: AlertView[] = [];
+    c.onEvent((event) => {
+      if (event.kind === 'alerts') alerts.push(...event.alerts);
+    });
     c.play();
     c.setAgent({ connected: false, clientName: null });
-    expect(c.status()).toMatchObject({ state: 'paused', blockedByAgent: true });
-    expect(() => c.play()).toThrow('connect an agent first');
+    expect(c.status()).toMatchObject({ state: 'paused', agent: { connected: false } });
+    expect(alerts).toEqual([
+      { id: -1, kind: 'agentLost', facility: null, message: '에이전트 연결이 끊겼어요', day: 1, clock: '00:00', seconds: 0 },
+    ]);
+    c.play(); // nothing waits for the agent to come back
+    expect(c.status().state).toBe('running');
+  });
+
+  it('tells of a dropped agent only when one was connected during a season, and pauses only when the player picked it', async () => {
+    const c = make();
+    const kinds: string[] = [];
+    c.onEvent((event) => {
+      if (event.kind === 'alerts') kinds.push(...event.alerts.map((a) => a.kind));
+    });
     c.setAgent(AGENT);
+    c.setAgent({ connected: false, clientName: null }); // no season yet
+    await c.startSeason(1);
+    c.setAgent({ connected: false, clientName: null }); // no agent was connected
+    expect(kinds).toEqual([]);
+    c.setAgent(AGENT);
+    c.setAutoPause(['fire']);
     c.play();
+    c.setAgent({ connected: false, clientName: null });
+    expect(kinds).toEqual(['agentLost']);
     expect(c.status().state).toBe('running');
   });
 
@@ -234,9 +270,42 @@ describe('gameApi', () => {
     expect(c.status()).toMatchObject({ state: 'paused', crash: null });
     // The worker is still there: it answers, takes a deploy for a real board (the refused one used no version), and steps.
     expect((await api.listBoards()).map((b) => b.id)).toEqual(['P', 'DA', 'DB']);
+    expect(await c.install('DA', 'comm')).toEqual({ ok: true });
     await expect(api.deploy('DA', 'function tick() end')).resolves.toMatchObject({ ok: true, version: 1 });
     await c.runUntil({ seconds: 1 });
     expect(c.latestSnapshot()?.step).toBe(20);
+  });
+
+  it("reaches a board's manual, firmware, logs, and deploys only through its comm module, and tells the agent how to get one", async () => {
+    const c = makeFor(m2);
+    await c.startSeason(1);
+    const api = gameApi(c);
+    const refusalOf = (call: () => Promise<unknown>): Promise<unknown> =>
+      call().then(
+        () => 'answered',
+        (error: unknown) => (error instanceof ToolError ? { message: error.message, refusal: error.refusal } : error),
+      );
+    const noComm = (id: string) => ({
+      message: `${id} has no comm module: the player installs one from the board's panel`,
+      refusal: { code: 'noComm', board: id },
+    });
+    // F1 has no board (T0); DA gets one but no comm module (T1).
+    expect(await c.install('DA', 'board')).toEqual({ ok: true });
+    for (const id of ['F1', 'DA']) {
+      expect(await refusalOf(() => api.manual(id))).toEqual(noComm(id));
+      expect(await refusalOf(() => api.firmware(id))).toEqual(noComm(id));
+      expect(await refusalOf(() => api.logs(id, undefined))).toEqual(noComm(id));
+      expect(await refusalOf(() => api.deploy(id, 'function tick() end'))).toEqual(noComm(id));
+    }
+    // An id that names no board slot (housing takes none, and ZZ is nothing) is an unknown board, as in milestone 1.
+    expect(await api.manual('H1')).toBeNull();
+    expect(await api.manual('ZZ')).toBeNull();
+    // With the comm module (T2) the board is the agent's to work on.
+    expect(await c.install('DA', 'comm')).toEqual({ ok: true });
+    expect(await api.deploy('DA', 'function tick() end')).toMatchObject({ ok: true, version: 1 });
+    expect(await api.firmware('DA')).toMatchObject({ version: null, pending: { version: 1 } });
+    expect(await api.manual('DA')).toContain('DA');
+    expect(await api.logs('DA', undefined)).toEqual(expect.any(Array));
   });
 });
 
@@ -247,17 +316,17 @@ describe('GameController: its status and the rules of play', () => {
       state: 'idle',
       speed: 1,
       agent: { connected: false, clientName: null },
-      blockedByAgent: true,
       crash: null,
-      autoPause: ['raid', 'wrecked', 'fire', 'firmwareError'],
+      autoPause: ['raid', 'wrecked', 'fire', 'firmwareError', 'agentLost'],
       scenarioName: scenario.name,
+      season: 0,
     };
     expect(scenario.name).not.toBe('');
     expect(c.status()).toEqual(idle);
     c.setAgent(AGENT);
     c.setSpeed(2);
     c.setAutoPause(['fire']);
-    expect(c.status()).toEqual({ ...idle, speed: 2, agent: AGENT, blockedByAgent: false, autoPause: ['fire'] });
+    expect(c.status()).toEqual({ ...idle, speed: 2, agent: AGENT, autoPause: ['fire'] });
   });
 
   it('plays only a paused season, and pauses only a running one', async () => {
@@ -510,25 +579,26 @@ describe('GameController: events', () => {
     c.setSpeed(2);
     c.setAutoPause(['fire']);
     const statuses = events.flatMap((event) => (event.kind === 'status' ? [event.status] : []));
-    expect(statuses[0]).toMatchObject({ speed: 2, autoPause: ['raid', 'wrecked', 'fire', 'firmwareError'] });
+    expect(statuses[0]).toMatchObject({ speed: 2, autoPause: ['raid', 'wrecked', 'fire', 'firmwareError', 'agentLost'] });
     expect(statuses[1]).toMatchObject({ speed: 2, autoPause: ['fire'] });
     expect(heard()).toEqual(['status paused', 'status paused']);
     await c.deploy('DA', FAILING);
-    expect(heard()).toEqual(['snapshot 0', 'deploy DA v1 at 0']); // a deploy changes the world: the new picture goes ahead of it
+    expect(heard()).toEqual(['snapshot 0', 'deploy DA v1 at 0 by player']); // a deploy changes the world: the new picture goes ahead of it
     await c.runUntil({ seconds: 1 });
     expect(heard()).toEqual(['snapshot 20', 'alerts firmwareError@DA']);
     await c.runUntil({ seconds: 1 });
     expect(heard()).toEqual(['snapshot 40']); // no alerts event for a batch that raised none
     await c.deploy('DB', 'function tick() end');
-    expect(heard()).toEqual(['snapshot 40', 'deploy DB v1 at 2']);
+    expect(heard()).toEqual(['snapshot 40', 'deploy DB v1 at 2 by player']);
     c.play();
     c.pause();
     expect(heard()).toEqual(['status running', 'status paused']);
     c.play();
     c.setAgent({ connected: false, clientName: null });
-    expect(heard()).toEqual(['status running', 'status paused']);
+    // The player picked only 'fire' above, so the dropped agent is told but does not pause the game.
+    expect(heard()).toEqual(['status running', 'alerts agentLost@null', 'status running']);
     c.setAgent(AGENT);
-    expect(heard()).toEqual(['status paused']);
+    expect(heard()).toEqual(['status running']);
 
     stop();
     c.setSpeed(3);
@@ -598,7 +668,7 @@ describe('GameController: events', () => {
     await c.deploy('DA', 'function tick() end');
     expect(boardDA().hasFirmware).toBe(true); // already in date when the deploy is answered
     expect(c.latestSnapshot()!.step).toBe(0);
-    expect(heard()).toEqual(['snapshot 0', 'deploy DA v1 at 0']);
+    expect(heard()).toEqual(['snapshot 0', 'deploy DA v1 at 0 by player']);
 
     // A request that changed nothing sends nothing.
     await expect(c.deploy('ZZ', 'function tick() end')).rejects.toBeInstanceOf(ToolError);
@@ -619,6 +689,7 @@ describe('GameController: events', () => {
     c.onEvent((event) => events.push(event));
 
     expect(await c.rebuild(intact)).toMatchObject({ ok: false });
+    expect(await c.repair(intact)).toMatchObject({ ok: false, refusal: { code: 'notWrecked', facility: intact } });
     expect(await c.rebuild(lost)).toMatchObject({ ok: false, refusal: { code: 'repairFirst', facility: lost } });
     expect(events).toEqual([]); // a refused rebuild changed nothing
 
@@ -637,6 +708,70 @@ describe('GameController: events', () => {
     expect(after.facilities.find((f) => f.id === lost)!.board!.status).toBe('rebuilding');
     expect(after.money).toBe(repaired.money - scenario.tuning.rebuild.cost);
     expect(events.map(line)).toEqual([`snapshot ${repaired.step}`]);
+  });
+
+  it("carries the player's installs, hand actions, and repairs to the season, each answered after the new picture of the world", async () => {
+    const c = makeFor(m2);
+    await c.startSeason(1);
+    const events: ControllerEvent[] = [];
+    c.onEvent((event) => events.push(event));
+    const facility = (id: string) => c.latestSnapshot()!.facilities.find((f) => f.id === id)!;
+    expect(facility('F1').tier).toBe(0);
+    expect(await c.install('F1', 'board')).toEqual({ ok: true });
+    expect(facility('F1').tier).toBe(1); // already in date when the install is answered
+    expect(c.latestSnapshot()!.money).toBe(m2.startMoney - m2.tuning.install.boardPrice.farm);
+    expect(await c.hand('DA', { kind: 'process' })).toEqual({ ok: true }); // a datacenter is worked by hand without a board
+    // Refused, each with the code the viewer says in Korean; none changes the world.
+    expect(await c.install('F1', 'board')).toMatchObject({
+      ok: false,
+      refusal: { code: 'alreadyInstalled', facility: 'F1', part: 'board' },
+    });
+    expect(await c.install('H1', 'board')).toMatchObject({ ok: false, refusal: { code: 'takesNoBoard', facility: 'H1' } });
+    expect(await c.install('ZZ', 'board')).toMatchObject({ ok: false, refusal: { code: 'unknownFacility', facility: 'ZZ' } });
+    expect(await c.hand('F1', { kind: 'harvest' })).toMatchObject({ ok: false, refusal: { code: 'cannotAct', facility: 'F1' } }); // nothing is ripe yet
+    expect(await c.repair('DA')).toMatchObject({ ok: false, refusal: { code: 'notWrecked', facility: 'DA' } });
+    expect(events.map(line)).toEqual(['snapshot 0', 'snapshot 0']);
+  });
+
+  it('takes a deploy from the player for any board, refuses one for a facility without a board, and says who deployed', async () => {
+    const c = makeFor(m2);
+    await c.startSeason(1);
+    const deploys: string[] = [];
+    c.onEvent((event) => {
+      if (event.kind === 'deploy') deploys.push(`${event.board} v${event.version} by ${event.by}`);
+    });
+    const refused = await c.deploy('F1', 'function tick() end').catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(ToolError);
+    expect((refused as ToolError).refusal).toEqual({ code: 'noBoard', facility: 'F1' });
+    expect(await c.install('F1', 'board')).toEqual({ ok: true });
+    expect(await c.deploy('F1', 'function tick() end')).toMatchObject({ ok: true, version: 1 });
+    expect(await c.install('F1', 'comm')).toEqual({ ok: true });
+    expect(await gameApi(c).deploy('F1', 'function tick() end')).toMatchObject({ ok: true, version: 2 });
+    expect(deploys).toEqual(['F1 v1 by player', 'F1 v2 by agent']);
+  });
+
+  it('refuses a hand action of the wrong shape without harming the season, and the worker still takes an exact one', async () => {
+    const c = makeFor(m2);
+    await c.startSeason(1);
+    const bad: unknown[] = [
+      null,
+      'process',
+      { kind: 'setPriority', order: 'P,DA' },
+      { kind: 'setPriority', order: [1, 2] },
+      { kind: 'setPriority' },
+      { kind: 'setThermal', output: 'high' },
+      { kind: 'setThermal', output: Number.NaN },
+      { kind: 'dispatch', truck: 1.5, from: 'F1', to: 'W', amount: 1 },
+      { kind: 'process', extra: true },
+      { kind: 'nothing' },
+    ];
+    for (const action of bad) {
+      expect(await c.hand('P', action as never), JSON.stringify(action)).toMatchObject({ ok: false, refusal: { code: 'badCommand' } });
+    }
+    expect(c.status()).toMatchObject({ state: 'paused', crash: null });
+    expect(await c.hand('P', { kind: 'setThermal', output: 3 })).toEqual({ ok: true }); // the worker is still there
+    await c.runUntil({ seconds: 1 });
+    expect(c.latestSnapshot()?.step).toBe(20);
   });
 
   it('does not take a snapshot sent between batches for the answer to a batch', async () => {
@@ -661,10 +796,12 @@ describe('GameController: requests', () => {
     c.setAgent(AGENT);
     await expect(c.deploy('DA', 'function tick() end')).rejects.toBeInstanceOf(ToolError);
     await expect(c.rebuild('DA')).rejects.toBeInstanceOf(ToolError);
+    await expect(c.install('DA', 'comm')).rejects.toBeInstanceOf(ToolError);
     const starting = c.startSeason(1);
     await expect(c.listBoards()).rejects.toBeInstanceOf(ToolError);
     await expect(c.deploy('DA', 'function tick() end')).rejects.toBeInstanceOf(ToolError);
     await expect(c.rebuild('DA')).rejects.toBeInstanceOf(ToolError);
+    await expect(c.install('DA', 'comm')).rejects.toBeInstanceOf(ToolError);
     await starting;
     expect(await c.listBoards()).toHaveLength(3);
     const replacing = c.startSeason(2); // the same while a season that is paused is being replaced
@@ -720,7 +857,10 @@ describe('GameController: requests', () => {
       () => c.alerts(undefined),
       () => c.inspect('DA'),
       () => c.deploy('DA', 'function tick() end'),
+      () => c.install('DA', 'comm'),
+      () => c.repair('DA'),
       () => c.rebuild('DA'),
+      () => c.hand('DA', { kind: 'process' }),
     ];
     for (const call of calls) {
       const refusal = await call().catch((error: unknown) => error);
@@ -735,41 +875,24 @@ describe('GameController: requests', () => {
     await expect(fresh.deploy('DA', 'function tick() end')).rejects.toThrow("The season hasn't started: ask the player to press Start.");
   });
 
-  it('gives each refusal the code that the viewer says in Korean: no agent, no season, and a crashed season with its reason', async () => {
+  it('gives each refusal the code that the viewer says in Korean: no season, and a crashed season with its reason', async () => {
     const c = make({ watchdogMs: 1 });
     const refusalOf = (error: unknown) => (error instanceof ToolError ? error.refusal : 'not a ToolError');
-    // No agent: the player cannot start or play.
-    expect(refusalOf(await c.startSeason(1).catch((e: unknown) => e))).toEqual({ code: 'noAgent' });
-    expect(
-      refusalOf(
-        await Promise.resolve()
-          .then(() => c.play())
-          .catch((e: unknown) => e),
-      ),
-    ).toEqual({ code: 'noAgent' });
-    // An agent, but no season yet.
-    c.setAgent(AGENT);
-    expect(
-      refusalOf(
-        await Promise.resolve()
-          .then(() => c.play())
-          .catch((e: unknown) => e),
-      ),
-    ).toEqual({ code: 'noSeason' });
+    const play = (): Promise<unknown> =>
+      Promise.resolve()
+        .then(() => c.play())
+        .catch((e: unknown) => e);
+    // No season yet: nothing to play, read, install, or rebuild.
+    expect(refusalOf(await play())).toEqual({ code: 'noSeason' });
     expect(refusalOf(await c.listBoards().catch((e: unknown) => e))).toEqual({ code: 'noSeason' });
     expect(refusalOf(await c.rebuild('DA').catch((e: unknown) => e))).toEqual({ code: 'noSeason' });
+    expect(refusalOf(await c.install('DA', 'comm').catch((e: unknown) => e))).toEqual({ code: 'noSeason' });
     // A crashed one.
     await c.startSeason(1);
     await expect(c.runUntil({ seconds: 600 })).rejects.toThrow('stopped');
     const crashed = { code: 'crashed', reason: 'the simulator stopped responding; the session stopped' };
     expect(refusalOf(await c.inspect('DA').catch((e: unknown) => e))).toEqual(crashed);
-    expect(
-      refusalOf(
-        await Promise.resolve()
-          .then(() => c.play())
-          .catch((e: unknown) => e),
-      ),
-    ).toEqual(crashed);
+    expect(refusalOf(await play())).toEqual(crashed);
   });
 
   it('refuses everything after the session failed, until the next season starts', async () => {
@@ -789,6 +912,7 @@ describe('GameController: requests', () => {
     const c = make();
     c.setAgent(AGENT);
     await c.startSeason(1);
+    expect(await c.install('DB', 'comm')).toEqual({ ok: true });
     const [boards, map, status, manual] = await Promise.all([c.listBoards(), c.map(), c.statusOf(), c.manual('DB')]);
     expect(boards).toHaveLength(3);
     expect(map.width).toBe(20);
@@ -800,13 +924,14 @@ describe('GameController: requests', () => {
     const c = make();
     c.setAgent(AGENT);
     await c.startSeason(1);
+    for (const id of ['DA', 'DB']) expect(await c.install(id, 'comm')).toEqual({ ok: true });
     await c.deploy('DA', FAILING);
     await c.deploy('DB', 'function tick(io) io.log("hello") end');
     await c.runUntil({ seconds: 5 });
     const api = gameApi(c);
     expect(await api.firmware('DA')).toEqual({ version: 1, source: FAILING, pending: null });
     expect(await api.firmware('ZZ')).toBeNull();
-    expect((await api.logs('DA', undefined))?.map((l) => l.kind)).toEqual(['system', 'error']);
+    expect((await api.logs('DA', undefined))?.filter((l) => l.kind !== 'system').map((l) => l.kind)).toEqual(['error']);
     expect((await api.logs('DA', 1))?.map((l) => l.kind)).toEqual(['error']);
     expect(await api.logs('DA', 1000)).toEqual([]);
     expect((await api.logs('DB', undefined))?.map((l) => l.text)).toContain('hello');
@@ -830,12 +955,12 @@ describe('GameController: requests', () => {
     const why = "firmware:1: attempt to call a nil value (global 'nil_function')";
     const da = (await c.listBoards()).find((b) => b.id === 'DA')!;
     expect(da.board!.lastError).toBe(`noTick: the last deploy failed to install: ${why}`);
-    const errors = (await c.logs('DA', undefined))!.filter((l) => l.kind === 'error');
+    const errors = (await c.inspect('DA'))!.logs.filter((l) => l.kind === 'error');
     expect(errors.map((l) => l.text)).toEqual([`runtime: ${why}`, `noTick: the last deploy failed to install: ${why}`]);
     expect(errors[1]!.repeat).toBe(9);
   });
 
-  it("says when a deploy installs: at the board's next tick, which comes after a sleep or a rebuild for a board that has none now", async () => {
+  it("says when a deploy installs: at the board's next tick, which comes after a sleep, or after a repair and a rebuild", async () => {
     const c = make();
     c.setAgent(AGENT);
     await c.startSeason(1);
@@ -853,9 +978,11 @@ describe('GameController: requests', () => {
     // No firmware elsewhere, so the Luddites wreck a facility in the fifth game day.
     await c.runUntil({ alertKinds: ['wrecked'] });
     const lost = (await c.alerts(undefined)).find((a) => a.kind === 'wrecked')!.facility!;
-    expect(await installsAt(lost)).toBe("the board's next tick, after the player rebuilds it");
+    expect(await installsAt(lost)).toBe("the board's next tick, after the facility is repaired and the player rebuilds the board");
     expect(await c.repair(lost)).toEqual({ ok: true });
+    expect(await installsAt(lost)).toBe("the board's next tick, after the facility is repaired and the player rebuilds the board");
     await c.runUntil({ seconds: 21 }); // a repair takes 20 game seconds
+    expect(await installsAt(lost)).toBe("the board's next tick, after the player rebuilds it"); // the facility stands again
     expect(await c.rebuild(lost)).toEqual({ ok: true });
     expect(await installsAt(lost)).toBe("the board's next tick, after its rebuild finishes");
   });
@@ -890,6 +1017,8 @@ describe('GameController: requests', () => {
       expect(installsAt('destroyed', powered)).toBe(`${next}, after the player rebuilds it`);
       expect(installsAt('rebuilding', powered)).toBe(`${next}, after its rebuild finishes`);
     }
+    // On a facility that is wrecked or being repaired, the repair comes before the rebuild.
+    expect(installsAt('destroyed', false, false)).toBe(`${next}, after the facility is repaired and the player rebuilds the board`);
   });
 
   it("hands over the Lua checker's message for a syntax error, and says when a deploy installs", async () => {
