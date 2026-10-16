@@ -282,7 +282,8 @@ function __boot(kind, fids, seed)
   for k = 1, #fids do fidx[fids[k]] = k end
   actions.log = log
   actions.sleep = function(seconds)
-    if type(seconds) ~= "number" then error("sleep expects a number of seconds", 2) end
+    -- x - x is 0 for every finite number, and NaN for NaN and the infinities, which have no seconds to clamp.
+    if type(seconds) ~= "number" or seconds - seconds ~= 0 then error("sleep expects a number of seconds", 2) end
     push(5, seconds)
   end
   if kind == "datacenter" then

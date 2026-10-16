@@ -387,7 +387,7 @@ function tick(io, mem)
   -- io.sensor("temp")       장착된 센서 값 읽기
   -- io.outbox.count()      출고함 수량
   -- io.notify("msg")        플레이어 알림 (T0 단계)
-  -- io.sleep(n)            n틱 휴면
+  -- io.sleep(n)            n초 휴면
   -- io.store.read(k) / io.store.write(k, v)  저장장치 접근 (연산 비용 큼)
   -- mem: RAM. 크기 상한은 RAM 부품으로 정해진다
 end

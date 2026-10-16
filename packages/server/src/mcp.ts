@@ -143,7 +143,7 @@ export function createMcpEndpoint(options: McpOptions): {
         'dev_run_until',
         {
           description:
-            'DEV: run as fast as possible while paused, for some game seconds or until an alert of one of the kinds. It stops at the end of the batch in which the goal is met, up to 10 game seconds late (a batch is up to 200 steps).',
+            'DEV: run as fast as possible while paused, for some game seconds or until an alert of one of the kinds; it needs one of the two. It stops at the end of the batch in which the goal is met, up to 10 game seconds late (a batch is up to 200 steps).',
           inputSchema: { seconds: z.number().positive().optional(), alertKinds: z.array(z.enum(ALERT_KINDS)).optional() },
         },
         async ({ seconds, alertKinds }) =>

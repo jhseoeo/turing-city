@@ -104,7 +104,7 @@ describe('BoardVm', () => {
 
   it('refuses a sleep whose argument is not a number, and queues one whose argument is', () => {
     const v = vm();
-    for (const arg of ['"abc"', 'nil', '{}', '"5"']) {
+    for (const arg of ['"abc"', 'nil', '{}', '"5"', 'math.huge', '-math.huge', '0/0']) {
       const r = v.tick(SENSORS, `function tick(io) io.sleep(${arg}) end`);
       expect(r.ok, arg).toBe(false);
       expect(r.error?.message, arg).toMatch(/^firmware:1: sleep expects a number of seconds/);
