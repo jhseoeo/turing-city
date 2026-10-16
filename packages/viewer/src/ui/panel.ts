@@ -1,8 +1,10 @@
 import type { FacilityView, Snapshot } from '@turing-city/core';
 import { clear, el } from '../dom.ts';
-import { CONDITION_LABELS, firmwareLabel, KIND_LABELS, LED_LABELS, ledOf, moneyLabel, sensorLabel, TIER_LABELS } from '../format.ts';
+import { CONDITION_LABELS, firmwareLabel, KIND_LABELS, LED_LABELS, ledOf, sensorLabel, TIER_LABELS } from '../format.ts';
 import type { Connection } from '../net.ts';
+import { commButton, installButton, logText, rebuildButton, repairButton } from '../panel-rules.ts';
 import type { Store } from '../store.ts';
+import { renderControls, stateButton } from './controls.ts';
 
 const section = (label: string, ...children: Array<Node | string>): HTMLElement =>
   el('div', { class: 'sec' }, [el('div', { class: 'label' }, [label]), ...children]);
@@ -41,10 +43,20 @@ function readings(s: Snapshot, f: FacilityView): Array<[string, string]> {
     rows.push(['주민', `${f.housing.residents}명`], ['식량', String(f.housing.food)]);
     rows.push(['상태', `${f.housing.fed ? '먹음' : '굶주림'} · ${f.powered ? '전기 있음' : '정전'}`]);
   }
+  if (f.kind !== 'power' && f.demand > 0) rows.push(['전력', `${f.demand} 사용${f.powered ? '' : ' (끊김)'}`]);
   return rows;
 }
 
-/** The selected facility's panel. An interim version: Task 19 brings the hand controls, the installs, and the repair button. */
+/** The facility's state in a word: its damage, its board's light, or that it runs by hand. */
+function stateOf(f: FacilityView): HTMLElement {
+  if (f.condition !== 'ok') return el('span', { class: 'bad' }, [`● ${CONDITION_LABELS[f.condition]}`]);
+  const led = ledOf(f);
+  if (led === null) return el('span', { class: 'dim' }, ['손으로 운영']);
+  return el('span', { class: led === 'running' ? 'ok' : led === 'error' || led === 'destroyed' ? 'bad' : 'warn' }, [
+    `● ${LED_LABELS[led]}`,
+  ]);
+}
+
 export function renderPanel(root: HTMLElement, store: Store, net: Connection): void {
   // The panel is rebuilt on every change, so a block the player scrolled would jump back to its top: put each one back.
   const scrolled = scrollOffsets(root);
@@ -55,56 +67,61 @@ export function renderPanel(root: HTMLElement, store: Store, net: Connection): v
     root.append(el('p', { class: 'dim' }, ['시설을 클릭하면 여기에 정보가 떠요']));
     return;
   }
-  const led = ledOf(f);
   const inspection = store.inspection?.board === f.id ? store.inspection.inspection : null;
-  const state =
-    f.condition !== 'ok'
-      ? el('span', { class: 'bad' }, [`● ${CONDITION_LABELS[f.condition]}`])
-      : led === null
-        ? el('span', { class: 'dim' }, ['손으로 운영'])
-        : el('span', { class: led === 'running' ? 'ok' : led === 'error' || led === 'destroyed' ? 'bad' : 'warn' }, [
-            `● ${LED_LABELS[led]}`,
-          ]);
   root.append(
     el('h2', {}, [`${KIND_LABELS[f.kind]} ${f.id}`]),
     el('div', {}, [
       el('span', { class: 'tier' }, [TIER_LABELS[f.tier]]),
       ' ',
-      state,
+      stateOf(f),
       f.board
         ? el('span', { class: 'dim' }, [` · ${firmwareLabel(inspection?.firmware?.version ?? null, inspection?.pending?.version ?? null)}`])
         : '',
     ]),
-    section('현재', kv(readings(s, f))),
   );
-  // Kept from the interim panel of Task 3: the damage and the rebuild button, until Task 19's controls take them over.
-  if (f.condition === 'wrecked') {
-    root.append(section('피해', el('span', { class: 'bad' }, ['시설이 부서졌어요'])));
-  } else if (f.condition === 'repairing') {
+
+  // Damage first: a wrecked facility is repaired, then its board is rebuilt; each is paid for on its own (10-10 spec §6).
+  const repair = repairButton(s, f);
+  if (repair) root.append(section('피해', ...stateButton(repair, () => net.send({ type: 'repair', facility: f.id }), 'primary')));
+  if (f.condition === 'repairing')
     root.append(section('피해', el('span', { class: 'warn' }, [`복구 중… (${f.repairHoursLeft ?? 0}시간 남음)`])));
-  } else if (f.board?.status === 'destroyed') {
-    // The server refuses a rebuild the money cannot pay for: do not offer the click.
-    const tooPoor = s.money < s.prices.rebuild;
+  const rebuild = rebuildButton(s, f);
+  if (rebuild) root.append(section('보드', ...stateButton(rebuild, () => net.send({ type: 'rebuild', board: f.id }), 'primary')));
+  if (f.condition === 'ok' && f.board?.status === 'rebuilding') root.append(section('보드', el('span', { class: 'warn' }, ['재건 중…'])));
+
+  root.append(section('현재', kv(readings(s, f))));
+  const controls = f.condition === 'ok' ? renderControls(s, f, store, net) : null;
+  if (controls) root.append(section('손으로', controls));
+
+  const install = installButton(s, f);
+  const comm = commButton(s, f);
+  const hardware = [
+    ...(install ? stateButton(install, () => net.send({ type: 'install', facility: f.id, part: 'board' })) : []),
+    ...(comm ? stateButton(comm, () => net.send({ type: 'install', facility: f.id, part: 'comm' })) : []),
+  ];
+  if (hardware.length > 0) root.append(section('부품', ...hardware));
+
+  if (f.kind !== 'housing') {
     root.append(
-      section(
-        '재건',
-        el('button', { class: 'primary', disabled: tooPoor, onclick: () => net.send({ type: 'rebuild', board: f.id }) }, [
-          `재건 (${moneyLabel(s.prices.rebuild)} · ${s.prices.rebuildHours}시간)`,
-        ]),
-        tooPoor ? el('p', { class: 'dim' }, ['자금이 모자라서 재건할 수 없어요']) : '',
-      ),
+      el('div', { class: 'row' }, [
+        el('button', { onclick: () => store.openManual(f.id) }, ['매뉴얼']),
+        ...(f.board
+          ? [
+              el('button', { onclick: () => store.openEditor(f.id) }, ['편집']),
+              el(
+                'button',
+                {
+                  disabled: !inspection,
+                  onclick: () => (inspection ? void navigator.clipboard.writeText(logText(inspection.logs)) : undefined),
+                },
+                ['로그 복사'],
+              ),
+            ]
+          : []),
+      ]),
     );
-  } else if (f.board?.status === 'rebuilding') {
-    root.append(section('재건', el('span', { class: 'warn' }, ['재건 중…'])));
   }
-  if (f.kind === 'power') {
-    root.append(
-      section(
-        '우선순위',
-        kv(s.plant.priority.map((id, i): [string, string] => [`${i + 1}. ${id}`, s.plant.shed.includes(id) ? '○ 정전' : '● 공급'])),
-      ),
-    );
-  }
+
   if (!f.board) return;
   if (!inspection) {
     root.append(el('p', { class: 'dim' }, ['불러오는 중…']));
@@ -113,7 +130,7 @@ export function renderPanel(root: HTMLElement, store: Store, net: Connection): v
   const parts = inspection.parts;
   root.append(
     section(
-      '부품',
+      '보드 부품',
       kv([
         ['CPU', `${parts.clockHz}Hz · 틱당 ${parts.instructionsPerTick}명령`],
         ['RAM', `${Math.round(parts.ramBytes / 1024)}KB (사용 ${((parts.ramUsedBytes ?? 0) / 1024).toFixed(1)}KB)`],
