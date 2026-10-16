@@ -198,6 +198,17 @@ export class Store {
     this.notify();
   }
 
+  /** The editor window is leaving a board for another one without a close: its text is kept as that board's draft. */
+  keepDraft(board: string, text: string): void {
+    this.editorDrafts = { ...this.editorDrafts, [board]: text };
+  }
+
+  /** The editor sent a deploy: the last answer no longer describes the code on screen. */
+  clearDeployResult(): void {
+    this.deployResult = null;
+    this.notify();
+  }
+
   setDispatchDraft(patch: Partial<DispatchDraft>): void {
     this.dispatchDraft = { ...this.dispatchDraft, ...patch };
     this.notify();

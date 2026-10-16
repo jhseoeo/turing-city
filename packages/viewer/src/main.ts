@@ -4,8 +4,10 @@ import { type MapScene, mountMap } from './map/map-scene.ts';
 import { overheatCelsius } from './map-rules.ts';
 import { Connection, gameSocketUrl } from './net.ts';
 import { Store } from './store.ts';
+import { renderEditorWindow } from './ui/editor-window.ts';
 import { renderFeed } from './ui/feed.ts';
 import { renderGuide } from './ui/guide.ts';
+import { renderManualWindow } from './ui/manual-window.ts';
 import { renderNotice } from './ui/notice.ts';
 import { renderOverlay } from './ui/overlay.ts';
 import { renderPanel } from './ui/panel.ts';
@@ -39,6 +41,8 @@ function render(): void {
   renderTopBar($('#topbar'), store, net);
   renderFeed($('#feed'), store, net);
   renderPanel($('#panel'), store, net);
+  renderManualWindow($('#manual-window'), store);
+  renderEditorWindow($('#editor-window'), store, net);
   if (store.snapshot) {
     map ??= mountMap($('#map'), store.snapshot, (id) => store.select(id));
     map.show(store.snapshot, store.selected, store.heatmap, overheatCelsius(store.scenario));

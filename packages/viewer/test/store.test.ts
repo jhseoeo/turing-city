@@ -187,6 +187,25 @@ describe('Store: windows and drafts', () => {
     expect(store.dispatchDraft).toEqual({ truck: null, trip: null, amount: null });
   });
 
+  it("keeps an editor's text as its board's draft when another board's editor takes its place", () => {
+    const store = new Store(null);
+    store.openEditor('DA');
+    store.keepDraft('DA', '-- half typed');
+    store.openEditor('DB');
+    expect(store.editorDrafts).toEqual({ DA: '-- half typed' });
+  });
+
+  it("forgets the editor's last deploy answer when the editor sends again", () => {
+    const store = new Store(null);
+    store.apply({ type: 'deployResult', board: 'DA', outcome: { ok: false, error: 'firmware:1: boom' } });
+    expect(store.deployResult).not.toBeNull();
+    let notified = 0;
+    store.subscribe(() => notified++);
+    store.clearDeployResult();
+    expect(store.deployResult).toBeNull();
+    expect(notified).toBe(1);
+  });
+
   it('opens the manual on a board or on the index, and closes it', () => {
     const store = new Store(null);
     store.openManual('DA');

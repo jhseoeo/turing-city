@@ -5,13 +5,16 @@ import type { InstallPart } from './session.ts';
 // The shapes of a firmware source and of the player's commands, checked at the server's doors (MCP and the viewer's socket) before
 // the game sees them. These check what a command is; the game checks what it means (an unknown facility, a truck already out).
 
+/** The most characters (UTF-16 units) a firmware source may have; the editor checks it too, before it sends. */
+export const MAX_FIRMWARE_CHARS = 65_536;
+
 /**
  * A firmware source: up to 64 KB, counted in characters (UTF-16 units). A board's Lua state takes the source as a C string, which ends
  * at the first NUL byte: the code after it would vanish without an error, and a syntax error behind it would pass the check.
  */
 export const FIRMWARE_SOURCE = z
   .string()
-  .max(65_536)
+  .max(MAX_FIRMWARE_CHARS)
   .refine(
     (source) => !source.includes('\u0000'),
     'the source contains a NUL byte (\\u0000); the board would cut the code off there, so remove it',
