@@ -1,7 +1,9 @@
 /**
- * `pnpm web:smoke`: the web demo's build played in headless Chrome. It serves `packages/web/dist` as plain files (no game server),
- * starts a season, works the datacenter by hand, installs a board, deploys firmware from the editor, and reads the firmware's log
- * line back in the panel. Exits 1 on a failed check. TURING_CITY_CHROME names a Chromium build where Google Chrome is missing.
+ * `pnpm web:smoke`: the web demo played in headless Chrome as an Artifact would serve it. It serves `dist/page.html` wrapped in a
+ * document, beside the worker and Lua's WebAssembly, under a content security policy like an Artifact frame's: scripts only
+ * inline, stylesheets only inline, workers and fetches from the page's own files. It starts a season, works the datacenter by
+ * hand, installs a board, deploys firmware from the editor, and reads the firmware's log line back in the panel. Exits 1 on a
+ * failed check. TURING_CITY_CHROME names a Chromium build where Google Chrome is missing.
  */
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -23,12 +25,31 @@ const TYPES: Record<string, string> = {
   '.wasm': 'application/wasm',
 };
 
+/**
+ * Like an Artifact frame: no script file runs, not even the page's own (an Artifact admits a few CDNs, which the demo doesn't use);
+ * a worker, a fetch, and WebAssembly from the page's own files do.
+ */
+const CSP = [
+  "default-src 'self'",
+  "script-src 'unsafe-inline' 'wasm-unsafe-eval'",
+  "style-src 'unsafe-inline'",
+  "worker-src 'self' blob:",
+  "connect-src 'self'",
+  "img-src 'self' data: blob:",
+].join('; ');
+/** The Artifact's own document around the page: a charset, a viewport, and the page. */
+const artifactPage = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body>${readFileSync(join(dist, 'page.html'), 'utf8')}</body></html>`;
+
 const server = createServer((req, res) => {
   const path = normalize(decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname)).replace(/^(\.\.[/\\])+/, '');
-  const file = path === '/' ? 'index.html' : path;
+  if (path === '/') {
+    res.writeHead(200, { 'content-type': TYPES['.html']!, 'content-security-policy': CSP });
+    res.end(artifactPage);
+    return;
+  }
   try {
-    const body = readFileSync(join(dist, file));
-    res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream' });
+    const body = readFileSync(join(dist, path));
+    res.writeHead(200, { 'content-type': TYPES[extname(path)] ?? 'application/octet-stream', 'content-security-policy': CSP });
     res.end(body);
   } catch {
     res.writeHead(404).end();
