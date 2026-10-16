@@ -12,6 +12,7 @@ import { createRng, deriveSeed } from './rng.ts';
 import type { Scenario } from './scenario.ts';
 import { runSeries } from './series.ts';
 import { runBoardTicks } from './ticks.ts';
+import { dispatchProblem, runWarehouses } from './warehouse.ts';
 import { type Alert, createWorld, findBoard, findFacility, type SimContext, type Streams, type WorldState } from './world.ts';
 
 /** Who deployed a firmware: the player from the game's editor, or an agent over MCP. */
@@ -91,6 +92,7 @@ export class Session {
     applyActions(this.ctx, s, ticked);
     runDatacenters(this.ctx, s);
     runFarms(this.ctx, s);
+    runWarehouses(this.ctx, s);
     runEmf(this.ctx, ticked);
     runRumour(this.ctx, s);
     runLuddites(this.ctx, s);
@@ -157,6 +159,16 @@ export class Session {
           ok: false,
           reason: `${facilityId}: ${harvestIssue}`,
           refusal: { code: 'cannotAct', facility: facilityId, detail: harvestIssue },
+        };
+      }
+    }
+    if (action.kind === 'dispatch') {
+      const dispatchIssue = dispatchProblem(this.ctx, facilityId, action);
+      if (dispatchIssue !== null) {
+        return {
+          ok: false,
+          reason: `${facilityId}: ${dispatchIssue}`,
+          refusal: { code: 'cannotAct', facility: facilityId, detail: dispatchIssue },
         };
       }
     }

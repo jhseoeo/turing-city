@@ -5,6 +5,7 @@ import type { FacilityAction } from './firmware-host.ts';
 import { clamp } from './fixed.ts';
 import type { FacilityKind } from './scenario.ts';
 import type { Ticked } from './ticks.ts';
+import { dispatch } from './warehouse.ts';
 import { type FacilityState, findFacility, type SimContext, toInt } from './world.ts';
 
 /** The kind of facility each action works. */
@@ -71,7 +72,7 @@ export function applyFacilityAction(ctx: SimContext, facility: FacilityState, ac
       harvest(ctx, facility.id, startStep);
       break;
     case 'dispatch':
-      // The warehouse's trucks run from Task 8.
+      dispatch(ctx, facility.id, action, startStep);
       break;
   }
 }

@@ -1,7 +1,9 @@
 import { ripeness } from './farm.ts';
+import type { SensorValue } from './firmware-host.ts';
 import { MILLI } from './fixed.ts';
 import type { SensorName } from './scenario.ts';
 import { gameTime } from './time.ts';
+import { warehouseReading } from './warehouse.ts';
 import { type BoardState, cellIndex, manhattan, type SimContext } from './world.ts';
 
 /** Each sensor's field name in the firmware's io table. */
@@ -31,7 +33,7 @@ function nearestLudditeDistance(ctx: SimContext, board: BoardState): number | un
   return best;
 }
 
-function read(ctx: SimContext, board: BoardState, sensor: SensorName): number | undefined {
+function read(ctx: SimContext, board: BoardState, sensor: SensorName): SensorValue {
   const w = ctx.world;
   switch (sensor) {
     case 'wind':
@@ -56,19 +58,18 @@ function read(ctx: SimContext, board: BoardState, sensor: SensorName): number | 
     }
     case 'outbox':
       return w.farms[board.id]?.outbox;
-    // The warehouse has no rules yet: its sensors read nil until Task 8.
     case 'stock':
     case 'farms':
     case 'housing':
     case 'trucks':
-      return undefined;
+      return warehouseReading(ctx, board.id, sensor);
   }
 }
 
 /** What the board's firmware sees in io this tick: its mounted sensors, plus the day and the clock. */
-export function sensorFrame(ctx: SimContext, board: BoardState): Record<string, number | undefined> {
+export function sensorFrame(ctx: SimContext, board: BoardState): Record<string, SensorValue> {
   const time = gameTime(ctx.scenario.time, ctx.world.step);
-  const frame: Record<string, number | undefined> = { day: time.day, clock: time.seconds };
+  const frame: Record<string, SensorValue> = { day: time.day, clock: time.seconds };
   for (const sensor of board.spec.sensors) frame[SENSOR_KEYS[sensor]] = read(ctx, board, sensor);
   return frame;
 }

@@ -92,7 +92,13 @@ export function renderPanel(root: HTMLElement, store: Store, net: Connection): v
       kv(
         Object.entries(inspection.sensors).map(([k, v]): [string, string] => [
           k,
-          v === undefined ? 'nil' : String(Math.round(v * 100) / 100),
+          v === undefined
+            ? 'nil'
+            : typeof v === 'number'
+              ? String(Math.round(v * 100) / 100)
+              : typeof v === 'string'
+                ? v
+                : JSON.stringify(v),
         ]),
       ),
     ),

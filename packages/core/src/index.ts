@@ -23,4 +23,5 @@ export * from './series.ts';
 export * from './session.ts';
 export * from './ticks.ts';
 export * from './time.ts';
+export * from './warehouse.ts';
 export * from './world.ts';
