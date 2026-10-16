@@ -1,11 +1,20 @@
-import type { Snapshot } from '@turing-city/core';
+import type { FacilityView, Snapshot } from '@turing-city/core';
 import { describe, expect, it } from 'vitest';
-import { consumersOf, firmwareLabel, heatAlpha, ledOf, moneyLabel, timeLabel } from '../src/format.ts';
+import {
+  ALERT_LABELS,
+  consumersOf,
+  endingLabel,
+  firmwareLabel,
+  heatAlpha,
+  KIND_LABELS,
+  ledOf,
+  moneyLabel,
+  populationLabel,
+  sensorLabel,
+  timeLabel,
+} from '../src/format.ts';
 
-type Facility = Snapshot['facilities'][number];
-type Board = NonNullable<Facility['board']>;
-/** DA with a running board that has firmware; `over` changes the board. */
-const board = (over: Partial<Board>): Facility => ({
+const facility = (over: Partial<FacilityView>): FacilityView => ({
   id: 'DA',
   kind: 'datacenter',
   x: 5,
@@ -15,11 +24,19 @@ const board = (over: Partial<Board>): Facility => ({
   repairHoursLeft: null,
   powered: true,
   demand: 10,
-  board: { status: 'running', powered: true, hasFirmware: true, erroring: false, ...over },
+  board: { status: 'running', powered: true, hasFirmware: true, erroring: false },
   datacenter: { tempC: 40, processing: false, cooling: false },
   farm: null,
   warehouse: null,
   housing: null,
+  ...over,
+});
+const board = (over: Partial<NonNullable<FacilityView['board']>>): FacilityView['board'] => ({
+  status: 'running',
+  powered: true,
+  hasFirmware: true,
+  erroring: false,
+  ...over,
 });
 
 describe('format', () => {
@@ -29,28 +46,33 @@ describe('format', () => {
     expect(timeLabel({ day: 7, clock: '14:20', seconds: 0 }, 30)).toBe('7일차 14:20 / 30일');
   });
 
+  it('gives a light only to a facility with a board', () => {
+    expect(ledOf(facility({ board: null, tier: 0 }))).toBeNull();
+    expect(ledOf(facility({ kind: 'housing', board: null, tier: 0 }))).toBeNull();
+  });
+
   it('picks a status light: destroyed, asleep, unpowered, error, no firmware, running', () => {
-    expect(ledOf(board({ status: 'destroyed' }))).toBe('destroyed');
-    expect(ledOf(board({ status: 'rebuilding' }))).toBe('destroyed');
-    expect(ledOf(board({ status: 'asleep' }))).toBe('asleep');
-    expect(ledOf(board({ powered: false }))).toBe('unpowered');
-    expect(ledOf(board({ erroring: true }))).toBe('error');
-    expect(ledOf(board({ hasFirmware: false }))).toBe('off');
-    expect(ledOf(board({}))).toBe('running');
+    expect(ledOf(facility({ board: board({ status: 'destroyed' }) }))).toBe('destroyed');
+    expect(ledOf(facility({ board: board({ status: 'rebuilding' }) }))).toBe('destroyed');
+    expect(ledOf(facility({ board: board({ status: 'asleep' }) }))).toBe('asleep');
+    expect(ledOf(facility({ board: board({ powered: false }) }))).toBe('unpowered');
+    expect(ledOf(facility({ board: board({ erroring: true }) }))).toBe('error');
+    expect(ledOf(facility({ board: board({ hasFirmware: false }) }))).toBe('off');
+    expect(ledOf(facility({}))).toBe('running');
+  });
+
+  it('shows a board as down with its wrecked or repairing facility, whatever its own state says', () => {
+    expect(ledOf(facility({ condition: 'wrecked' }))).toBe('destroyed');
+    expect(ledOf(facility({ condition: 'repairing', board: board({ status: 'destroyed' }) }))).toBe('destroyed');
   });
 
   // A board's last tick keeps its error after the board is smashed, put to sleep, or shed, so the states really do overlap.
   it('keeps that order when states overlap: each light wins over the ones after it', () => {
     const everythingWrong = { powered: false, erroring: true, hasFirmware: false };
-    expect(ledOf(board({ ...everythingWrong, status: 'destroyed' }))).toBe('destroyed');
-    expect(ledOf(board({ ...everythingWrong, status: 'rebuilding' }))).toBe('destroyed');
-    expect(ledOf(board({ ...everythingWrong, status: 'asleep' }))).toBe('asleep');
-    expect(ledOf(board(everythingWrong))).toBe('unpowered');
-    expect(ledOf(board({ erroring: true, hasFirmware: false }))).toBe('error');
-  });
-
-  it('shows no light for a facility without a board', () => {
-    expect(ledOf({ ...board({}), tier: 0, board: null })).toBeNull();
+    expect(ledOf(facility({ board: board({ ...everythingWrong, status: 'destroyed' }) }))).toBe('destroyed');
+    expect(ledOf(facility({ board: board({ ...everythingWrong, status: 'asleep' }) }))).toBe('asleep');
+    expect(ledOf(facility({ board: board(everythingWrong) }))).toBe('unpowered');
+    expect(ledOf(facility({ board: board({ erroring: true, hasFirmware: false }) }))).toBe('error');
   });
 
   it('names the firmware a board runs and the deploy waiting to install on it', () => {
@@ -62,31 +84,55 @@ describe('format', () => {
 
   it('shades the heatmap from 1 EMF up, capped', () => {
     expect(heatAlpha(0)).toBe(0);
+    expect(heatAlpha(1)).toBeCloseTo(1 / 166, 5);
     expect(heatAlpha(50)).toBeCloseTo(0.3);
     expect(heatAlpha(10_000)).toBe(0.6);
   });
 
-  it('starts the heat at exactly 1 EMF', () => {
-    expect(heatAlpha(1)).toBeCloseTo(1 / 166, 5);
-  });
-
-  it("lists the plant's consumers with draw, priority, and shedding, only when the plant is selected", () => {
-    const facility = (id: string, kind: Facility['kind'], demand: number): Facility => ({ ...board({}), id, kind, demand });
+  it("lists the plant's consumers that draw power or are cut off, with draw, priority, and shedding, only when the plant is selected", () => {
     const snapshot = {
       facilities: [
-        facility('H1', 'housing', 77),
-        facility('P', 'power', 0),
-        facility('DA', 'datacenter', 163),
-        facility('DB', 'datacenter', 211),
+        facility({ id: 'P', kind: 'power' }),
+        facility({ id: 'H1', kind: 'housing', board: null, tier: 0, demand: 72 }),
+        facility({ id: 'DA', demand: 163 }),
+        facility({ id: 'F1', kind: 'farm', board: null, tier: 0, demand: 0 }), // draws nothing: not drawn
+        facility({ id: 'DB', demand: 0 }), // cut off: drawn, though it asks for nothing now
       ],
-      plant: { priority: ['H1', 'DA', 'DB'], shed: ['DB'] },
+      plant: { priority: ['H1', 'DA', 'F1', 'DB'], shed: ['DB'] },
     } as unknown as Snapshot;
     expect(consumersOf(snapshot, 'P')).toEqual([
-      { id: 'H1', demand: 77, rank: 1, shed: false },
+      { id: 'H1', demand: 72, rank: 1, shed: false },
       { id: 'DA', demand: 163, rank: 2, shed: false },
-      { id: 'DB', demand: 211, rank: 3, shed: true },
+      { id: 'DB', demand: 0, rank: 4, shed: true },
     ]);
     expect(consumersOf(snapshot, 'DA')).toBeNull();
     expect(consumersOf(snapshot, null)).toBeNull();
+  });
+
+  it('has a Korean name for every facility kind and every alert kind, and two endings', () => {
+    expect(Object.values(KIND_LABELS)).toEqual(['발전소', '데이터센터', '밭', '물류창고', '주거지']);
+    expect(ALERT_LABELS.wrecked).toBe('시설 파괴');
+    expect(ALERT_LABELS.agentLost).toBe('에이전트 끊김');
+    expect(ALERT_LABELS.hunger).toBe('굶주림');
+    expect(endingLabel('completed')).toBe('시즌 완주');
+    expect(endingLabel('bankrupt')).toBe('파산');
+  });
+
+  it('says how many people are fed, out of all, and names the hungry and those without power only when there are some', () => {
+    expect(populationLabel({ fed: 80, hungry: 0, unpowered: 0 })).toBe('80/80');
+    expect(populationLabel({ fed: 40, hungry: 40, unpowered: 0 })).toBe('40/80 · 굶주림 40');
+    expect(populationLabel({ fed: 0, hungry: 40, unpowered: 40 })).toBe('0/80 · 굶주림 40 · 정전 40');
+  });
+
+  it('shows a sensor value: numbers rounded, nil for none, strings as they are, lists one item a line', () => {
+    expect(sensorLabel(81.256)).toBe('81.26');
+    expect(sensorLabel(undefined)).toBe('nil');
+    expect(sensorLabel('idle')).toBe('idle');
+    expect(
+      sensorLabel([
+        { id: 'F1', outbox: 12, distance: 12 },
+        { id: 'F2', outbox: 0, distance: 11 },
+      ]),
+    ).toBe('id=F1 outbox=12 distance=12\nid=F2 outbox=0 distance=11');
   });
 });

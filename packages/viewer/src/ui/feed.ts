@@ -1,19 +1,12 @@
-import type { AlertKind } from '@turing-city/core';
+import { ALERT_KINDS, type AlertKind } from '@turing-city/core';
 import { clear, el } from '../dom.ts';
 import { ALERT_LABELS } from '../format.ts';
 import type { Connection } from '../net.ts';
 import type { Store } from '../store.ts';
 
-const TOGGLABLE: readonly AlertKind[] = [
-  'raid',
-  'ludditesNear',
-  'wrecked',
-  'fire',
-  'overheat',
-  'powerShortage',
-  'firmwareError',
-  'moneyBelowZero',
-];
+/** Every alert kind can pause the game but the season's end, which ends it. A lost agent is one of them now, on by default. */
+const TOGGLABLE: readonly AlertKind[] = ALERT_KINDS.filter((kind) => kind !== 'seasonEnd');
+const SEVERE: readonly AlertKind[] = ['raid', 'wrecked', 'fire', 'hunger', 'agentLost'];
 
 export function renderFeed(root: HTMLElement, store: Store, net: Connection): void {
   clear(root);
@@ -22,16 +15,17 @@ export function renderFeed(root: HTMLElement, store: Store, net: Connection): vo
       root.append(
         el('div', { class: 'item', onclick: () => store.select(item.board) }, [
           el('span', { class: 't' }, [`${item.time.day}일 ${item.time.clock}`]),
-          el('span', { style: 'color:#7fb6ff' }, [`에이전트: ${item.board}에 펌웨어 v${item.version} 배포`]),
+          el('span', { class: 'deploy' }, [
+            `${item.by === 'agent' ? '에이전트' : '플레이어'}: ${item.board}에 펌웨어 v${item.version} 배포`,
+          ]),
         ]),
       );
     } else {
       const a = item.alert;
-      const cls = a.kind === 'raid' || a.kind === 'wrecked' || a.kind === 'fire' ? 'bad' : 'warn';
       root.append(
         el('div', { class: 'item', onclick: () => store.select(a.facility) }, [
           el('span', { class: 't' }, [`${a.day}일 ${a.clock}`]),
-          el('span', { class: cls }, [a.message]),
+          el('span', { class: SEVERE.includes(a.kind) ? 'bad' : 'warn' }, [a.message]),
         ]),
       );
     }
@@ -46,6 +40,5 @@ export function renderFeed(root: HTMLElement, store: Store, net: Connection): vo
     });
     toggles.append(el('label', {}, [box, ` ${ALERT_LABELS[kind]}`]));
   }
-  toggles.append(el('label', {}, [el('input', { type: 'checkbox', checked: true, disabled: true }), ' 연결 끊김 (항상)']));
   root.append(toggles);
 }

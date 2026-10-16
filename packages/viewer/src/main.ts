@@ -4,6 +4,7 @@ import { type MapScene, mountMap } from './map/map-scene.ts';
 import { Connection, gameSocketUrl } from './net.ts';
 import { Store } from './store.ts';
 import { renderFeed } from './ui/feed.ts';
+import { renderGuide } from './ui/guide.ts';
 import { renderNotice } from './ui/notice.ts';
 import { renderOverlay } from './ui/overlay.ts';
 import { renderPanel } from './ui/panel.ts';
@@ -29,9 +30,11 @@ function render(): void {
   renderOverlay($('#overlay'), store, net);
   renderNotice($('#notice'), store, inSeason);
   if (!inSeason) {
+    $('#guide').hidden = true;
     renderStartScreen($('#start'), store, net);
     return;
   }
+  renderGuide($('#guide'), store);
   renderTopBar($('#topbar'), store, net);
   renderFeed($('#feed'), store, net);
   renderPanel($('#panel'), store, net);
@@ -68,7 +71,7 @@ window.addEventListener('pointerdown', pressPointer, true);
 for (const type of ['pointerup', 'pointercancel', 'contextmenu']) window.addEventListener(type, releasePointer, true);
 window.addEventListener('blur', releasePointer);
 
-// The panel's live sensors and log: ask again twice a second while a board is selected.
+// The panel's live sensors and log: ask again twice a second while a facility is selected (one without a board gets null).
 setInterval(() => {
   if (store.selected) net.send({ type: 'inspect', board: store.selected });
 }, 500);
