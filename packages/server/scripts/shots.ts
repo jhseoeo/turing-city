@@ -533,7 +533,7 @@ try {
   check('clicking it again puts it back', await waitUntil(async () => JSON.stringify(await toggles()) === JSON.stringify(untouched)));
 
   // ---- States the shots above do not reach, each made on purpose with the dev tools and a fixed seed ----
-  // The power plant falls short: no thermal output, and two datacenters cooling at level 3 ask for 168 units, while the wind
+  // The power plant falls short: no thermal output, and two datacenters in a cooling cycle ask for about 960 units, while the wind
   // (120 to start, 8 a second at most) gives 144 or less in the first 3 seconds.
   await newSeason();
   const cooling = 'function tick(io) io.cool(3) end';

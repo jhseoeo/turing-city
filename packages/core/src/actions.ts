@@ -1,4 +1,5 @@
 import { startSleep } from './boards.ts';
+import { coolSteps } from './datacenter.ts';
 import { clamp } from './fixed.ts';
 import type { Ticked } from './ticks.ts';
 import { type SimContext, toInt } from './world.ts';
@@ -6,7 +7,8 @@ import { type SimContext, toInt } from './world.ts';
 /** Phase 5: applies what each tick asked for. A failed tick asks for nothing. */
 export function applyActions(ctx: SimContext, step: number, ticked: readonly Ticked[]): void {
   const t = ctx.scenario.tuning;
-  const known = new Set(ctx.world.boards.map((b) => b.id));
+  // A priority list names facilities, with a board or not: housing is a consumer too.
+  const known = new Set(ctx.world.facilities.map((f) => f.id));
   for (const { board, outcome } of ticked) {
     let processed = false;
     for (const action of outcome.actions) {
@@ -16,14 +18,19 @@ export function applyActions(ctx: SimContext, step: number, ticked: readonly Tic
         case 'process':
           if (dc && !processed) {
             processed = true;
-            // The power phase charged this step under the old window, so a job still running at it goes on from it: no step is lost.
-            const running = dc.jobFrom <= step && step <= dc.jobUntil;
-            dc.jobFrom = running ? step : step + 1;
-            dc.jobUntil = step + board.period;
+            // The power phase charged this step under the old window, so a job still running at it goes on: no step is lost.
+            // It runs until the board's next tick, as in milestone 1.
+            const running = dc.busyFrom <= step && step < dc.busyUntil;
+            if (!running) dc.busyFrom = step + 1;
+            dc.busyUntil = step + board.period + 1;
           }
           break;
         case 'cool':
-          if (dc) dc.cooling = clamp(toInt(action.level), 0, t.datacenter.maxCoolingLevel);
+          // A level above 0 starts a cooling cycle at the next step, unless one covers that step; level 0 does nothing.
+          if (dc && toInt(action.level) > 0 && !(dc.coolFrom <= step + 1 && step + 1 < dc.coolUntil)) {
+            dc.coolFrom = step + 1;
+            dc.coolUntil = step + 1 + coolSteps(ctx);
+          }
           break;
         case 'setThermal':
           if (board.kind === 'power') ctx.world.plant.thermalSetting = clamp(toInt(action.output), 0, t.thermal.max);

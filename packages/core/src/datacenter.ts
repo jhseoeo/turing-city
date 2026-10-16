@@ -1,13 +1,25 @@
 import { clearFlag, raiseAlert, raiseOnce } from './alerts.ts';
 import { destroyBoard } from './boards.ts';
 import { idiv, MICRO, MILLI, mulDiv } from './fixed.ts';
-import type { SimContext } from './world.ts';
+import { findFacility, type SimContext } from './world.ts';
 
-/** Whether a datacenter's job covers this step and its board can work. */
-export function isProcessing(ctx: SimContext, boardId: string, step: number): boolean {
-  const board = ctx.world.boards.find((b) => b.id === boardId);
-  const dc = ctx.world.datacenters[boardId];
-  return !!board && !!dc && board.status === 'running' && board.powered && step >= dc.jobFrom && step <= dc.jobUntil;
+/** Steps one cooling cycle lasts. The scenario makes it a whole number. */
+export function coolSteps(ctx: SimContext): number {
+  return idiv(ctx.scenario.tuning.datacenter.coolingCycleMs * ctx.scenario.time.stepsPerSecond, 1000);
+}
+
+/** Whether a datacenter works at this step: it stands, the grid supplies it, and its busy window covers the step. */
+export function isProcessing(ctx: SimContext, facilityId: string, step: number): boolean {
+  const facility = findFacility(ctx.world, facilityId);
+  const dc = ctx.world.datacenters[facilityId];
+  return !!facility && !!dc && facility.condition === 'ok' && facility.powered && dc.busyFrom <= step && step < dc.busyUntil;
+}
+
+/** Whether a datacenter cools at this step: the same, for its cool window. */
+export function isCooling(ctx: SimContext, facilityId: string, step: number): boolean {
+  const facility = findFacility(ctx.world, facilityId);
+  const dc = ctx.world.datacenters[facilityId];
+  return !!facility && !!dc && facility.condition === 'ok' && facility.powered && dc.coolFrom <= step && step < dc.coolUntil;
 }
 
 /** Phase 6: income, heat, and cooling for every datacenter. */
@@ -15,24 +27,23 @@ export function runDatacenters(ctx: SimContext, step: number): void {
   const t = ctx.scenario.tuning.datacenter;
   const sps = ctx.scenario.time.stepsPerSecond;
   const w = ctx.world;
-  for (const board of w.boards) {
-    const dc = w.datacenters[board.id];
+  for (const facility of w.facilities) {
+    const dc = w.datacenters[facility.id];
     if (!dc) continue;
-    const working = board.status === 'running' && board.powered;
     let temp = dc.tempMilli;
-    if (isProcessing(ctx, board.id, step)) {
+    if (isProcessing(ctx, facility.id, step)) {
       const income = mulDiv(w.jobPrice, MICRO, sps);
       w.money += income;
       w.ledger.datacenterIncome += income;
       temp += idiv(t.heatMilliPerSecond, sps);
     }
     temp -= idiv((temp - t.ambientMilli) * t.passiveCoolingPctPerSecond, 100 * sps);
-    if (working && dc.cooling > 0) temp -= idiv(dc.cooling * t.coolingMilliPerLevelPerSecond, sps);
+    if (isCooling(ctx, facility.id, step)) temp -= idiv(t.coolingDropMilli, coolSteps(ctx));
     dc.tempMilli = Math.max(temp, t.ambientMilli);
     if (dc.tempMilli >= t.overheatAlertMilli) {
-      raiseOnce(w, `overheat:${board.id}`, step, 'overheat', board.id, `${board.id} 과열 ${idiv(dc.tempMilli, MILLI)}°C`);
+      raiseOnce(w, `overheat:${facility.id}`, step, 'overheat', facility.id, `${facility.id} 과열 ${idiv(dc.tempMilli, MILLI)}°C`);
     } else if (dc.tempMilli < t.overheatAlertMilli - 5 * MILLI) {
-      clearFlag(w, `overheat:${board.id}`);
+      clearFlag(w, `overheat:${facility.id}`);
     }
   }
 }

@@ -1,9 +1,9 @@
 import { idiv, MILLI } from './fixed.ts';
-import { facilityDemand, plantBoard } from './power.ts';
-import type { FacilityKind, SensorName, Tuning } from './scenario.ts';
+import { facilityDemand, plantFacility } from './power.ts';
+import type { BoardKind, SensorName, Tuning } from './scenario.ts';
 import { SENSOR_KEYS } from './sensors.ts';
 import type { TimeConfig } from './time.ts';
-import { findBoard, manhattan, type SimContext } from './world.ts';
+import { findBoard, findFacility, manhattan, type SimContext } from './world.ts';
 
 /** A milli-unit amount as a short decimal: 2000 is "2", 800 is "0.8", 95050 is "95.05". */
 function milli(amount: number): string {
@@ -42,7 +42,7 @@ const TIME_READS = [
 ];
 
 /** The calls of each kind of board. The numbers in the words are the scenario's own. */
-export function actionDocs(t: Tuning): Record<FacilityKind | 'any', ReadonlyArray<{ call: string; meaning: string }>> {
+export function actionDocs(t: Tuning): Record<BoardKind | 'any', ReadonlyArray<{ call: string; meaning: string }>> {
   const dc = t.datacenter;
   return {
     datacenter: [
@@ -52,7 +52,7 @@ export function actionDocs(t: Tuning): Record<FacilityKind | 'any', ReadonlyArra
       },
       {
         call: 'io.cool(level)',
-        meaning: `set cooling to level 0-${dc.maxCoolingLevel}; each level takes ${milli(dc.coolingMilliPerLevelPerSecond)} °C/s off and draws ${dc.coolingPowerPerLevel} power; it stays set`,
+        meaning: `a cooling cycle (level above 0; 0 does nothing): it takes ${milli(dc.coolingDropMilli)} °C off over ${dc.coolingCycleMs / 1000} s, in even steps, and draws ${dc.coolingPower} power while it runs; a call during a cycle does nothing`,
       },
     ],
     power: [
@@ -77,7 +77,6 @@ export function actionDocs(t: Tuning): Record<FacilityKind | 'any', ReadonlyArra
         meaning: `send an idle truck (up to ${t.warehouse.truckCapacity} food): from a farm to this warehouse collects, from this warehouse to a housing block delivers`,
       },
     ],
-    housing: [],
     any: [
       {
         call: 'io.log(...)',
@@ -105,7 +104,7 @@ export function firmwareRules(t: Tuning, time: TimeConfig): readonly string[] {
     `A facility's power draw grows ${t.transmissionLossPctPerCell}% for each cell between it and the plant (distanceToPlant); powerDrawNow includes that.`,
     `A game day is ${time.secondsPerDay} seconds. fuel_price is charged per unit of thermal output per day and price is paid per second of processing, so one unit of thermal output costs fuel_price / ${time.secondsPerDay} per second.`,
     'io.sleep() puts the board to sleep when the tick returns: the actions queued after the call in the same tick are dropped, and those before it apply.',
-    "A facility's setting (the cooling level, the thermal output, the priority list) keeps its value through a sleep, while mem and globals are wiped. Cooling and the thermal module only work while their board is awake.",
+    "A facility's setting (the thermal output, the priority list) keeps its value through a sleep, while mem and globals are wiped. A sleep ends the datacenter's job and its cooling cycle, and the thermal module only works while its board is awake.",
     'Available: the base library (pairs, pcall, setmetatable, ...), string, table, math, coroutine. Missing: os, io (the library), load, require, debug, collectgarbage, utf8.',
     "string.find searches plain text only; string.match, gmatch, and gsub don't exist. math.randomseed doesn't exist; math.random is seeded per board.",
     'tostring of a table or function gives just its type, and setmetatable refuses __gc and __mode.',
@@ -118,7 +117,7 @@ export function firmwareRules(t: Tuning, time: TimeConfig): readonly string[] {
 
 export interface Datasheet {
   readonly board: string;
-  readonly facility: { readonly kind: FacilityKind; readonly x: number; readonly y: number; readonly distanceToPlant: number };
+  readonly facility: { readonly kind: BoardKind; readonly x: number; readonly y: number; readonly distanceToPlant: number };
   readonly parts: { readonly clockHz: number; readonly instructionsPerTick: number; readonly ramBytes: number };
   readonly io: {
     readonly reads: ReadonlyArray<{ readonly name: string; readonly unit: string; readonly meaning: string }>;
@@ -139,7 +138,7 @@ export interface Datasheet {
 export function datasheet(ctx: SimContext, boardId: string): Datasheet | null {
   const board = findBoard(ctx.world, boardId);
   if (!board) return null;
-  const plant = plantBoard(ctx.world);
+  const plant = plantFacility(ctx.world);
   const tuning = ctx.scenario.tuning;
   const sensors = sensorDocs(tuning);
   const actions = actionDocs(tuning);
@@ -150,7 +149,7 @@ export function datasheet(ctx: SimContext, boardId: string): Datasheet | null {
     facility: { kind: board.kind, x: board.x, y: board.y, distanceToPlant: manhattan(board.x, board.y, plant.x, plant.y) },
     parts: { clockHz: board.spec.clockHz, instructionsPerTick: board.spec.instructionCap, ramBytes: board.spec.ramKb * 1024 },
     io: { reads, actions: [...actions[board.kind], ...actions.any] },
-    powerDrawNow: facilityDemand(ctx, board, ctx.world.step),
+    powerDrawNow: facilityDemand(ctx, findFacility(ctx.world, board.id)!, ctx.world.step),
     baseEmfPerSecond: board.spec.baseEmfPerSecond,
     firmware: {
       version: board.firmware?.version ?? null,

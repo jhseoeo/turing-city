@@ -29,10 +29,13 @@ export function shutdownVm(ctx: SimContext, board: BoardState): void {
     ctx.host.shutdown(board.id);
     board.vmBooted = false;
   }
+  // A datacenter works only through its board here: a board that sleeps or is destroyed ends its job and its cooling.
   const dc = ctx.world.datacenters[board.id];
   if (dc) {
-    dc.jobFrom = -1;
-    dc.jobUntil = -1;
+    dc.busyFrom = -1;
+    dc.busyUntil = -1;
+    dc.coolFrom = -1;
+    dc.coolUntil = -1;
   }
 }
 
@@ -64,12 +67,9 @@ export function runTransitions(ctx: SimContext, step: number): void {
     } else if (board.status === 'rebuilding' && board.readyAt !== null && board.readyAt <= step) {
       board.status = 'running';
       board.readyAt = null;
-      // A rebuilt datacenter is new hardware: the wreck's heat and cooling level don't come back with it.
+      // A rebuilt datacenter is new hardware: the wreck's heat doesn't come back with it.
       const dc = ctx.world.datacenters[board.id];
-      if (dc) {
-        dc.tempMilli = ctx.scenario.tuning.datacenter.ambientMilli;
-        dc.cooling = 0;
-      }
+      if (dc) dc.tempMilli = ctx.scenario.tuning.datacenter.ambientMilli;
       appendLog(board, step, 'system', 'rebuilt');
     }
   }

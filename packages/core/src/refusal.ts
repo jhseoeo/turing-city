@@ -11,4 +11,21 @@ export type Refusal =
   | { readonly code: 'unknownBoard'; readonly board: string }
   | { readonly code: 'notDestroyed'; readonly board: string }
   | { readonly code: 'tooPoor' }
-  | { readonly code: 'badCommand'; readonly detail: string };
+  | { readonly code: 'badCommand'; readonly detail: string }
+  | { readonly code: 'unknownFacility'; readonly facility: string }
+  /** A board command to a facility without one. */
+  | { readonly code: 'noBoard'; readonly facility: string }
+  /** An install on a facility that takes no board (housing). */
+  | { readonly code: 'takesNoBoard'; readonly facility: string }
+  | { readonly code: 'alreadyInstalled'; readonly facility: string; readonly part: 'board' | 'comm' }
+  /** A comm module for a board that is destroyed or being rebuilt. */
+  | { readonly code: 'boardDown'; readonly facility: string }
+  /** The facility is wrecked or being repaired. */
+  | { readonly code: 'wrecked'; readonly facility: string }
+  | { readonly code: 'notWrecked'; readonly facility: string }
+  /** A board's rebuild before its facility is repaired. */
+  | { readonly code: 'repairFirst'; readonly facility: string }
+  /** An agent's board tool on a board below T2. */
+  | { readonly code: 'noComm'; readonly board: string }
+  /** A hand action that cannot apply now. */
+  | { readonly code: 'cannotAct'; readonly facility: string; readonly detail: string };

@@ -160,14 +160,15 @@ describe('economy', () => {
     const wreck = s.world.datacenters.DA!;
     const other = s.world.datacenters.DB!;
     wreck.tempMilli = 140_000; // far above 122 °C: after the rebuild's 400 steps of leaking heat it is still above 90 °C
-    wreck.cooling = 3;
+    wreck.coolFrom = 0;
+    wreck.coolUntil = Number.MAX_SAFE_INTEGER;
     other.tempMilli = 80_000;
     destroyBoard(s.ctx, da, 0, 'fire');
     expect(s.rebuild('DA')).toEqual({ ok: true });
     Object.assign(s.ctx.rng, { fire: { nextU32: () => 0, int: (lo: number) => lo, chancePpm: () => true } }); // any fire roll burns the board
     steps(s, 401); // the board is back at step 400
     expect(wreck.tempMilli).toBe(20_000);
-    expect(wreck.cooling).toBe(0);
+    expect(wreck.coolUntil).toBe(-1); // no cooling
     expect(da.status).toBe('running');
     steps(s, 5);
     expect(da.status).toBe('running');

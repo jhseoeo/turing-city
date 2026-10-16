@@ -79,8 +79,8 @@ describe('datacenters', () => {
   it('earns the job price per second of processing, pro rata', () => {
     const s = powered();
     const dc = s.world.datacenters.DA!;
-    dc.jobFrom = 0;
-    dc.jobUntil = 3; // four steps = 0.2 s at price 40 -> 8
+    dc.busyFrom = 0;
+    dc.busyUntil = 4; // four steps = 0.2 s at price 40 -> 8
     steps(s, 4);
     expect(s.world.ledger.datacenterIncome).toBe(8 * MICRO);
     steps(s, 4);
@@ -90,8 +90,8 @@ describe('datacenters', () => {
   it('heats while processing and cools toward ambient after', () => {
     const s = powered();
     const dc = s.world.datacenters.DA!;
-    dc.jobFrom = 0;
-    dc.jobUntil = 20 * 10 - 1; // 10 s of work
+    dc.busyFrom = 0;
+    dc.busyUntil = 20 * 10; // 10 s of work
     steps(s, 200);
     const hot = dc.tempMilli;
     expect(hot).toBeGreaterThan(25_000 + 15_000); // ~+20 °C minus passive loss
@@ -105,7 +105,8 @@ describe('datacenters', () => {
     const plain = powered();
     const cooled = powered();
     for (const s of [plain, cooled]) s.world.datacenters.DA!.tempMilli = 80_000;
-    cooled.world.datacenters.DA!.cooling = 3;
+    cooled.world.datacenters.DA!.coolFrom = 0;
+    cooled.world.datacenters.DA!.coolUntil = Number.MAX_SAFE_INTEGER;
     steps(plain, 100);
     steps(cooled, 100);
     expect(cooled.world.datacenters.DA!.tempMilli).toBeLessThan(plain.world.datacenters.DA!.tempMilli);
@@ -118,8 +119,8 @@ describe('datacenters', () => {
     s.world.plant.thermalSetting = 0;
     s.world.plant.wind = 0; // the wind won't move: maxChangePerSecond is 0
     const dc = s.world.datacenters.DA!;
-    dc.jobFrom = 0;
-    dc.jobUntil = 100;
+    dc.busyFrom = 0;
+    dc.busyUntil = 101;
     steps(s, 50);
     expect(s.world.ledger.datacenterIncome).toBe(0);
     expect(dc.tempMilli).toBe(25_000);
@@ -174,30 +175,31 @@ describe('datacenters', () => {
     expect(s.world.ended, 'the season is still running at the last step').toBeNull();
   });
 
-  it('counts a step as processing exactly when the power phase charges the job for it', () => {
+  it('counts a step as processing exactly when the power phase charges the job for it, whatever its board is doing', () => {
     const s = powered();
     const da = s.world.boards[1]!;
+    const facility = s.world.facilities[1]!;
     const dc = s.world.datacenters.DA!;
     for (const status of ['running', 'asleep', 'destroyed', 'rebuilding'] as const) {
       for (const [from, until] of [
-        [5, 8],
-        [5, 5],
+        [5, 9],
+        [5, 6],
         [-1, -1],
       ] as const) {
         for (let step = 3; step <= 10; step++) {
           da.status = status;
-          da.powered = true;
-          dc.jobFrom = from;
-          dc.jobUntil = until;
-          const charged = facilityDemand(s.ctx, da, step);
-          dc.jobFrom = -1;
-          dc.jobUntil = -1;
-          const idle = facilityDemand(s.ctx, da, step);
-          dc.jobFrom = from;
-          dc.jobUntil = until;
+          facility.powered = true;
+          dc.busyFrom = from;
+          dc.busyUntil = until;
+          const charged = facilityDemand(s.ctx, facility, step);
+          dc.busyFrom = -1;
+          dc.busyUntil = -1;
+          const idle = facilityDemand(s.ctx, facility, step);
+          dc.busyFrom = from;
+          dc.busyUntil = until;
           const where = `${status}, job ${from}..${until}, step ${step}`;
           expect(isProcessing(s.ctx, 'DA', step), where).toBe(charged > idle);
-          da.powered = false; // shed: the job drew its power, but nothing was done
+          facility.powered = false; // shed: the job drew its power, but nothing was done
           expect(isProcessing(s.ctx, 'DA', step), `${where}, shed`).toBe(false);
         }
       }
@@ -276,8 +278,8 @@ describe('datacenters', () => {
   it('pays every working datacenter into the town money and the ledger alike', () => {
     const s = powered();
     for (const id of ['DA', 'DB']) {
-      s.world.datacenters[id]!.jobFrom = 0;
-      s.world.datacenters[id]!.jobUntil = 3;
+      s.world.datacenters[id]!.busyFrom = 0;
+      s.world.datacenters[id]!.busyUntil = 4;
     }
     const before = s.world.money;
     runDatacenters(s.ctx, 0); // each pays 40 a second for a twentieth of a second
@@ -285,23 +287,21 @@ describe('datacenters', () => {
     expect(s.world.ledger.datacenterIncome).toBe(4 * MICRO);
   });
 
-  it('cools actively only while its board is running and powered', () => {
-    const tempAfter = (level: number, prepare: (s: Session) => void): number => {
+  it('cools while its cool window is open and the facility has power, whatever its board is doing', () => {
+    const tempAfter = (cooling: boolean, prepare: (s: Session) => void): number => {
       const s = powered();
       prepare(s);
       const dc = s.world.datacenters.DA!;
       dc.tempMilli = 80_000;
-      dc.cooling = level;
+      if (cooling) {
+        dc.coolFrom = 0;
+        dc.coolUntil = Number.MAX_SAFE_INTEGER;
+      }
       steps(s, 10);
       return dc.tempMilli;
     };
-    const working = (): void => {};
-    expect(tempAfter(3, working)).toBeLessThan(tempAfter(0, working));
-    const notWorking: Record<string, (s: Session) => void> = {
-      shed: (s) => {
-        s.world.plant.thermalSetting = 0;
-        s.world.plant.wind = 0;
-      },
+    const cools: Record<string, (s: Session) => void> = {
+      running: () => {},
       asleep: (s) => {
         s.world.boards[1]!.status = 'asleep';
       },
@@ -312,22 +312,26 @@ describe('datacenters', () => {
         s.world.boards[1]!.status = 'rebuilding';
       },
     };
-    for (const [name, prepare] of Object.entries(notWorking)) {
-      expect(tempAfter(3, prepare), name).toBe(tempAfter(0, prepare));
+    for (const [name, prepare] of Object.entries(cools)) {
+      expect(tempAfter(true, prepare), name).toBeLessThan(tempAfter(false, prepare));
     }
+    const shed = (s: Session): void => {
+      s.world.plant.thermalSetting = 0;
+      s.world.plant.wind = 0;
+    };
+    expect(tempAfter(true, shed)).toBe(tempAfter(false, shed));
   });
 
-  it('takes the tuned heat per level out each second, in proportion to the level and none at level 0', () => {
-    const rate = m1Scenario().tuning.datacenter.coolingMilliPerLevelPerSecond;
-    const droppedInASecond = (level: number): number => {
-      const s = holding();
-      const dc = s.world.datacenters.DA!;
-      dc.tempMilli = 80_000;
-      dc.cooling = level;
-      for (let i = 0; i < s.scenario.time.stepsPerSecond; i++) runDatacenters(s.ctx, i);
-      return 80_000 - dc.tempMilli;
-    };
-    expect([0, 1, 2, 3].map(droppedInASecond)).toEqual([0, rate, 2 * rate, 3 * rate]);
+  it("takes the cycle's drop out spread over the cycle's steps while its window is open", () => {
+    const t = m1Scenario().tuning.datacenter;
+    const s = holding();
+    const dc = s.world.datacenters.DA!;
+    dc.tempMilli = 80_000;
+    dc.coolFrom = 0;
+    dc.coolUntil = Number.MAX_SAFE_INTEGER;
+    for (let i = 0; i < s.scenario.time.stepsPerSecond; i++) runDatacenters(s.ctx, i);
+    const perStep = Math.floor(t.coolingDropMilli / ((t.coolingCycleMs * s.scenario.time.stepsPerSecond) / 1000));
+    expect(80_000 - dc.tempMilli).toBe(20 * perStep);
   });
 
   it('lets heat leak away by the tuned percent of its excess each second, split over the steps and rounded down', () => {
@@ -396,8 +400,8 @@ describe('datacenters', () => {
     const s = holding();
     const rolls = recordFireRolls(s);
     const dc = s.world.datacenters.DA!;
-    dc.jobFrom = 0;
-    dc.jobUntil = 0;
+    dc.busyFrom = 0;
+    dc.busyUntil = 1;
     dc.tempMilli = 89_950; // the job's heat for one step is 100 milli-degrees: 90,050 by the fire phase
     s.step();
     expect(rolls).toEqual([12]); // 50 milli-degrees x 5 permille a degree each second / 20 steps = 12.5, rounded down

@@ -1,8 +1,8 @@
-import { isProcessing } from './datacenter.ts';
+import { isCooling, isProcessing } from './datacenter.ts';
 import { type Datasheet, datasheet } from './datasheet.ts';
 import { idiv, MICRO, MILLI } from './fixed.ts';
 import { pathTo } from './luddites.ts';
-import { facilityDemand, plantBoard, priorityOrder } from './power.ts';
+import { facilityDemand, plantFacility, priorityOrder } from './power.ts';
 import type { FacilityKind, Scenario } from './scenario.ts';
 import { sensorFrame } from './sensors.ts';
 import { gameTime } from './time.ts';
@@ -13,6 +13,7 @@ import {
   type BoardStatus,
   type EndKind,
   findBoard,
+  findFacility,
   type LogLine,
   manhattan,
   type SimContext,
@@ -107,7 +108,7 @@ export interface MapView {
 }
 
 export function mapView(ctx: SimContext): MapView {
-  const plant = plantBoard(ctx.world);
+  const plant = plantFacility(ctx.world);
   return {
     width: ctx.scenario.grid.width,
     height: ctx.scenario.grid.height,
@@ -241,8 +242,8 @@ export function snapshot(ctx: SimContext): Snapshot {
         erroring: b.lastTick?.error != null,
         tempC: dc ? idiv(dc.tempMilli, MILLI) : null,
         processing: dc ? isProcessing(ctx, b.id, s) : false,
-        cooling: dc?.cooling ?? 0,
-        demand: facilityDemand(ctx, b, s),
+        cooling: dc && isCooling(ctx, b.id, s) ? 1 : 0,
+        demand: facilityDemand(ctx, findFacility(w, b.id)!, s),
       };
     }),
     luddites: w.luddites.map((g) => {
