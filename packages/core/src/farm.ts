@@ -36,7 +36,7 @@ export function harvestProblem(ctx: SimContext, farmId: string, step: number): s
 
 /**
  * A ripe crop goes to the outbox, and the field replants. Whatever passes the outbox's capacity is wasted. An unripe field or a
- * wrecked farm: nothing. Phase 5, from a hand or from firmware alike.
+ * wrecked farm: nothing. From a hand or from firmware alike.
  */
 export function harvest(ctx: SimContext, farmId: string, step: number): void {
   const f = findFacility(ctx.world, farmId);

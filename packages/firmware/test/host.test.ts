@@ -63,6 +63,24 @@ describe('WasmoonHost in a session', () => {
     session.close();
   });
 
+  it("gives firmware each action's answer where it calls it, and keeps what a failed tick did before its error", async () => {
+    const session = new Session(parseScenario(m1), 7, await WasmoonHost.create());
+    session.world.plant.thermalSetting = 300;
+    session.deploy(
+      'DA',
+      `function tick(io)
+        io.log(tostring(io.process()), select(2, io.process()))
+        error("after", 0)
+      end`,
+    );
+    for (let i = 0; i < 4; i++) session.step(); // DA's first beat is step 3: its job runs from step 4
+    const da = session.world.boards.find((b) => b.id === 'DA')!;
+    expect(da.log.filter((l) => l.kind === 'log').map((l) => l.text)).toEqual(['true\ta job is running']);
+    expect(da.lastTick).toMatchObject({ actions: 1, error: { kind: 'runtime', message: 'after' } });
+    expect(session.world.datacenters.DA!).toMatchObject({ busyFrom: 4 });
+    session.close();
+  });
+
   it('reports a CPU cap hit as a firmware error', async () => {
     const session = new Session(parseScenario(m1), 7, await WasmoonHost.create());
     session.deploy('DA', 'function tick() while true do end end');

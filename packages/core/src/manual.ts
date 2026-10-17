@@ -145,31 +145,34 @@ function actionDocs(scenario: Scenario): Record<BoardKind | 'any', readonly Acti
     datacenter: [
       {
         call: 'io.process()',
-        meaning: `지금부터 ${milli(dc.jobMs)}초 동안 데이터센터를 돌린다. 이미 돌고 있거나 냉각 중이거나 처리할 전력이 모자라면 아무 일도 없다`,
+        meaning: `지금부터 ${milli(dc.jobMs)}초 동안 데이터센터를 돌린다. 거절되면 이유를 돌려준다: "a job is running"(이미 돈다), "a cooling cycle is running"(냉각 중), "not enough power"(처리할 전력이 모자란다)`,
       },
       {
         call: 'io.cool()',
-        meaning: `냉각을 한 번 돌린다: ${milli(dc.coolingCycleMs)}초에 걸쳐 ${milli(dc.coolingDropMilli)}°C를 낮춘다. 돌던 처리는 거기서 끝난다. 냉각 중이면 아무 일도 없다`,
+        meaning: `냉각을 한 번 돌린다: ${milli(dc.coolingCycleMs)}초에 걸쳐 ${milli(dc.coolingDropMilli)}°C를 낮춘다. 돌던 처리는 거기서 끝난다. 냉각 중이면 "a cooling cycle is running"으로 거절된다`,
       },
     ],
     power: [
-      { call: 'io.set_thermal(output)', meaning: `화력 출력을 정한다(0~${t.thermal.max}). 다시 정할 때까지 그대로다` },
+      {
+        call: 'io.set_thermal(output)',
+        meaning: `화력 출력을 정한다(0~${t.thermal.max}, 범위 밖은 맞춰진다). 다시 정할 때까지 그대로다. 늘 받아들여진다`,
+      },
       {
         call: 'io.set_priority({ids})',
         meaning:
-          '전력이 모자랄 때 지킬 순서를 높은 쪽부터 정한다. 예: {"H1", "DA"}. 빠진 시설은 지도 순서로 뒤에 온다. 모르는 id는 그 틱을 에러로 끝낸다',
+          '전력이 모자랄 때 지킬 순서를 높은 쪽부터 정한다. 예: {"H1", "DA"}. 빠진 시설은 지도 순서로 뒤에 온다. 늘 받아들여지고, 모르는 id는 그 틱을 에러로 끝낸다',
       },
     ],
     farm: [
       {
         call: 'io.harvest()',
-        meaning: `익은 작물을 거둬 ${t.farm.yield}의 식량을 출고함에 넣고 바로 다시 심는다. 익지 않았으면 아무 일도 없다`,
+        meaning: `익은 작물을 거둬 ${t.farm.yield}의 식량을 출고함에 넣고 바로 다시 심는다. 익지 않았으면 "nothing is ripe"로 거절된다`,
       },
     ],
     warehouse: [
       {
         call: 'io.dispatch(truck, from, to, amount)',
-        meaning: `트럭 하나를 보낸다. 회수는 from이 밭, to가 이 창고. 배달은 from이 이 창고, to가 주거지. amount는 1~${t.warehouse.truckCapacity}. 대기 중인 트럭만 떠나고, 맞지 않는 요청은 아무 일도 없다. 모르는 id는 그 틱을 에러로 끝낸다`,
+        meaning: `트럭 하나를 보낸다. 회수는 from이 밭, to가 이 창고. 배달은 from이 이 창고, to가 주거지. amount는 1~${t.warehouse.truckCapacity}. 대기 중인 트럭만 떠난다. 맞지 않는 요청은 거절되고 이유를 돌려준다(예: "truck 1 is on the road", "the warehouse has no food to deliver"). 모르는 id는 그 틱을 에러로 끝낸다`,
       },
     ],
     any: [
@@ -180,7 +183,7 @@ function actionDocs(scenario: Scenario): Record<BoardKind | 'any', readonly Acti
       },
       {
         call: 'io.sleep(seconds)',
-        meaning: `1~${t.maxSleepSeconds}초 동안 깊이 잠든다(범위 밖의 숫자는 이 범위로 맞춰지고 숫자가 아니면 그 틱을 에러로 끝낸다). 조용하고 전력도 ${t.sleepPower}만 쓰지만 RAM(mem과 전역 변수)이 지워진다`,
+        meaning: `1~${t.maxSleepSeconds}초 동안 깊이 잠든다(범위 밖의 숫자는 이 범위로 맞춰지고 숫자가 아니면 그 틱을 에러로 끝낸다). 틱이 끝나면 잠든다. 조용하고 전력도 ${t.sleepPower}만 쓰지만 RAM(mem과 전역 변수)이 지워진다`,
       },
     ],
   };
@@ -357,7 +360,8 @@ function commonSections(scenario: Scenario): Section[] {
           `세계는 1초에 ${time.stepsPerSecond} 스텝씩 흐르고 보드는 자기 박자가 온 스텝에서만 펌웨어를 실행한다. 박자 사이에도 세계는 움직이므로 클럭이 느린 보드는 그만큼 늦게 알아챈다.`,
           `하루는 ${day}초, 시즌은 ${time.seasonDays}일이다. ${code('io.day')}는 시즌의 날(1부터), ${code('io.clock')}은 시즌이 시작된 뒤 흐른 게임 초다.`,
           `센서 값은 틱마다 ${code('io')}에 새로 쓰인다. 목록과 표로 된 센서(예: ${code('io.farms')})의 값도 틱마다 다시 쓰이므로, 펌웨어가 그 값을 바꿔도 다음 틱에는 센서가 읽은 값으로 돌아온다.`,
-          `행동은 틱 동안 쌓였다가 틱이 끝나면 차례로 적용된다. 한 틱에 쌓을 수 있는 행동은 숫자 64개 분량이다: ${code('process')}, ${code('cool')}, ${code('harvest')}는 1, ${code('set_thermal')}과 ${code('sleep')}은 2, ${code('dispatch')}는 5, ${code('set_priority')}는 2에 id 수를 더한 만큼. 다 들어가지 않는 행동은 통째로 버려진다.`,
+          `행동은 부르는 순간 게임에 적용되고 효과는 다음 스텝부터 난다. 받아들여지면 ${code('true')}를, 거절되면 ${code('false')}와 이유(영어 문장)를 돌려준다: ${code('local ok, why = io.<행동>(...)')}. 거절된 행동은 아무것도 바꾸지 않는다. 손으로 할 때 거절되는 이유와 같다.`,
+          '보드들은 정해진 순서로 틱을 돈다. 같은 스텝에 앞서 돈 보드의 행동은 뒤에 도는 보드의 행동이 받아들여질지에 이미 반영된다.',
           `${code('mem')}은 틱과 틱, 배포와 배포 사이에 남는다. 전역 변수는 배포할 때마다 사라진다. 깊은 휴면과 시설 파괴는 둘 다 지운다.`,
           `배포할 때마다 새 ${code('io')}를 받는다. 배포를 넘어 이어지는 것은 ${code('mem')}뿐이다.`,
         ]),
@@ -387,7 +391,7 @@ function commonSections(scenario: Scenario): Section[] {
       blocks: [
         list([
           '런타임 에러, 명령어 상한 초과, RAM 부족은 그 틱 하나만 실패시킨다. 실패한 틱은 로그에 남고 펌웨어 에러 알림이 뜬다. 다음 틱은 평소대로 돈다.',
-          `실패한 틱의 행동은 모두 버려지지만 그 틱의 로그 줄과 ${code('mem')}에 쓴 값은 남는다.`,
+          `실패한 틱에서도 에러 전에 부른 행동은 이미 적용됐다. 그 틱의 로그 줄과 ${code('mem')}에 쓴 값도 남는다.`,
           `로그는 보드마다 최근 ${LOG_LIMIT}줄이고 줄마다 게임 시각이 붙는다. ${code('io.log')}가 남긴 줄, 에러, 시스템 사건(설치, 휴면, 깨어남, 파괴, 재건, 정전과 복구)이 들어간다.`,
           '같은 줄이 연달아 오면 한 줄로 접히고 ×N이 붙는다. 사이에 다른 줄이 끼면 새 줄이 된다.',
           quiet > 0
@@ -432,7 +436,7 @@ function commonSections(scenario: Scenario): Section[] {
         list([
           `${code('io.sleep(seconds)')}는 보드를 1~${t.maxSleepSeconds}초 동안 재운다. 범위 밖의 숫자는 이 범위로 맞춰지고 숫자가 아닌 값은 그 틱을 에러로 끝낸다. 틱이 끝나면 잠든다. 잠든 보드는 전자파를 내지 않고 전력은 ${t.sleepPower}만 쓴다.`,
           `휴면은 RAM을 지운다: 깨어나면 ${code('mem')}과 전역 변수가 비어 있고 펌웨어가 처음부터 다시 설치된다.`,
-          `같은 틱에서 ${code('io.sleep()')} 뒤에 부른 행동은 버려지고 앞에 부른 행동은 적용된다.`,
+          `같은 틱에서 ${code('io.sleep()')} 뒤에 부른 행동은 "the board is going to sleep"으로 거절되고 앞에 부른 행동은 적용된다.`,
           '보드가 자는 동안에도 시설은 멈추지 않는다. 손으로 돌릴 수 있고 시설의 설정(화력 출력, 공급 순서)과 이미 시작된 데이터센터의 작업과 냉각은 그대로 간다.',
         ]),
       ],
@@ -476,7 +480,7 @@ function commonSections(scenario: Scenario): Section[] {
       blocks: [
         list([
           `깨어 있고 전력을 받는 보드는 아무 일을 안 해도 초당 기본 전자파(부품 표)를 낸다. 통신 모듈이 있으면 ${t.install.commBaseEmfPerSecond} 더 낸다.`,
-          `틱마다: 명령어 ${e.instructionsPerUnit}개마다 1, 펌웨어가 시킨 기계의 행동(${code('harvest')}, ${code('dispatch')}, ${code('set_thermal')}, ${code('set_priority')}, ${code('cool')}) 하나마다 ${e.perAction}. ${code('process')}, ${code('sleep')}, ${code('log')}는 행동으로 세지 않는다.`,
+          `틱마다: 명령어 ${e.instructionsPerUnit}개마다 1, 펌웨어가 시켜 받아들여진 기계의 행동(${code('harvest')}, ${code('dispatch')}, ${code('set_thermal')}, ${code('set_priority')}, ${code('cool')}) 하나마다 ${e.perAction}. 거절된 행동은 세지 않는다. ${code('process')}, ${code('sleep')}, ${code('log')}는 행동으로 세지 않는다.`,
           `데이터센터는 처리하는 동안 초당 ${e.processingPerSecond}의 전자파를 낸다. 손으로 [처리]를 눌렀든 펌웨어가 시켰든 같다.`,
           '사람이 손으로 하는 일(수확, 트럭 보내기, 화력과 공급 순서 정하기)은 전자파가 없다.',
           `전자파는 그 시설의 칸에 쌓인다. 매초 각 칸이 이웃 네 칸에 ${e.diffusionPctPerSecond}%씩 나눠 주고 지도 전체가 매초 ${e.decayPctPerSecond}%씩 줄어든다.`,

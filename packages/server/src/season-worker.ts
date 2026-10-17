@@ -1,4 +1,5 @@
 import {
+  type Act,
   alertsView,
   alertView,
   type BoardState,
@@ -55,11 +56,11 @@ class TrackingHost implements FirmwareHost {
   boot(info: BootInfo): void {
     this.inner.boot(info);
   }
-  tick(boardId: string, input: TickInput): TickOutcome {
+  tick(boardId: string, input: TickInput, act: Act): TickOutcome {
     const [i, version] = this.index(boardId);
     this.progress(i, version);
     try {
-      return this.inner.tick(boardId, input);
+      return this.inner.tick(boardId, input, act);
     } finally {
       this.progress(-1, version);
     }

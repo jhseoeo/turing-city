@@ -84,7 +84,9 @@ A facility always works by hand. A board automates it.
 ### 4.2 Hand and firmware on one facility
 
 - **Manual controls stay at every tier.** A manual action is the same facility method a firmware action calls.
-  - It applies at once, between steps, so a paused game shows its effect. A job or a cooling cycle started by hand covers the coming step; one that firmware starts in phase 5 of a step covers the step after.
+  - It applies at once, between steps, so a paused game shows its effect. A job or a cooling cycle started by hand covers the coming step; one that firmware starts during a step covers the step after.
+  - **A firmware action answers where it is called** (the user, 2026-10-17). It applies the moment the firmware calls it, mid-tick, in board order, and takes effect from the next step. The call returns `true`, or `false` and the reason in English, the same reason the hand's refusal carries (`local ok, why = io.process()`). A refused action changes nothing, and counts neither as one of the tick's actions nor toward action EMF. Actions called before a tick fails have applied already. A sleep takes effect when the tick ends, and the board's actions called after it are refused ("the board is going to sleep"). There is no cap of 64 numbers on a tick's actions any more: the instruction cap bounds them.
+  - The hand is refused for the same reasons, a press of [냉각] during a cooling cycle included.
   - It is recorded with the step it came before, like a deploy, so replays stay deterministic.
   - A wrecked or repairing facility refuses it, and so does a facility of the wrong kind.
 - **Settings belong to the facility.** These are the thermal output and the priority list. Whoever set one last wins, in real order: firmware that acts in the coming step wins over a hand action made before it.

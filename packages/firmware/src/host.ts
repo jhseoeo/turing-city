@@ -1,4 +1,4 @@
-import type { Action, BootInfo, FirmwareHost, TickInput, TickOutcome } from '@turing-city/core';
+import type { Act, Action, BootInfo, FirmwareHost, TickInput, TickOutcome } from '@turing-city/core';
 import type { LuaWasm } from 'wasmoon';
 import { ACTION_CODES, BoardVm } from './board-vm.ts';
 import { createLuaRuntime } from './runtime.ts';
@@ -68,14 +68,21 @@ export class WasmoonHost implements FirmwareHost {
     this.vms.set(info.boardId, { vm, facilityIds: info.facilityIds });
   }
 
-  tick(boardId: string, input: TickInput): TickOutcome {
+  tick(boardId: string, input: TickInput, act: Act): TickOutcome {
     const entry = this.vms.get(boardId);
     if (!entry) throw new Error(`tick before boot: ${boardId}`);
-    const r = entry.vm.tick(input.sensors, input.newSource);
+    const taken: Action[] = [];
+    const r = entry.vm.tick(input.sensors, input.newSource, (numbers) => {
+      const action = decodeActions(numbers, entry.facilityIds)[0];
+      if (!action) return 'not an action';
+      const why = act(action);
+      if (why === null) taken.push(action);
+      return why;
+    });
     return {
       ok: r.ok,
       instructions: r.instructions,
-      actions: r.ok ? decodeActions(r.queue, entry.facilityIds) : [],
+      actions: taken,
       logs: r.logs,
       droppedLogs: r.droppedLogs,
       error: r.error,

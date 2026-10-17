@@ -5,6 +5,8 @@
  */
 export const PRELUDE = String.raw`
 local charge = __charge; __charge = nil
+-- Hands one action to the game as numbers, at once: the game applies it and answers nil, or why it did not.
+local act = __act; __act = nil
 local load, type, error, select, tostring_raw = load, type, error, select, tostring
 local setmetatable_raw, getmetatable, rawget, rawset, rawlen, rawequal = setmetatable, getmetatable, rawget, rawset, rawlen, rawequal
 local pairs, ipairs, next, pcall, assert, tonumber = pairs, ipairs, next, pcall, assert, tonumber
@@ -204,7 +206,7 @@ safe_coroutine.wrap = function(f)
   return function(...) return wrap_done(C.resume(co, ...)) end
 end
 
-local mem, q, logs = {}, {}, {}
+local mem, logs = {}, {}
 -- actions holds the io actions of the board's kind; io_t is the io table of the firmware that runs.
 local io_t, actions = nil, {}
 -- pending is a compiled firmware waiting for the next step; installed is the record of the one that runs (its main
@@ -237,11 +239,10 @@ local function log(...)
   logs[#logs + 1] = line
 end
 
-local function push(...)
-  local n = select("#", ...)
-  if #q + n <= 64 then
-    for k = 1, n do q[#q + 1] = (select(k, ...)) end
-  end
+-- Every action answers where it is called (the user, 2026-10-17): true, or false and why the game did not take it.
+local function result(why)
+  if why == nil then return true end
+  return false, why
 end
 
 local function make_env()
@@ -271,27 +272,25 @@ function __boot(kind, fids, seed)
   -- How many lines this tick's log dropped past its limit; the host reads and zeroes it with the lines. It is a field
   -- of the log table so that the node it takes is already there at the baseline.
   logs.dropped = 0
-  -- The queue and the log keep the arrays they grow to, and an array never shrinks. They start at their limits (64
-  -- numbers, 20 lines of an array of 32) so that the baseline holds them and no tick can leave them to the firmware.
-  for k = 1, 64 do q[k] = 0 end
-  for k = 1, 64 do q[k] = nil end
+  -- The log keeps the array it grows to, and an array never shrinks. It starts at its limit (20 lines of an array of 32) so
+  -- that the baseline holds it and no tick can leave it to the firmware.
   for k = 1, 20 do logs[k] = "" end
   for k = 1, 20 do logs[k] = nil end
-  -- Firmware names facilities by id, and the queue carries each one's index in fids: every facility of the town, in order.
+  -- Firmware names facilities by id, and an action carries each one's index in fids: every facility of the town, in order.
   local fidx = {}
   for k = 1, #fids do fidx[fids[k]] = k end
   actions.log = log
   actions.sleep = function(seconds)
     -- x - x is 0 for every finite number, and NaN for NaN and the infinities, which have no seconds to clamp.
     if type(seconds) ~= "number" or seconds - seconds ~= 0 then error("sleep expects a number of seconds", 2) end
-    push(5, seconds)
+    return result(act(5, seconds))
   end
   if kind == "datacenter" then
-    actions.process = function() push(1) end
-    -- One cooling cycle; while one runs, another call does nothing (the game's rule, not the prelude's).
-    actions.cool = function() push(2) end
+    actions.process = function() return result(act(1)) end
+    -- One cooling cycle; while one runs, another call is refused (the game's rule, not the prelude's).
+    actions.cool = function() return result(act(2)) end
   elseif kind == "power" then
-    actions.set_thermal = function(output) push(3, tonumber(output) or 0) end
+    actions.set_thermal = function(output) return result(act(3, tonumber(output) or 0)) end
     actions.set_priority = function(list)
       if type(list) ~= "table" then error("set_priority expects a list of facility ids", 2) end
       local idx = {}
@@ -300,16 +299,16 @@ function __boot(kind, fids, seed)
         if not i then error("unknown facility: " .. safe_tostring(list[k]), 2) end
         idx[k] = i
       end
-      push(4, #idx, T.unpack(idx))
+      return result(act(4, #idx, T.unpack(idx)))
     end
   elseif kind == "farm" then
-    actions.harvest = function() push(6) end
+    actions.harvest = function() return result(act(6)) end
   elseif kind == "warehouse" then
     actions.dispatch = function(truck, from, to, amount)
       local f, t = fidx[from], fidx[to]
       if not f then error("unknown facility: " .. safe_tostring(from), 2) end
       if not t then error("unknown facility: " .. safe_tostring(to), 2) end
-      push(7, tonumber(truck) or 0, f, t, tonumber(amount) or 0)
+      return result(act(7, tonumber(truck) or 0, f, t, tonumber(amount) or 0))
     end
   end
   return fresh_io()
@@ -349,5 +348,5 @@ function __step()
   tick(io_t, mem)
 end
 
-__q, __logs = q, logs
+__logs = logs
 `;

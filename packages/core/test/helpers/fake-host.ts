@@ -1,4 +1,4 @@
-import type { Action, BootInfo, FirmwareHost, TickError, TickInput, TickOutcome } from '../../src/firmware-host.ts';
+import type { Act, Action, BootInfo, FirmwareHost, TickError, TickInput, TickOutcome } from '../../src/firmware-host.ts';
 
 export interface FakeTick {
   actions?: Action[];
@@ -29,7 +29,9 @@ export class FakeHost implements FirmwareHost {
     this.boots.push(info);
     this.vms.set(info.boardId, { program: null, mem: {} });
   }
-  tick(boardId: string, input: TickInput): TickOutcome {
+  /** What each action of the last tick of each board was answered: null, or why the game did not take it. */
+  readonly answers = new Map<string, Array<string | null>>();
+  tick(boardId: string, input: TickInput, act: Act): TickOutcome {
     this.calls.push(`tick:${boardId}`);
     const vm = this.vms.get(boardId);
     if (!vm) throw new Error(`tick before boot: ${boardId}`);
@@ -43,10 +45,14 @@ export class FakeHost implements FirmwareHost {
     }
     const out = vm.program(input.sensors, vm.mem);
     const ok = out.error === undefined;
+    // A program that fails fails before its actions: none of them is called.
+    const called = ok ? (out.actions ?? []) : [];
+    const answers = called.map((action) => act(action));
+    this.answers.set(boardId, answers);
     return {
       ok,
       instructions: out.instructions ?? 100,
-      actions: ok ? (out.actions ?? []) : [],
+      actions: called.filter((_, i) => answers[i] === null),
       logs: out.logs ?? [],
       droppedLogs: out.droppedLogs ?? 0,
       error: out.error ?? null,

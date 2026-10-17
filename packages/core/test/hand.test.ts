@@ -42,6 +42,30 @@ describe('facility actions from the hand and from firmware', () => {
     expect(kinds.filter(countsAsAction)).toEqual(['cool', 'setThermal', 'setPriority', 'harvest', 'dispatch']);
   });
 
+  it("answers each of firmware's actions: null when the game took it, and why when it did not, as the hand would hear", () => {
+    const host = new FakeHost();
+    const twice = host.program('twice', () => ({ actions: [{ kind: 'process' }, { kind: 'process' }, { kind: 'cool' }] }));
+    const s = quiet(host);
+    s.deploy('DA', twice);
+    steps(s, 4); // DA's first beat is step 3
+    // The first call starts a job, so the second meets it; the cooling cycle then cuts the job short.
+    expect(host.answers.get('DA')).toEqual([null, 'a job is running', null]);
+    expect(windows(s, 'DA')).toEqual({ busy: [4, 4], cool: [4, 84] });
+    // Only the actions the game took count as the tick's actions (and toward action EMF).
+    expect(s.world.boards.find((b) => b.id === 'DA')!.lastTick!.actions).toBe(2);
+  });
+
+  it("refuses a board's actions called after its sleep in the same tick, and the sleep comes when the tick ends", () => {
+    const host = new FakeHost();
+    const nap = host.program('nap', () => ({ actions: [{ kind: 'cool' }, { kind: 'sleep', seconds: 5 }, { kind: 'process' }] }));
+    const s = quiet(host);
+    s.deploy('DA', nap);
+    steps(s, 4);
+    expect(host.answers.get('DA')).toEqual([null, null, 'the board is going to sleep']);
+    expect(windows(s, 'DA')).toEqual({ busy: [-1, -1], cool: [4, 84] });
+    expect(s.world.boards.find((b) => b.id === 'DA')!.status).toBe('asleep');
+  });
+
   it('runs a press of [처리] at once, from the step the world is at, for half a second', () => {
     const s = quiet();
     steps(s, 6);
@@ -61,12 +85,16 @@ describe('facility actions from the hand and from firmware', () => {
     expect(windows(s, 'DA').busy).toEqual([0, 10]);
   });
 
-  it('starts a cooling cycle at once, ignores a press during it, and starts a new one after it', () => {
+  it('starts a cooling cycle at once, refuses a press during it, and starts a new one after it', () => {
     const s = quiet();
     expect(s.hand('DA', { kind: 'cool' })).toEqual({ ok: true });
     expect(windows(s, 'DA').cool).toEqual([0, 80]); // 4 s
     steps(s, 10);
-    expect(s.hand('DA', { kind: 'cool' })).toEqual({ ok: true });
+    expect(s.hand('DA', { kind: 'cool' })).toEqual({
+      ok: false,
+      reason: 'DA: a cooling cycle is running',
+      refusal: { code: 'cannotAct', facility: 'DA', detail: 'a cooling cycle is running' },
+    });
     expect(windows(s, 'DA').cool).toEqual([0, 80]);
     steps(s, 70); // the cycle's last step is 79
     s.hand('DA', { kind: 'cool' });

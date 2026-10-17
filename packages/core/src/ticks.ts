@@ -1,17 +1,22 @@
+import { firmwareAction } from './actions.ts';
 import { clearFlag, raiseOnce } from './alerts.ts';
-import { appendLog } from './boards.ts';
-import type { TickOutcome } from './firmware-host.ts';
+import { appendLog, startSleep } from './boards.ts';
+import type { Act, TickOutcome } from './firmware-host.ts';
 import { deriveSeed } from './rng.ts';
 import { sensorFrame } from './sensors.ts';
 import { isBeat } from './time.ts';
-import type { BoardState, SimContext } from './world.ts';
+import { type BoardState, findFacility, type SimContext } from './world.ts';
 
 export interface Ticked {
   readonly board: BoardState;
   readonly outcome: TickOutcome;
 }
 
-/** Phase 4: runs the firmware of every powered, awake board whose beat falls on this step. */
+/**
+ * Phase 4: runs the firmware of every powered, awake board whose beat falls on this step, in board order. Each action applies the
+ * moment the firmware calls it, from the next step, and answers the call (the user, 2026-10-17). A sleep takes effect when the tick
+ * ends, and the board's actions called after it are refused.
+ */
 export function runBoardTicks(ctx: SimContext, step: number): Ticked[] {
   const ticked: Ticked[] = [];
   // Firmware names facilities by id (set_priority, dispatch): every facility of the town, with a board or not.
@@ -34,7 +39,17 @@ export function runBoardTicks(ctx: SimContext, step: number): Ticked[] {
     } else if (board.pending) {
       newSource = board.pending.source;
     }
-    const outcome = ctx.host.tick(board.id, { sensors: sensorFrame(ctx, board), newSource });
+    const facility = findFacility(ctx.world, board.id)!;
+    let sleepFor: number | null = null;
+    const act: Act = (action) => {
+      if (sleepFor !== null) return 'the board is going to sleep';
+      if (action.kind === 'sleep') {
+        sleepFor = action.seconds;
+        return null;
+      }
+      return firmwareAction(ctx, facility, action, step);
+    };
+    const outcome = ctx.host.tick(board.id, { sensors: sensorFrame(ctx, board), newSource }, act);
     if (board.pending) {
       board.firmware = board.pending;
       board.pending = null;
@@ -58,6 +73,7 @@ export function runBoardTicks(ctx: SimContext, step: number): Ticked[] {
       clearFlag(ctx.world, `fwerr:${board.id}`);
     }
     ticked.push({ board, outcome });
+    if (sleepFor !== null) startSleep(ctx, board, step, sleepFor);
   }
   return ticked;
 }

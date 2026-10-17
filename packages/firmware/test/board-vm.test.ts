@@ -75,10 +75,37 @@ describe('BoardVm', () => {
     p.close();
   });
 
-  it('caps the action queue at 64 numbers, whole actions only', () => {
+  it('hands every action to the game as it is called, with no cap of its own: the instruction cap bounds them', () => {
     const v = vm({ instructionCap: 20_000 }); // 100 io.cool() calls take a few thousand instructions
-    const r = v.tick(SENSORS, `function tick(io) for i = 1, 100 do io.cool() end end`);
-    expect(r.queue).toEqual(Array.from({ length: 64 }, () => 2));
+    let calls = 0;
+    const r = v.tick(SENSORS, `function tick(io) for i = 1, 100 do io.cool() end end`, () => {
+      calls += 1;
+      return null;
+    });
+    expect(calls).toBe(100);
+    expect(r.queue).toEqual(Array.from({ length: 100 }, () => 2));
+    v.close();
+  });
+
+  it("returns each action's answer to the call: true when the game takes it, false and why when it does not", () => {
+    const v = vm();
+    const answers: string[] = [];
+    const r = v.tick(
+      SENSORS,
+      `function tick(io)
+        local ok, why = io.process()
+        io.log(tostring(ok), tostring(why))
+        ok, why = io.cool()
+        io.log(tostring(ok), tostring(why))
+      end`,
+      (numbers) => {
+        answers.push(numbers.join(','));
+        return numbers[0] === 1 ? 'not enough power' : null;
+      },
+    );
+    expect(r.ok).toBe(true);
+    expect(answers).toEqual(['1', '2']);
+    expect(r.logs).toEqual(['false\tnot enough power', 'true\tnil']);
     v.close();
   });
 
@@ -268,20 +295,11 @@ describe('BoardVm', () => {
     d.close();
   });
 
-  it('drops an action that does not fit whole at the 64-number limit, and still takes a later one that fits', () => {
-    const p = vm({ kind: 'power', instructionCap: 20_000 });
-    // 31 set_thermal(1) calls are 62 numbers. set_priority({"DA"}) needs three more and would reach 65: it is dropped whole.
-    // The last set_thermal(7) needs two, which fit at 64.
-    const r = p.tick(SENSORS, `function tick(io) for i = 1, 31 do io.set_thermal(1) end io.set_priority({"DA"}) io.set_thermal(7) end`);
-    expect(r.queue).toEqual([...Array.from({ length: 31 }, () => [3, 1]).flat(), 3, 7]);
-    p.close();
-  });
-
-  it('returns no actions from a tick that failed after queueing some', () => {
+  it('has handed the game the actions a failed tick called before its error: each went at its call', () => {
     const v = vm();
     const r = v.tick(SENSORS, `function tick(io) io.process() io.cool() error("after", 0) end`);
     expect(r.ok).toBe(false);
-    expect(r.queue).toEqual([]);
+    expect(r.queue).toEqual([1, 2]);
     v.close();
   });
 
@@ -898,7 +916,7 @@ describe('BoardVm', () => {
       bare.close();
     });
 
-    it('encodes dispatch with facility indexes, refuses an unknown facility, and keeps a dispatch whole at the 64-number limit', () => {
+    it('encodes dispatch with facility indexes, and refuses an unknown facility', () => {
       const v = warehouse();
       // F1 is 7, W is 5, H2 is 2.
       const r = v.tick(WAREHOUSE, `function tick(io) io.dispatch(2, "F1", "W", 30) io.dispatch(1, "W", "H2", 5) end`);
@@ -908,9 +926,6 @@ describe('BoardVm', () => {
         expect(bad.ok, call).toBe(false);
         expect(bad.error?.message, call).toMatch(/^firmware:1: unknown facility: (ZZ|nil)$/);
       }
-      // Twelve dispatches are 60 numbers. A thirteenth would reach 65 and is dropped whole; a sleep's two numbers still fit.
-      const full = v.tick(WAREHOUSE, `function tick(io) for i = 1, 13 do io.dispatch(1, "F1", "W", 1) end io.sleep(1) end`);
-      expect(full.queue).toEqual([...Array.from({ length: 12 }, () => [7, 1, 7, 5, 1]).flat(), 5, 1]);
       v.close();
     });
 

@@ -28,10 +28,16 @@ export interface BoardVmOptions {
   readonly ramBytes: number;
 }
 
+/**
+ * Takes one action as the numbers firmware called it with (its code first), at the moment of the call: the game applies it and
+ * answers null, or why it did not take it, which the call returns to the firmware.
+ */
+export type ActCall = (numbers: readonly number[]) => string | null;
+
 export interface VmTickResult {
   readonly ok: boolean;
   readonly instructions: number;
-  /** The raw action queue; empty when the tick failed. */
+  /** Every action the tick called, as numbers one after another, a failed tick's too: each was handed to the game as it came. */
   readonly queue: readonly number[];
   readonly logs: readonly string[];
   /** How many log lines the tick asked for past the limit of 20. */
@@ -41,7 +47,7 @@ export interface VmTickResult {
   readonly ramUsedBytes: number;
 }
 
-type RefName = 'boot' | 'compile' | 'release' | 'collect' | 'step' | 'io' | 'queue' | 'logs';
+type RefName = 'boot' | 'compile' | 'release' | 'collect' | 'step' | 'io' | 'logs';
 
 /** One board's Lua state. Everything it runs goes through tick(), at a deterministic point. */
 export class BoardVm {
@@ -52,8 +58,11 @@ export class BoardVm {
   private ops = 0;
   private capped = false;
   private counting = false;
+  /** Where this tick's actions go, and what it called so far: set for the step only. */
+  private act: ActCall | null = null;
+  private calls: number[] = [];
   /**
-   * Memory in use by the board as it comes up, with no firmware: the runtime, the prelude with its queue and log at
+   * Memory in use by the board as it comes up, with no firmware: the runtime, the prelude with its log at
    * their limits, and io with the readings of the first frame, their tables too. None of it is the firmware's to pay for. It is
    * measured on the first tick, after that frame, and fixed for the board's life.
    */
@@ -85,6 +94,7 @@ export class BoardVm {
     }
     this.L = this.engine.global.address;
     this.engine.global.set('__charge', (n: number) => this.charge(n));
+    this.engine.global.set('__act', (...numbers: unknown[]) => this.onAct(numbers));
     this.hook = lua.module.addFunction((L: number) => this.onInstruction(L), 'vii');
     lua.lua_sethook(this.L, this.hook, MASK_COUNT, 1);
     this.engine.doStringSync(PRELUDE);
@@ -95,7 +105,6 @@ export class BoardVm {
       collect: this.takeGlobal('__collect'),
       step: this.takeGlobal('__step'),
       io: 0, // the first io table, which __boot returns
-      queue: this.takeGlobal('__q'),
       logs: this.takeGlobal('__logs'),
     };
     this.pushRef('boot');
@@ -111,8 +120,11 @@ export class BoardVm {
     this.refs.io = lua.luaL_ref(this.L, REGISTRY);
   }
 
-  /** Installs newSource (if given), writes the sensors into io, and runs one tick under the caps. */
-  tick(sensors: Readonly<Record<string, SensorValue>>, newSource: string | null): VmTickResult {
+  /**
+   * Installs newSource (if given), writes the sensors into io, and runs one tick under the caps. Each action the tick calls goes to
+   * `act` at once; without one, every action is taken.
+   */
+  tick(sensors: Readonly<Record<string, SensorValue>>, newSource: string | null, act: ActCall = () => null): VmTickResult {
     const { lua, L } = this;
     if (!this.baselined) this.baseline(sensors);
     if (newSource !== null) {
@@ -127,29 +139,24 @@ export class BoardVm {
     // there aborts the whole Lua runtime instead of failing a tick.
     this.capRam(newSource !== null ? this.startupRoom() : 0);
     this.counting = true;
+    this.act = act;
+    this.calls = [];
     this.pushRef('step');
     let status: number;
     try {
       status = lua.lua_pcallk(L, 0, 0, 0, 0, null);
     } finally {
       this.counting = false;
+      this.act = null;
       this.engine.global.setMemoryMax(undefined);
     }
     const error = status === 0 ? null : this.classify(status, this.errorText(-1));
     if (newSource !== null) this.installError = error?.message ?? null;
     this.starved = error?.kind === 'ram';
     lua.lua_settop(L, 0);
-    const queue = this.drain('queue', () => lua.lua_tonumberx(L, -1, null));
     const logs = this.drain('logs', () => lua.lua_tolstring(L, -1, null));
     const droppedLogs = this.takeDroppedLogs();
-    return this.result(
-      status === 0,
-      this.capped ? this.options.instructionCap : this.ops,
-      status === 0 ? queue : [],
-      logs,
-      error,
-      droppedLogs,
-    );
+    return this.result(status === 0, this.capped ? this.options.instructionCap : this.ops, this.calls, logs, error, droppedLogs);
   }
 
   close(): void {
@@ -215,6 +222,17 @@ export class BoardVm {
       this.lua.lua_pushstring(L, CPU_MESSAGE);
       this.lua.lua_error(L);
     }
+  }
+
+  /**
+   * One action from the prelude: its numbers go to the game, and its answer back to the call. Only a running step takes any.
+   * Taken is undefined, which reaches Lua as nil (wasmoon would hand JS null to Lua as a userdata).
+   */
+  private onAct(args: readonly unknown[]): string | undefined {
+    if (!this.counting || this.act === null) return 'no tick is running';
+    const numbers = args.map((a) => Number(a));
+    this.calls.push(...numbers);
+    return this.act(numbers) ?? undefined;
   }
 
   /** Work a builtin is about to do, in instructions. Only a positive amount counts, so no argument buys budget back. */
@@ -323,8 +341,8 @@ export class BoardVm {
     this.listLengths.clear();
   }
 
-  /** Reads and empties one of the prelude's lists, with raw access only. */
-  private drain<T>(name: 'queue' | 'logs', read: () => T): T[] {
+  /** Reads and empties the prelude's log, with raw access only. */
+  private drain<T>(name: 'logs', read: () => T): T[] {
     const { lua, L } = this;
     this.pushRef(name);
     const n = lua.lua_rawlen(L, -1);

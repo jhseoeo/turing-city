@@ -13,6 +13,12 @@ export type FacilityAction =
 /** What firmware can ask for during one tick: the facility actions, plus sleep. */
 export type Action = FacilityAction | { readonly kind: 'sleep'; readonly seconds: number };
 
+/**
+ * Takes one action of a board's firmware at the moment it is called, mid-tick: the game applies it at once and answers null, or why
+ * it did not take it (then nothing changed). The call returns that to the firmware (the user, 2026-10-17).
+ */
+export type Act = (action: Action) => string | null;
+
 /** The actions that count toward a board's action EMF, machine labor: all but process and sleep (10-10 §5). */
 export function countsAsAction(kind: Action['kind']): boolean {
   return kind !== 'process' && kind !== 'sleep';
@@ -48,7 +54,7 @@ export interface TickOutcome {
   readonly ok: boolean;
   /** Instructions counted; equal to the cap when the tick hit it. */
   readonly instructions: number;
-  /** Empty when the tick failed. */
+  /** The actions the game took, as they were called: a failed tick's too, as far as it got. */
   readonly actions: readonly Action[];
   /** io.log lines, kept even when the tick failed. */
   readonly logs: readonly string[];
@@ -64,7 +70,8 @@ export interface TickOutcome {
  */
 export interface FirmwareHost {
   boot(info: BootInfo): void;
-  tick(boardId: string, input: TickInput): TickOutcome;
+  /** Runs one tick; each action it calls goes to `act` at once, and its answer back to the firmware. */
+  tick(boardId: string, input: TickInput, act: Act): TickOutcome;
   /** Drops the board's VM: sleep and destruction wipe its RAM. */
   shutdown(boardId: string): void;
   close(): void;

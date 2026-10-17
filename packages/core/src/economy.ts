@@ -11,7 +11,7 @@ import { createBoard, type EndKind, findBoard, findFacility, type SimContext } f
 export function runEconomy(ctx: SimContext): void {
   const w = ctx.world;
   const spd = stepsPerDay(ctx.scenario.time);
-  // Generation is the wind plus the thermal output, and phase 3 left both. The plant's firmware (phase 5) or a smash (phase 8)
+  // Generation is the wind plus the thermal output, and phase 3 left both. The plant's firmware (phase 4, mid-tick) or a smash (phase 8)
   // may have changed the setting or the board since, but the module ran as phase 3 found it.
   const thermal = w.plant.generation - w.plant.wind;
   const fuel = mulDiv(thermal * w.plant.fuelPrice, MICRO, spd);
