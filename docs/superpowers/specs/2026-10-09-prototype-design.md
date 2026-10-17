@@ -114,6 +114,8 @@ Units: power is an amount drawn or produced at each step; when generation falls 
 3. Power: generation, transmission loss, and shedding by priority (§5.2).
 4. Board ticks due this step: run firmware, count instructions, collect actions (§6).
 5. Apply actions: the facilities' core methods and settings.
+
+   (Superseded on 2026-10-17 by the 10-10 spec §4.2: each action applies the moment the firmware calls it, in phase 4, and answers the call.)
 6. Physical processes: heat, crops, trucks, spoilage, housing consumption, and taxes.
 7. EMF: emission, diffusion, and decay; the rumour gauge; raid spawns.
 8. Luddites: movement, smashing, leaving.
@@ -256,7 +258,7 @@ end
 
 - **When it runs:** each board has one Lua state. While the board is powered, awake, and intact, `tick(io, mem)` runs once on each beat of its clock.
 - **`io`:** at the start of each tick, the host writes the mounted sensors' values into `io` through the raw C API. A sensor the board lacks reads as `nil`.
-- **Actions** (`io.process()` and the like) are queued inside Lua and read by the host after `tick` returns. The step applies them in phase 5. A tick that fails applies none of them.
+- **Actions** (`io.process()` and the like) are queued inside Lua and read by the host after `tick` returns. The step applies them in phase 5. A tick that fails applies none of them. (Superseded on 2026-10-17 by the 10-10 spec §4.2: an action applies when it is called and returns its result; a failed tick keeps what it applied before the error.)
 - **`mem`:** a table that persists across ticks. Deep sleep and destruction wipe it.
 
 ### 6.2 `io` per facility

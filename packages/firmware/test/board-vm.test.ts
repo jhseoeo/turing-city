@@ -295,6 +295,20 @@ describe('BoardVm', () => {
     d.close();
   });
 
+  it("throws what the game threw while taking an action out of the tick, where firmware's pcall can't catch it", () => {
+    const v = vm();
+    const source = `function tick(io, mem) mem.caught = select(2, pcall(io.process)) io.log("went on") io.cool() end`;
+    let calls = 0;
+    expect(() =>
+      v.tick(SENSORS, source, () => {
+        calls += 1;
+        throw new Error('core bug');
+      }),
+    ).toThrow('core bug');
+    expect(calls).toBe(1); // the cool after it was refused without reaching the game
+    v.close();
+  });
+
   it('has handed the game the actions a failed tick called before its error: each went at its call', () => {
     const v = vm();
     const r = v.tick(SENSORS, `function tick(io) io.process() io.cool() error("after", 0) end`);
@@ -572,9 +586,9 @@ describe('BoardVm', () => {
     });
 
     // The host's own structures are part of the board, not of the firmware's data.
-    it("does not count the host's queue and log arrays as firmware data", () => {
-      // The same firmware and sensors on two boards, so that only the history differs: one of them once queued 64
-      // numbers and logged 20 lines, which grows the two arrays for good. Each redeploy collects before it reads.
+    it("does not count the host's log array, or a tick's many actions, as firmware data", () => {
+      // The same firmware and sensors on two boards, so that only the history differs: one of them once called 64 actions and
+      // logged 20 lines, which grows the log array for good. Each redeploy collects before it reads.
       const noisy = `function tick(io) if io.noisy == 1 then for i = 1, 20 do io.log("x") end for i = 1, 64 do io.cool() end end end`;
       const a = vm({ instructionCap: 20_000 });
       a.tick({ ...SENSORS, noisy: 1 }, noisy);

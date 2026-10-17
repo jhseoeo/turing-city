@@ -122,7 +122,7 @@ describe('datacenters', () => {
       reason: 'DA: a job is running',
       refusal: { code: 'cannotAct', facility: 'DA', detail: 'a job is running' },
     }); // at step 5, mid-job: refused, and the job still ends after step 9
-    applyFacilityAction(s.ctx, fac(s, 'DA'), { kind: 'process' }, 6); // the same call from firmware is ignored
+    applyFacilityAction(s.ctx, fac(s, 'DA'), { kind: 'process' }, 6); // the same call from firmware is refused, and changes nothing
     expect([dc.busyFrom, dc.busyUntil]).toEqual([0, 10]);
     steps(s, 5); // through step 9, the job's last
     expect(s.hand('DA', { kind: 'process' })).toEqual({ ok: true }); // at step 10: the next job, steps 10 to 19
@@ -270,14 +270,20 @@ describe('datacenters', () => {
     s.world.plant.thermalSetting = lean;
     steps(s, 40);
     expect(said()).toBe(2);
+    // A job the hand starts ends the episode too: firmware meets that job running, not a success of its own.
+    s.world.plant.thermalSetting = 2_000;
+    expect(s.hand('DA', { kind: 'process' })).toEqual({ ok: true });
+    s.world.plant.thermalSetting = lean;
+    steps(s, 60);
+    expect(said()).toBe(3);
   });
 
-  it('ignores a press during a cooling cycle and starts a new cycle after it', () => {
+  it('refuses a press during a cooling cycle and starts a new cycle after it', () => {
     const s = holding();
     const dc = s.world.datacenters.DA!;
     s.hand('DA', { kind: 'cool' }); // applies at step 0: steps 0 to 79
     steps(s, 10);
-    s.hand('DA', { kind: 'cool' }); // applies at step 10, inside the cycle: nothing changes
+    expect(s.hand('DA', { kind: 'cool' }).ok).toBe(false); // at step 10, inside the cycle: refused, nothing changes
     steps(s, 1);
     expect([dc.coolFrom, dc.coolUntil]).toEqual([0, 80]);
     steps(s, 69); // through step 79, the cycle's last
@@ -294,7 +300,7 @@ describe('datacenters', () => {
     steps(s, 4); // steps 0 to 3 work
     expect(s.hand('DA', { kind: 'cool' })).toEqual({ ok: true }); // a cycle from step 4 stops the job there
     expect([dc.busyFrom, dc.busyUntil, dc.coolFrom, dc.coolUntil]).toEqual([0, 4, 4, 84]);
-    // A press while it cools is refused, and changes nothing; the same call from firmware is ignored.
+    // A press while it cools is refused, and changes nothing; so is the same call from firmware.
     expect(s.hand('DA', { kind: 'process' })).toEqual({
       ok: false,
       reason: 'DA: a cooling cycle is running',

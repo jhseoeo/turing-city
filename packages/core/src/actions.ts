@@ -29,7 +29,7 @@ const KIND_NAMES: Record<FacilityKind, string> = {
 
 /**
  * Why a datacenter can't start a job at this step, or null: a cooling cycle or a job runs, or the grid can't supply it with the job
- * (the user, 2026-10-17: with too little power, no job starts at all). Session.hand refuses with it; firmware's process() is ignored.
+ * (the user, 2026-10-17: with too little power, no job starts at all). applyFacilityAction refuses with it, the hand's press and firmware's call alike.
  */
 export function jobProblem(ctx: SimContext, facility: FacilityState, step: number): string | null {
   return processProblem(ctx, facility.id, step) ?? (jobPowerShort(ctx, facility, step) > 0 ? 'not enough power' : null);
@@ -66,6 +66,7 @@ export function applyFacilityAction(ctx: SimContext, facility: FacilityState, ac
       dc.busyFrom = startStep;
       dc.busyUntil = startStep + jobSteps(ctx);
       dc.workedSteps = 0;
+      clearFlag(w, jobPowerFlag(facility)); // a job runs again, from the hand or firmware: the next refusal is news
       return null;
     }
     case 'cool': {
@@ -107,13 +108,12 @@ export function applyFacilityAction(ctx: SimContext, facility: FacilityState, ac
  */
 export function firmwareAction(ctx: SimContext, facility: FacilityState, action: FacilityAction, step: number): string | null {
   const why = applyFacilityAction(ctx, facility, action, step + 1);
-  if (action.kind === 'process') {
-    const flag = `jobPower:${facility.id}`;
-    if (why === 'not enough power') {
-      raiseOnce(ctx.world, flag, step, 'powerShortage', facility.id, `${facility.id} 전력이 모자라 처리를 시작하지 못했어요`);
-    } else if (why === null) {
-      clearFlag(ctx.world, flag);
-    }
+  if (action.kind === 'process' && why === 'not enough power') {
+    const message = `${facility.id} 전력이 모자라 처리를 시작하지 못했어요`;
+    raiseOnce(ctx.world, jobPowerFlag(facility), step, 'powerShortage', facility.id, message);
   }
   return why;
 }
+
+/** The flag of a datacenter's "no power for a job" alert: set while firmware's refusals have been told, until a job starts. */
+const jobPowerFlag = (facility: FacilityState): string => `jobPower:${facility.id}`;

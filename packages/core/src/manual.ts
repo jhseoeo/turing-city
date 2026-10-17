@@ -222,12 +222,12 @@ function facilityRules(scenario: Scenario, f: FacilitySpec, kind: BoardKind, boa
       const dc = t.datacenter;
       return [
         list([
-          `${code('io.process()')}와 손의 [처리]는 둘 다 데이터센터를 지금부터 ${milli(dc.jobMs)}초 동안 돌린다. 한 번 시작한 처리는 끝까지 돌고, 도는 동안 다시 부르면 아무 일도 없다. 끝난 뒤에 불러야 새로 돈다.`,
+          `${code('io.process()')}와 손의 [처리]는 둘 다 데이터센터를 지금부터 ${milli(dc.jobMs)}초 동안 돌린다. 한 번 시작한 처리는 끝까지 돌고, 도는 동안 다시 부르면 거절된다("a job is running"). 끝난 뒤에 불러야 새로 돈다.`,
           `처리가 끝까지 돌면 끝나는 순간 그때의 단가(${code('price')}) × 일한 시간을 한 번에 번다. 끊김 없이 돌았으면 단가 × ${milli(dc.jobMs)}초다. 전력이 끊긴 동안은 일한 시간에 들지 않는다. 냉각을 시작하거나 시설이 부서져 처리가 중간에 끝나면 그 처리는 한 푼도 못 번다.`,
           `처리하는 동안 ${dc.processPower}의 전력을 더 쓰고 초당 ${milli(dc.heatMilliPerSecond)}°C씩 뜨거워지며 초당 ${t.emf.processingPerSecond}의 전자파를 낸다.`,
           `가만히 두면 매초 (온도 − ${milli(dc.ambientMilli)}°C)의 ${permille(dc.passiveCoolingPermillePerSecond)}%씩만 식는다. 아주 느리다.`,
-          `${code('io.cool()')}과 손의 [냉각]은 둘 다 ${milli(dc.coolingCycleMs)}초에 걸쳐 고르게 ${milli(dc.coolingDropMilli)}°C를 낮추고 그동안 ${dc.coolingPower}의 전력을 쓴다. 냉각 중에 다시 부르면 아무 일도 없다. 처리와 냉각은 함께 돌지 않는다. 냉각을 시작하면 돌던 처리가 거기서 끝나고, 냉각하는 동안에는 ${code('io.process()')}가 아무 일도 하지 않으며 손의 [처리]는 눌리지 않는다.`,
-          `처리를 시작할 때 전력이 모자라면 처리는 시작되지 않는다. 모자란다는 것은 지금의 발전량으로 공급 순서에서 이 데이터센터보다 앞선 시설과 처리하는 이 데이터센터(처리 전력 ${dc.processPower}에 송전 손실까지)를 다 댈 수 없다는 뜻이다. 뒤에 있는 시설은 먼저 끊기므로 셈에 들지 않는다. 손의 [처리]는 거절되고, ${code('io.process()')}는 무시되며 정전 알림이 한 번 뜬다(처리가 다시 시작되면 다음 번에 또 뜬다). 펌웨어는 ${code('io.power_headroom')}으로 미리 가늠할 수 있다.`,
+          `${code('io.cool()')}과 손의 [냉각]은 둘 다 ${milli(dc.coolingCycleMs)}초에 걸쳐 고르게 ${milli(dc.coolingDropMilli)}°C를 낮추고 그동안 ${dc.coolingPower}의 전력을 쓴다. 냉각 중에 다시 부르면 거절된다("a cooling cycle is running"). 처리와 냉각은 함께 돌지 않는다. 냉각을 시작하면 돌던 처리가 거기서 끝나고, 냉각하는 동안에는 ${code('io.process()')}도 손의 [처리]도 거절된다.`,
+          `처리를 시작할 때 전력이 모자라면 처리는 시작되지 않는다. 모자란다는 것은 지금의 발전량으로 공급 순서에서 이 데이터센터보다 앞선 시설과 처리하는 이 데이터센터(처리 전력 ${dc.processPower}에 송전 손실까지)를 다 댈 수 없다는 뜻이다. 뒤에 있는 시설은 먼저 끊기므로 셈에 들지 않는다. 손의 [처리]도 ${code('io.process()')}도 "not enough power"로 거절되고, 펌웨어가 거절되면 정전 알림이 한 번 뜬다(손으로든 펌웨어로든 처리가 다시 시작되면 다음 번에 또 뜬다). 펌웨어는 ${code('io.power_headroom')}으로 미리 가늠할 수 있다.`,
           '전력이 끊기면 처리도 냉각도 멈춘다. 끊긴 동안에도 처리와 냉각 주기의 시간은 흘러가서, 그 사이에 할 처리와 냉각은 사라진다.',
           `${milli(dc.overheatAlertMilli)}°C에 닿으면 과열 알림이 뜬다. ${milli(dc.fireThresholdMilli)}°C를 넘으면 매초, 넘은 1°C마다 ${permille(dc.firePermillePerDegreePerSecond)}%의 확률로 불이 나서 데이터센터가 보드째 부서진다.`,
           '보드가 돌거나 자고 있는 데이터센터는 늘 러다이트의 표적이다. 보드가 없거나 부서졌으면 처리하는 동안에만 표적이고 그때 칸의 전자파가 감지되면 러다이트가 찾아와 시설째 부순다.',

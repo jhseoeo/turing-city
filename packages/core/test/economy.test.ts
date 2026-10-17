@@ -77,7 +77,7 @@ describe('economy', () => {
   });
 
   // The thermal module is paid for what the power phase (phase 3) made, which is not always what the plant is by the end of the
-  // step: its firmware acts in phase 5 and Luddites smash in phase 8. Each case is the step of such a change.
+  // step: its firmware acts in phase 4, mid-tick, and Luddites smash in phase 8. Each case is the step of such a change.
   it("charges nothing for the step in which the plant's firmware raises the thermal setting: the power phase ran before it", () => {
     const s = plantDoing({ kind: 'setThermal', output: 100 }, 0);
     s.step();

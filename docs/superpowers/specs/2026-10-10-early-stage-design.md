@@ -111,7 +111,7 @@ A facility always works by hand. A board automates it.
 | Housing | None. Housing has no board; it eats, uses power, and pays tax (10-09 §5.6). |
 
 **Hand and firmware share the datacenter's methods.** The buttons and the firmware call the same two:
-- `process()` runs the datacenter for `datacenter.jobMs` from now. Without the power for the job (§4.3) it does nothing and raises a power-shortage alert, once until a job starts again. While a job or a cooling cycle runs it does nothing, including on a job's or a cycle's last step: firmware's actions start at the next step, and the job or cycle still runs this one. A firmware that calls it on every beat starts the next job on the first beat after one ends, so the datacenter rests for up to one beat between jobs.
+- `process()` runs the datacenter for `datacenter.jobMs` from now. Without the power for the job (§4.3) it is refused and raises a power-shortage alert, once until a job starts again (by hand or by firmware). While a job or a cooling cycle runs it does nothing, including on a job's or a cycle's last step: firmware's actions start at the next step, and the job or cycle still runs this one. A firmware that calls it on every beat starts the next job on the first beat after one ends, so the datacenter rests for up to one beat between jobs.
 - `cool()` starts a cooling cycle, or does nothing while one runs. It replaces the 10-09 `cool(level)` and its levels.
 - Power, pay, heat, and processing EMF follow the time the datacenter runs, whoever pressed or called.
 - Processing and a cooling cycle never run at once: `cool()` ends a running job, and `process()` does nothing while a cycle runs.
@@ -124,7 +124,7 @@ These rules change 10-09 §5.7.
 - **Boards:**
   - base EMF while running (not asleep) and powered;
   - `a × instructions`;
-  - `b × actions`, for the actions their firmware asks for in a tick: harvest, dispatch, `set_thermal`, `set_priority`, `cool`. Those actions are machine labor. An action the facility refuses (a harvest of a crop that isn't ripe) still counts: the count is of what the firmware did, not of what it achieved. A cooling cycle emits nothing beyond that: its cost is power.
+  - `b × actions`, for the actions their firmware asks for in a tick: harvest, dispatch, `set_thermal`, `set_priority`, `cool`. Those actions are machine labor. An action the facility refuses (a harvest of a crop that isn't ripe) does not count: it did nothing (the user, 2026-10-17, with actions answering where they are called, §4.2). A cooling cycle emits nothing beyond that: its cost is power.
 - **A datacenter at work:** `emf.processingPerSecond` while it processes, whoever started the job. Its servers are a machine. `process()` is not counted as an action, so firmware and hand pay the same for the same running time.
 - **A comm module:** adds `install.commBaseEmfPerSecond` to its board's base EMF.
 - **The player's hands:** nothing. A harvest, a truck sent, or a thermal setting changed by hand emits no EMF.

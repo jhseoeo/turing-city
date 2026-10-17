@@ -62,6 +62,11 @@ export class BoardVm {
   private act: ActCall | null = null;
   private calls: number[] = [];
   /**
+   * What the game threw while taking an action this tick. wasmoon would raise it into Lua, where firmware's pcall could catch it and
+   * read it; so the VM refuses the rest of the tick's actions and throws it again once the step is over.
+   */
+  private hostFailure: { error: unknown } | null = null;
+  /**
    * Memory in use by the board as it comes up, with no firmware: the runtime, the prelude with its log at
    * their limits, and io with the readings of the first frame, their tables too. None of it is the firmware's to pay for. It is
    * measured on the first tick, after that frame, and fixed for the board's life.
@@ -141,6 +146,7 @@ export class BoardVm {
     this.counting = true;
     this.act = act;
     this.calls = [];
+    this.hostFailure = null;
     this.pushRef('step');
     let status: number;
     try {
@@ -149,6 +155,12 @@ export class BoardVm {
       this.counting = false;
       this.act = null;
       this.engine.global.setMemoryMax(undefined);
+    }
+    // Set by onAct during the step, which TypeScript can't see from here.
+    const failure = this.hostFailure as { error: unknown } | null;
+    if (failure) {
+      lua.lua_settop(L, 0);
+      throw failure.error;
     }
     const error = status === 0 ? null : this.classify(status, this.errorText(-1));
     if (newSource !== null) this.installError = error?.message ?? null;
@@ -229,10 +241,15 @@ export class BoardVm {
    * Taken is undefined, which reaches Lua as nil (wasmoon would hand JS null to Lua as a userdata).
    */
   private onAct(args: readonly unknown[]): string | undefined {
-    if (!this.counting || this.act === null) return 'no tick is running';
+    if (!this.counting || this.act === null || this.hostFailure) return 'no tick is running';
     const numbers = args.map((a) => Number(a));
     this.calls.push(...numbers);
-    return this.act(numbers) ?? undefined;
+    try {
+      return this.act(numbers) ?? undefined;
+    } catch (error) {
+      this.hostFailure = { error };
+      return 'no tick is running';
+    }
   }
 
   /** Work a builtin is about to do, in instructions. Only a positive amount counts, so no argument buys budget back. */

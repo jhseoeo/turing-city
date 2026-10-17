@@ -81,6 +81,17 @@ describe('WasmoonHost in a session', () => {
     session.close();
   });
 
+  it('puts a board to sleep when the tick that called io.sleep() fails after it', async () => {
+    const session = new Session(parseScenario(m1), 7, await WasmoonHost.create());
+    session.world.plant.thermalSetting = 300;
+    session.deploy('DA', 'function tick(io) io.sleep(5) error("after", 0) end');
+    for (let i = 0; i < 4; i++) session.step(); // DA's first beat is step 3
+    const da = session.world.boards.find((b) => b.id === 'DA')!;
+    expect(da.status).toBe('asleep');
+    expect(da.lastTick).toMatchObject({ error: { kind: 'runtime', message: 'after' } });
+    session.close();
+  });
+
   it('reports a CPU cap hit as a firmware error', async () => {
     const session = new Session(parseScenario(m1), 7, await WasmoonHost.create());
     session.deploy('DA', 'function tick() while true do end end');
