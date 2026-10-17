@@ -1,6 +1,6 @@
-import type { ControllerStatus, Scenario, ServerToViewer, Snapshot } from '@turing-city/core';
+import type { AlertView, ControllerStatus, Scenario, ServerToViewer, Snapshot } from '@turing-city/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ERROR_SHOWN_MS, GUIDE_DISMISSED_KEY, type KeyValue, LOG_COPY_SHOWN_MS, Store } from '../src/store.ts';
+import { ERROR_SHOWN_MS, GUIDE_DISMISSED_KEY, type KeyValue, LOG_COPY_SHOWN_MS, Store, TOAST_SHOWN_MS } from '../src/store.ts';
 
 /** A storage in memory, the way localStorage behaves. */
 function memoryStorage(initial: Record<string, string> = {}): KeyValue & { readonly data: Record<string, string> } {
@@ -54,7 +54,7 @@ describe('Store: a command the server refused', () => {
     expect(store.error).toBe("'DA' 보드는 부서진 상태가 아니라서 재건할 수 없어요.");
     vi.advanceTimersByTime(1);
     expect(store.error).toBeNull();
-    expect(draws).toBe(2); // the screen is told it is gone
+    expect(draws).toBe(3); // the screen is told it is gone: the line, and its toast in the stack on the right
   });
 
   it('starts the time over when another refusal comes, so the newer one is not cut short by the older one', () => {
@@ -81,6 +81,57 @@ describe('Store: a command the server refused', () => {
     store.apply({ type: 'error', message: 'not enough money', refusal: { code: 'tooPoor' } });
     store.apply(status('paused'));
     expect(store.error).toBeNull();
+  });
+});
+
+describe('Store: the stack on the right', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const alert = (id: number, kind: AlertView['kind'], facility: string | null, message: string): AlertView => ({
+    id,
+    kind,
+    facility,
+    message,
+    day: 1,
+    clock: '06:00',
+    seconds: 0,
+  });
+
+  it('shows each alert and each refusal as it comes, red for bad news, and lets each go after its time', () => {
+    const store = new Store(null);
+    store.apply({
+      type: 'alerts',
+      alerts: [alert(1, 'powerShortage', 'DA', 'DA 전력이 모자라 처리를 시작하지 못했어요'), alert(2, 'fire', 'DB', 'DB에 불이 났어요')],
+    });
+    vi.advanceTimersByTime(1000);
+    store.apply({
+      type: 'error',
+      message: 'DA: not enough power',
+      refusal: { code: 'cannotAct', facility: 'DA', detail: 'not enough power' },
+    });
+    expect(store.toasts.map((t) => [t.text, t.severe, t.facility])).toEqual([
+      ['DA 전력이 모자라 처리를 시작하지 못했어요', false, 'DA'],
+      ['DB에 불이 났어요', true, 'DB'],
+      ['DA: 전력이 모자라 처리를 시작할 수 없어요. 화력을 올리거나 공급 순서에서 앞으로 옮겨 보세요.', true, null],
+    ]);
+    vi.advanceTimersByTime(TOAST_SHOWN_MS - 1000); // the two alerts' time is up, the refusal's is not
+    expect(store.toasts).toHaveLength(1);
+    vi.advanceTimersByTime(1000);
+    expect(store.toasts).toEqual([]);
+  });
+
+  it('shows the five newest when alerts come faster than they go, and starts empty in a new season', () => {
+    const store = new Store(null);
+    store.apply({ type: 'alerts', alerts: [1, 2, 3, 4, 5, 6, 7].map((id) => alert(id, 'overheat', 'DA', `과열 ${id}`)) });
+    expect(store.toasts.map((t) => t.text)).toEqual(['과열 3', '과열 4', '과열 5', '과열 6', '과열 7']);
+    store.apply(status('paused', 1));
+    store.apply(status('paused', 2));
+    expect(store.toasts).toEqual([]);
   });
 });
 

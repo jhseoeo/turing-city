@@ -90,6 +90,9 @@ export function consumersOf(
     }));
 }
 
+/** The alerts that are bad news, shown in red; the rest are warnings, in amber. */
+export const SEVERE_ALERTS: readonly AlertKind[] = ['raid', 'wrecked', 'fire', 'hunger', 'agentLost'];
+
 export const ALERT_LABELS: Record<AlertKind, string> = {
   raid: '러다이트 출현',
   ludditesNear: '러다이트 접근',

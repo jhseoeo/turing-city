@@ -28,8 +28,8 @@ export function isProcessing(ctx: SimContext, facilityId: string, step: number):
 }
 
 /**
- * Why a datacenter can't start a job at this step, or null: a cooling cycle runs (the user, 2026-10-16: processing and cooling never
- * run at once), or a job already runs. Session.hand refuses with it; firmware's process() is ignored.
+ * Why the datacenter's own state keeps a job from starting at this step, or null: a cooling cycle runs (the user, 2026-10-16:
+ * processing and cooling never run at once), or a job already runs. actions.ts's jobProblem adds the grid's power to it.
  */
 export function processProblem(ctx: SimContext, facilityId: string, step: number): string | null {
   const dc = ctx.world.datacenters[facilityId];

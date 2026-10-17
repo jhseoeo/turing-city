@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyFacilityAction } from '../src/actions.ts';
 import { coolSteps, datacenterDraw, isCooling, isProcessing, jobSteps, runDatacenters, runFires } from '../src/datacenter.ts';
 import { MICRO } from '../src/fixed.ts';
-import { facilityDemand } from '../src/power.ts';
+import { facilityDemand, jobPowerShort } from '../src/power.ts';
 import type { Rng } from '../src/rng.ts';
 import { Session } from '../src/session.ts';
 import { type FacilityState, findFacility } from '../src/world.ts';
@@ -217,6 +217,59 @@ describe('datacenters', () => {
     expect(new Set(drops)).toEqual(new Set([187, 188])); // 15,000 over 80 steps is 187.5 a step
     expect(temps[80]).toBe(65_000); // all of coolingDropMilli, to the milli-degree
     expect(temps[81]).toBe(65_000); // and nothing after it
+  });
+
+  it('starts no job without the power for it: a press is refused and changes nothing, and one with just enough power starts it', () => {
+    const s = town(); // no boards: the homes come before DA in the map's order
+    s.world.plant.thermalSetting = 0;
+    s.world.plant.wind = 50; // the wind won't move
+    const short = jobPowerShort(s.ctx, fac(s, 'DA'), s.world.step);
+    // H1 and H2, then DA with its job, against the wind alone.
+    const homes = facilityDemand(s.ctx, fac(s, 'H1'), 0) + facilityDemand(s.ctx, fac(s, 'H2'), 0);
+    const job = facilityDemand(s.ctx, fac(s, 'DA'), 0, s.scenario.tuning.datacenter.processPower);
+    expect(short).toBe(homes + job - 50);
+    s.world.plant.thermalSetting = short - 1;
+    expect(s.hand('DA', { kind: 'process' })).toEqual({
+      ok: false,
+      reason: 'DA: not enough power',
+      refusal: { code: 'cannotAct', facility: 'DA', detail: 'not enough power' },
+    });
+    expect(s.world.datacenters.DA!.busyUntil).toBe(-1);
+    s.world.plant.thermalSetting = short;
+    expect(s.hand('DA', { kind: 'process' })).toEqual({ ok: true });
+  });
+
+  it('counts only the facilities above the datacenter in the supply order: those below it would be shed first', () => {
+    const s = town();
+    s.world.plant.thermalSetting = 0;
+    s.world.plant.wind = 50;
+    const behindHomes = jobPowerShort(s.ctx, fac(s, 'DA'), 0);
+    expect(s.hand('P', { kind: 'setPriority', order: ['DA'] })).toEqual({ ok: true });
+    const job = facilityDemand(s.ctx, fac(s, 'DA'), 0, s.scenario.tuning.datacenter.processPower);
+    expect(jobPowerShort(s.ctx, fac(s, 'DA'), 0)).toBe(job - 50);
+    expect(jobPowerShort(s.ctx, fac(s, 'DA'), 0)).toBeLessThan(behindHomes);
+  });
+
+  it("ignores firmware's process() without the power for it, and says so with one alert until a job starts again", () => {
+    const host = new FakeHost();
+    const work = host.program('work', () => ({ actions: [{ kind: 'process' }] }));
+    const s = holding(host);
+    s.deploy('DA', work);
+    steps(s, 1);
+    // Just enough for the town and its boards, not for a job: the boards still tick.
+    const lean = s.world.plant.demand - s.world.plant.wind + 10;
+    s.world.plant.thermalSetting = lean;
+    const said = (): number => s.world.alerts.filter((a) => a.kind === 'powerShortage' && a.facilityId === 'DA').length;
+    steps(s, 40);
+    expect(s.world.datacenters.DA!.busyUntil).toBe(-1);
+    expect(said()).toBe(1);
+    expect(s.world.alerts.find((a) => a.facilityId === 'DA')?.message).toBe('DA 전력이 모자라 처리를 시작하지 못했어요');
+    s.world.plant.thermalSetting = 2_000; // a job starts, and the episode is over
+    steps(s, 8);
+    expect(s.world.datacenters.DA!.busyUntil).toBeGreaterThan(0);
+    s.world.plant.thermalSetting = lean;
+    steps(s, 40);
+    expect(said()).toBe(2);
   });
 
   it('ignores a press during a cooling cycle and starts a new cycle after it', () => {

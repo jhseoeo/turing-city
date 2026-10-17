@@ -13,6 +13,7 @@ import { renderNotice } from './ui/notice.ts';
 import { renderOverlay } from './ui/overlay.ts';
 import { renderPanel } from './ui/panel.ts';
 import { renderStartScreen } from './ui/start-screen.ts';
+import { renderToasts } from './ui/toasts.ts';
 import { renderTopBar } from './ui/top-bar.ts';
 
 /**
@@ -39,6 +40,8 @@ export function startViewer(connect: (onMessage: Store['apply'], onOpenChange: S
     $('#game').hidden = !inSeason;
     renderOverlay($('#overlay'), store, net);
     renderNotice($('#notice'), store, inSeason);
+    $('#toasts').hidden = !inSeason; // the start screen tells a refusal in its own column
+    renderToasts($('#toasts'), store);
     if (!inSeason) {
       $('#guide').hidden = true;
       renderStartScreen($('#start'), store, net);

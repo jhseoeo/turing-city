@@ -3,6 +3,13 @@ import type { Refusal } from '@turing-city/core';
 /** What the player reads when the server refuses something with no code of its own, or with one this viewer has no text for. */
 const unknown = (message: string): string => `서버가 명령을 받아들이지 않았어요: ${message}`;
 
+/** What a facility can't do now, by the reason the game gives, in Korean: the hand's refusals the player meets while working. */
+const CANNOT_ACT: Record<string, string> = {
+  'not enough power': '전력이 모자라 처리를 시작할 수 없어요. 화력을 올리거나 공급 순서에서 앞으로 옮겨 보세요.',
+  'a cooling cycle is running': '냉각하는 동안에는 처리할 수 없어요.',
+  'a job is running': '처리가 끝나야 다시 처리할 수 있어요.',
+};
+
 /**
  * A refusal of the server, in Korean (the server's own words are English, for agents and logs). Every code of core's Refusal has its
  * text here: a new code is a type error at the end of the switch until it gets one. A refusal with no code, or a code of a newer
@@ -47,8 +54,10 @@ export function refusalText(message: string, refusal: Refusal | undefined): stri
       return `'${refusal.facility}' 시설을 먼저 복구해야 보드를 재건할 수 있어요.`;
     case 'noComm':
       return `'${refusal.board}' 보드에는 통신 모듈이 없어요.`;
-    case 'cannotAct':
-      return `'${refusal.facility}'에서 지금은 할 수 없어요 (${refusal.detail}).`;
+    case 'cannotAct': {
+      const known = CANNOT_ACT[refusal.detail];
+      return known ? `${refusal.facility}: ${known}` : `'${refusal.facility}'에서 지금은 할 수 없어요 (${refusal.detail}).`;
+    }
     default:
       return exhausted(refusal, message);
   }

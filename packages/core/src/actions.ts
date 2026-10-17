@@ -1,8 +1,10 @@
+import { clearFlag, raiseOnce } from './alerts.ts';
 import { startSleep } from './boards.ts';
 import { coolSteps, jobSteps, processProblem } from './datacenter.ts';
 import { harvest } from './farm.ts';
 import type { FacilityAction } from './firmware-host.ts';
 import { clamp } from './fixed.ts';
+import { jobPowerShort } from './power.ts';
 import type { FacilityKind } from './scenario.ts';
 import type { Ticked } from './ticks.ts';
 import { dispatch } from './warehouse.ts';
@@ -27,6 +29,14 @@ const KIND_NAMES: Record<FacilityKind, string> = {
   housing: 'housing block',
 };
 
+/**
+ * Why a datacenter can't start a job at this step, or null: a cooling cycle or a job runs, or the grid can't supply it with the job
+ * (the user, 2026-10-17: with too little power, no job starts at all). Session.hand refuses with it; firmware's process() is ignored.
+ */
+export function jobProblem(ctx: SimContext, facility: FacilityState, step: number): string | null {
+  return processProblem(ctx, facility.id, step) ?? (jobPowerShort(ctx, facility, step) > 0 ? 'not enough power' : null);
+}
+
 /** Why a facility of its kind can't take the action at all, or null. Session.hand refuses with it. */
 export function kindProblem(facility: FacilityState, action: FacilityAction): string | null {
   const kind = ACTION_FACILITY[action.kind];
@@ -48,9 +58,16 @@ export function applyFacilityAction(ctx: SimContext, facility: FacilityState, ac
   switch (action.kind) {
     case 'process': {
       // A job runs jobMs from its start, to its end: a press while one runs does nothing (the user, 2026-10-16: the next job waits for
-      // this one to finish). No job starts while a cooling cycle runs.
+      // this one to finish). No job starts while a cooling cycle runs, nor without the power for it: that one raises an alert, once
+      // until a job starts again, so that firmware calling on every beat doesn't flood the feed.
       const dc = w.datacenters[facility.id]!;
-      if (processProblem(ctx, facility.id, now) !== null || processProblem(ctx, facility.id, startStep) !== null) break;
+      if (processProblem(ctx, facility.id, now) !== null) break;
+      const problem = jobProblem(ctx, facility, startStep);
+      if (problem === 'not enough power') {
+        raiseOnce(w, `jobPower:${facility.id}`, now, 'powerShortage', facility.id, `${facility.id} 전력이 모자라 처리를 시작하지 못했어요`);
+      }
+      if (problem !== null) break;
+      clearFlag(w, `jobPower:${facility.id}`);
       dc.busyFrom = startStep;
       dc.busyUntil = startStep + jobSteps(ctx);
       dc.workedSteps = 0;

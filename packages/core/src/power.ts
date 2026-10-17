@@ -23,12 +23,12 @@ function boardDraw(ctx: SimContext, board: BoardState | undefined): number {
 
 /**
  * What a facility requests this step, transmission loss included: its board's draw, a datacenter's job and cooling on the steps
- * their windows cover, and housing's own use. A wrecked or repairing facility requests nothing.
+ * their windows cover, and housing's own use, plus `extra` (a draw it would add). A wrecked or repairing facility requests nothing.
  */
-export function facilityDemand(ctx: SimContext, facility: FacilityState, step: number): number {
+export function facilityDemand(ctx: SimContext, facility: FacilityState, step: number, extra = 0): number {
   if (facility.condition !== 'ok') return 0;
   const t = ctx.scenario.tuning;
-  let base = boardDraw(ctx, findBoard(ctx.world, facility.id));
+  let base = extra + boardDraw(ctx, findBoard(ctx.world, facility.id));
   base += datacenterDraw(ctx, facility, step);
   base += housingDraw(ctx, facility);
   const plant = plantFacility(ctx.world);
@@ -71,6 +71,27 @@ interface Grid {
   readonly order: readonly FacilityState[];
   readonly demands: readonly number[];
   readonly powered: readonly boolean[];
+}
+
+/**
+ * How much power a datacenter would lack if a job started at this step: the grid's generation as it stands, against what the
+ * facilities above it in the supply order request and what it would request with the job (those below it are shed first). 0 when
+ * the grid would supply it.
+ */
+export function jobPowerShort(ctx: SimContext, facility: FacilityState, step: number): number {
+  const w = ctx.world;
+  const plant = plantFacility(w);
+  const thermal = plant.condition === 'ok' ? w.plant.thermalSetting : 0;
+  const available = w.plant.wind + thermal - facilityDemand(ctx, plant, step);
+  let load = 0;
+  for (const f of priorityOrder(w)) {
+    if (f === facility) {
+      load += facilityDemand(ctx, f, step, ctx.scenario.tuning.datacenter.processPower);
+      break;
+    }
+    load += facilityDemand(ctx, f, step);
+  }
+  return Math.max(0, load - available);
 }
 
 /** Who the grid can supply at this step: generation against demand, shedding the lowest priorities first. Changes nothing. */

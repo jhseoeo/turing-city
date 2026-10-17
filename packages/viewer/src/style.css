@@ -242,6 +242,50 @@ main {
 #notice p {
   margin: 8px 0;
 }
+/* Alerts and refusals as they come, over the right of the game screen: the newest at the bottom, each for a few seconds. */
+#toasts {
+  position: fixed;
+  right: 16px;
+  bottom: 40px;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+  z-index: 20;
+}
+#toasts[hidden] {
+  display: none;
+}
+#toasts .toast {
+  pointer-events: auto;
+  cursor: pointer;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 4px solid #ffb020;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  /* In, and out at the end of its time (TOAST_SHOWN_MS in store.ts). */
+  animation:
+    toast-in 180ms ease-out,
+    toast-out 400ms ease-in 4600ms forwards;
+}
+#toasts .toast.bad {
+  border-left-color: #ff4d4d;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+@keyframes toast-out {
+  to {
+    opacity: 0;
+  }
+}
 #topbar .tools button {
   padding: 2px 9px;
   margin-right: 2px;

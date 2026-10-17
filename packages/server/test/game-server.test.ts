@@ -536,6 +536,7 @@ describe('game server', () => {
 
     // A hand action is taken (a datacenter is worked by hand without a board); one that cannot apply is refused, and so is a repair
     // of a facility that stands.
+    v.send({ type: 'hand', facility: 'P', action: { kind: 'setThermal', output: 300 } }); // the power for a job
     v.send({ type: 'hand', facility: 'DA', action: { kind: 'process' } });
     v.send({ type: 'hand', facility: 'F2', action: { kind: 'harvest' } }); // nothing is ripe yet
     await until(() => last(v.seen, 'error')?.refusal?.code === 'cannotAct');

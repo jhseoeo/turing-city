@@ -1,6 +1,6 @@
-import { applyActions, applyFacilityAction, kindProblem } from './actions.ts';
+import { applyActions, applyFacilityAction, jobProblem, kindProblem } from './actions.ts';
 import { deployFirmware, runTransitions } from './boards.ts';
-import { processProblem, runDatacenters, runFires } from './datacenter.ts';
+import { runDatacenters, runFires } from './datacenter.ts';
 import { checkEnd, installPart, runEconomy, startRebuild, startRepair } from './economy.ts';
 import { runEmf } from './emf.ts';
 import { harvestProblem, runFarms } from './farm.ts';
@@ -157,7 +157,7 @@ export class Session {
       return { ok: false, reason: `${facilityId}: ${problem}`, refusal: { code: 'cannotAct', facility: facilityId, detail: problem } };
     }
     if (action.kind === 'process') {
-      const processIssue = processProblem(this.ctx, facilityId, this.world.step);
+      const processIssue = jobProblem(this.ctx, facility, this.world.step);
       if (processIssue !== null) {
         return {
           ok: false,

@@ -9,6 +9,7 @@ import type {
   Snapshot,
   TimeView,
 } from '@turing-city/core';
+import { SEVERE_ALERTS } from './format.ts';
 import { refusalText } from './refusals.ts';
 
 export type FeedItem =
@@ -19,6 +20,18 @@ const FEED_LIMIT = 50;
 
 /** How long the screen tells the player that the server refused a command. */
 export const ERROR_SHOWN_MS = 5000;
+/** How long an alert or a refusal stays in the stack on the right of the game screen, in real milliseconds. */
+export const TOAST_SHOWN_MS = 5000;
+/** The most the stack shows at once: at speed, alerts come faster than they go, and the oldest give way. */
+const TOAST_LIMIT = 5;
+
+/** One line of the stack on the right: what happened, whether it is bad news (red) or a warning (amber), and where. */
+export interface Toast {
+  readonly id: number;
+  readonly text: string;
+  readonly severe: boolean;
+  readonly facility: string | null;
+}
 
 /** How long [로그 복사] says whether the copy worked: the panel is rebuilt with every snapshot, so the button cannot keep it. */
 export const LOG_COPY_SHOWN_MS = 2000;
@@ -71,6 +84,11 @@ export class Store {
   feed: FeedItem[] = [];
   inspection: { board: string; inspection: BoardInspection | null } | null = null;
   error: string | null = null;
+  /**
+   * The stack on the right of the game screen (the user, 2026-10-17): each alert of the game, and each refusal, as it comes, for a
+   * few seconds. The feed keeps the history.
+   */
+  toasts: Toast[] = [];
   socketOpen = false;
   selected: string | null = null;
   heatmap = false;
@@ -96,6 +114,7 @@ export class Store {
   private seasonSeen: number | null = null;
   private readonly listeners = new Set<() => void>();
   private errorTimer: ReturnType<typeof setTimeout> | null = null;
+  private nextToast = 1;
   private logCopyTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(storage: KeyValue | null = browserStorage()) {
@@ -134,6 +153,7 @@ export class Store {
       }
       case 'alerts':
         this.push(...message.alerts.map((alert): FeedItem => ({ kind: 'alert', alert })).reverse());
+        for (const alert of message.alerts) this.toast(alert.message, SEVERE_ALERTS.includes(alert.kind), alert.facility);
         break;
       case 'deploy':
         this.push({ kind: 'deploy', board: message.board, version: message.version, time: message.time, by: message.by });
@@ -264,6 +284,7 @@ export class Store {
     this.logCopy = null; // about a board of the last season
     if (this.logCopyTimer !== null) clearTimeout(this.logCopyTimer);
     this.logCopyTimer = null;
+    this.toasts = []; // about the last season
     if (!this.guideDismissed()) this.guideOpen = true;
   }
 
@@ -278,12 +299,24 @@ export class Store {
   /** A refusal is told for a few seconds; a newer one starts the time over. */
   private showError(text: string): void {
     this.error = text;
+    this.toast(text, true, null);
     if (this.errorTimer !== null) clearTimeout(this.errorTimer);
     this.errorTimer = setTimeout(() => {
       this.errorTimer = null;
       this.error = null;
       this.notify();
     }, ERROR_SHOWN_MS);
+  }
+
+  /** Adds a line to the stack on the right; it goes by itself after its time, telling the screen. */
+  private toast(text: string, severe: boolean, facility: string | null): void {
+    const toast: Toast = { id: this.nextToast++, text, severe, facility };
+    this.toasts = [...this.toasts, toast].slice(-TOAST_LIMIT);
+    setTimeout(() => {
+      if (!this.toasts.includes(toast)) return;
+      this.toasts = this.toasts.filter((t) => t !== toast);
+      this.notify();
+    }, TOAST_SHOWN_MS);
   }
 
   private push(...items: FeedItem[]): void {

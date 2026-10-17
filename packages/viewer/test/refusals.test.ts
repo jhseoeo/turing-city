@@ -51,6 +51,18 @@ describe('refusalText', () => {
     expect(refusalText('x', SAMPLES.cannotAct)).toContain('nothing is ripe');
   });
 
+  it('says in Korean why a datacenter cannot start a job: too little power, a cooling cycle, a job already running', () => {
+    expect(refusalText('x', { code: 'cannotAct', facility: 'DA', detail: 'not enough power' })).toBe(
+      'DA: 전력이 모자라 처리를 시작할 수 없어요. 화력을 올리거나 공급 순서에서 앞으로 옮겨 보세요.',
+    );
+    expect(refusalText('x', { code: 'cannotAct', facility: 'DA', detail: 'a cooling cycle is running' })).toBe(
+      'DA: 냉각하는 동안에는 처리할 수 없어요.',
+    );
+    expect(refusalText('x', { code: 'cannotAct', facility: 'DA', detail: 'a job is running' })).toBe(
+      'DA: 처리가 끝나야 다시 처리할 수 있어요.',
+    );
+  });
+
   it('tells a second board from a second comm module', () => {
     expect(refusalText('x', { code: 'alreadyInstalled', facility: 'DA', part: 'board' })).toBe("'DA'에는 이미 보드가 있어요.");
     expect(refusalText('x', { code: 'alreadyInstalled', facility: 'DA', part: 'comm' })).toBe("'DA' 보드에는 이미 통신 모듈이 있어요.");

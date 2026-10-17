@@ -713,6 +713,7 @@ describe('GameController: events', () => {
   it("carries the player's installs, hand actions, and repairs to the season, each answered after the new picture of the world", async () => {
     const c = makeFor(m2);
     await c.startSeason(1);
+    expect(await c.hand('P', { kind: 'setThermal', output: m2.tuning.thermal.max })).toEqual({ ok: true }); // power for a job
     const events: ControllerEvent[] = [];
     c.onEvent((event) => events.push(event));
     const facility = (id: string) => c.latestSnapshot()!.facilities.find((f) => f.id === id)!;

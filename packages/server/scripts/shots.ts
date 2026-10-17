@@ -630,6 +630,21 @@ try {
   );
   check('when the cycle ends, the button is back and the datacenter is cooler', cycleOver && cooled < hot, `${hot} -> ${cooled} °C`);
 
+  // Without the power for it, no job starts (the user, 2026-10-17): the press is refused, and the stack on the right says so. The
+  // homes go first in the supply order, so the wind alone (220 at most) never carries them and the job.
+  await agent.call('dev_hand', { facility: 'P', action: { kind: 'setThermal', output: 0 } });
+  await agent.call('dev_hand', { facility: 'P', action: { kind: 'setPriority', order: ['H1', 'H2', 'DA'] } });
+  await clickOn('#panel button', '처리');
+  check(
+    'a press without the power for a job is refused, and the stack on the right of the screen says so',
+    await waitUntil(async () => (await textOf('#toasts')).includes('DA: 전력이 모자라 처리를 시작할 수 없어요')),
+    await textOf('#toasts'),
+  );
+  check('and no job started: the gauge box is idle', (await gauge())?.kind === 'idle', JSON.stringify(await gauge()));
+  await shot('4-datacenter-no-power');
+  await agent.call('dev_hand', { facility: 'P', action: { kind: 'setPriority', order: ['DA'] } });
+  await agent.call('dev_hand', { facility: 'P', action: { kind: 'setThermal', output: thermalMax } });
+
   // ---- A board, then a comm module (10-10 spec §4.1, §8) ----
   const boardPrice = tuning.install.boardPrice.datacenter;
   const commPrice = tuning.install.commPrice;
